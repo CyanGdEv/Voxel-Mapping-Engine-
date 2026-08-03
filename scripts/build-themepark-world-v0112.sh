@@ -7,6 +7,17 @@ GEN="$ROOT/generator"
 OUT_REL="out/github-actions"
 mkdir -p "$DIAG"
 
+on_error() {
+  local status=$?
+  {
+    echo "exit_status=$status"
+    echo "line=${BASH_LINENO[0]:-unknown}"
+    echo "command=${BASH_COMMAND:-unknown}"
+  } > "$DIAG/fatal-error.log"
+  exit "$status"
+}
+trap on_error ERR
+
 PRESET="${TPMAP_PRESET:-alton-towers}"
 ACCURACY="${TPMAP_ACCURACY:-benchmark}"
 WORLD_MARGIN="${TPMAP_WORLD_MARGIN:-32}"
@@ -57,17 +68,7 @@ rm -rf "$GEN"
 mkdir -p "$GEN"
 unzip -q "$SOURCE_ZIP" -d "$GEN"
 node "$ROOT/scripts/apply-v0112-direct-world-palette-fix.mjs" "$GEN" 2>&1 | tee "$DIAG/source-patch.log"
-
-{
-  sudo apt-get update
-  sudo apt-get install -y --no-install-recommends \
-    build-essential cmake ninja-build pkg-config \
-    zlib1g-dev libssl-dev libsqlite3-dev \
-    gdal-bin libgdal-dev jq zip unzip curl xz-utils
-  sudo apt-get install -y --no-install-recommends pdal libpdal-dev || true
-  gdalinfo --version
-  pdal --version || true
-} 2>&1 | tee "$DIAG/native-tools.log"
+node --check "$GEN/src/lib/mcworld.mjs" 2>&1 | tee "$DIAG/source-syntax-check.log"
 
 (
   cd "$GEN"
@@ -83,6 +84,12 @@ if [[ -n "${TPMAP_ORTHOPHOTO_URL:-}" ]]; then
     echo "Orthophoto source and licence are required." >&2
     exit 2
   }
+  if ! command -v gdalinfo >/dev/null 2>&1; then
+    {
+      sudo apt-get update
+      sudo apt-get install -y --no-install-recommends gdal-bin
+    } 2>&1 | tee "$DIAG/gdal-install.log"
+  fi
   mkdir -p "$GEN/data"
   curl --fail --location --retry 4 --retry-all-errors \
     --user-agent "ThemeParkMap/0.11.2 ($CONTACT)" \
@@ -109,7 +116,7 @@ if [[ -n "${TPMAP_ORTHOPHOTO_URL:-}" ]]; then
   )
   [[ -n "${TPMAP_ORTHOPHOTO_DATE:-}" ]] && IMAGERY_ARGS+=(--orthophoto-date "$TPMAP_ORTHOPHOTO_DATE")
 else
-  echo "No orthophoto supplied." | tee "$DIAG/orthophoto.txt"
+  echo "No orthophoto supplied; native GDAL/PDAL installation skipped." | tee "$DIAG/orthophoto.txt"
 fi
 
 run_attempt() {
@@ -149,10 +156,12 @@ run_attempt() {
   )
   [[ "$dsm" == off ]] && args+=(--no-dsm)
 
-  set +e
-  (cd "$GEN" && node src/cli.mjs "${args[@]}") 2>&1 | tee -a "$log"
-  local status=${PIPESTATUS[0]}
-  set -e
+  local status
+  if (cd "$GEN" && node src/cli.mjs "${args[@]}") 2>&1 | tee -a "$log"; then
+    status=0
+  else
+    status=${PIPESTATUS[0]}
+  fi
   echo "exit_status=$status" | tee -a "$log"
   [[ $status -eq 0 ]] || return $status
 
@@ -188,11 +197,17 @@ MANIFEST="$(unzip -p "$MCWORLD" db/CURRENT | tr -d '\r\n')"
 
 WORLD_SHA="$(sha256sum "$MCWORLD" | cut -d' ' -f1)"
 WORLD_BYTES="$(stat -c '%s' "$MCWORLD")"
-jq -n --arg status passed --arg strategy "$SUCCESS_STRATEGY" \
-  --arg filename "$(basename "$MCWORLD")" --arg sha256 "$WORLD_SHA" \
-  --argjson bytes "$WORLD_BYTES" \
-  '{schemaVersion:2,status:$status,strategy:$strategy,world:{filename:$filename,sha256:$sha256,bytes:$bytes}}' \
-  > "$GEN/$OUT_REL/independent-validation.json"
+VALIDATION_PATH="$GEN/$OUT_REL/independent-validation.json"
+node - "$VALIDATION_PATH" "$SUCCESS_STRATEGY" "$(basename "$MCWORLD")" "$WORLD_SHA" "$WORLD_BYTES" <<'NODE'
+import { writeFileSync } from 'node:fs';
+const [, , output, strategy, filename, sha256, bytes] = process.argv;
+writeFileSync(output, JSON.stringify({
+  schemaVersion: 2,
+  status: 'passed',
+  strategy,
+  world: { filename, sha256, bytes: Number(bytes) }
+}, null, 2) + '\n');
+NODE
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "mcworld=$MCWORLD" >> "$GITHUB_OUTPUT"
