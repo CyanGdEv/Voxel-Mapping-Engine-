@@ -198,7 +198,7 @@ MANIFEST="$(unzip -p "$MCWORLD" db/CURRENT | tr -d '\r\n')"
 WORLD_SHA="$(sha256sum "$MCWORLD" | cut -d' ' -f1)"
 WORLD_BYTES="$(stat -c '%s' "$MCWORLD")"
 VALIDATION_PATH="$GEN/$OUT_REL/independent-validation.json"
-node - "$VALIDATION_PATH" "$SUCCESS_STRATEGY" "$(basename "$MCWORLD")" "$WORLD_SHA" "$WORLD_BYTES" <<'NODE'
+node --input-type=module - "$VALIDATION_PATH" "$SUCCESS_STRATEGY" "$(basename "$MCWORLD")" "$WORLD_SHA" "$WORLD_BYTES" <<'NODE'
 import { writeFileSync } from 'node:fs';
 const [, , output, strategy, filename, sha256, bytes] = process.argv;
 writeFileSync(output, JSON.stringify({
