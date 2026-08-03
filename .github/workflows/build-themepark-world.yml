@@ -6,9 +6,10 @@ on:
       preset:
         description: Park preset
         required: true
-        default: chessington
+        default: alton-towers
         type: choice
         options:
+          - alton-towers
           - chessington
           - custom
       park_name:
@@ -17,31 +18,47 @@ on:
         default: ""
         type: string
       bbox:
-        description: Custom bounds as south,west,north,east
+        description: Optional custom bounds as south,west,north,east
         required: false
         default: ""
         type: string
-      quality:
-        description: Data-source profile
+      accuracy:
+        description: Reconstruction policy
         required: true
-        default: maximum-public
+        default: benchmark
         type: choice
         options:
-          - maximum-public
-          - open
-          - osm-only
-      source_failure_mode:
-        description: Continue when an external provider is unavailable
-        required: true
-        default: continue
-        type: choice
-        options:
-          - continue
-          - fail
+          - benchmark
+          - verified
       world_margin:
         description: Extra generated terrain around the park, in blocks
         required: true
         default: "32"
+        type: string
+      orthophoto_url:
+        description: Optional direct URL to a georeferenced RGB GeoTIFF/COG
+        required: false
+        default: ""
+        type: string
+      orthophoto_source:
+        description: Imagery provider/survey name (required with URL)
+        required: false
+        default: ""
+        type: string
+      orthophoto_license:
+        description: Reuse licence (required with URL)
+        required: false
+        default: ""
+        type: string
+      orthophoto_date:
+        description: Capture date YYYY-MM-DD (recommended with URL)
+        required: false
+        default: ""
+        type: string
+      orthophoto_sha256:
+        description: Optional SHA-256 for the downloaded GeoTIFF
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -59,22 +76,23 @@ jobs:
 
     env:
       TPMAP_CONTACT: ${{ vars.TPMAP_CONTACT || format('https://github.com/{0}', github.repository) }}
-      TPMAP_SOURCE_FAILURE_MODE: ${{ inputs.source_failure_mode }}
       TPMAP_OUT: out/github-actions
       NODE_OPTIONS: --max-old-space-size=6144
-      PYTHONUNBUFFERED: "1"
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Resolve build parameters
+      - name: Resolve park and quality settings
         id: params
         shell: bash
         run: |
           set -euo pipefail
-
           case "${{ inputs.preset }}" in
+            alton-towers)
+              PARK_NAME="Alton Towers Resort"
+              BBOX=""
+              ;;
             chessington)
               PARK_NAME="Chessington World of Adventures"
               BBOX="51.3458,-0.3228,51.3535,-0.3133"
@@ -82,8 +100,8 @@ jobs:
             custom)
               PARK_NAME="${{ inputs.park_name }}"
               BBOX="${{ inputs.bbox }}"
-              if [[ -z "$PARK_NAME" || -z "$BBOX" ]]; then
-                echo "Custom builds require both park_name and bbox." >&2
+              if [[ -z "$PARK_NAME" ]]; then
+                echo "Custom builds require park_name." >&2
                 exit 2
               fi
               ;;
@@ -93,37 +111,37 @@ jobs:
               ;;
           esac
 
-          QUALITY="${{ inputs.quality }}"
-          if [[ "$QUALITY" == "osm-only" ]]; then
-            SOURCE_PROFILE="manual"
-            EXTRA_SOURCE_FLAGS="--no-auto-overture --no-auto-microsoft-buildings --no-auto-ea-aerial --no-auto-openaerialmap"
-          else
-            SOURCE_PROFILE="$QUALITY"
-            EXTRA_SOURCE_FLAGS=""
-          fi
+          case "${{ inputs.accuracy }}" in
+            benchmark)
+              ACCURACY_MODE="plausible"
+              TERRAIN_DETAIL_MODE="plausible"
+              ;;
+            verified)
+              ACCURACY_MODE="verified"
+              TERRAIN_DETAIL_MODE="evidence"
+              ;;
+          esac
 
           SAFE_NAME="$(printf '%s' "$PARK_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')"
           {
             echo "park_name=$PARK_NAME"
             echo "bbox=$BBOX"
-            echo "source_profile=$SOURCE_PROFILE"
-            echo "extra_source_flags=$EXTRA_SOURCE_FLAGS"
+            echo "accuracy_mode=$ACCURACY_MODE"
+            echo "terrain_detail_mode=$TERRAIN_DETAIL_MODE"
             echo "safe_name=$SAFE_NAME"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Expand and verify generator source bundle
+      - name: Expand verified v0.11.1 source bundle
         shell: bash
         run: |
           set -euo pipefail
-          SOURCE_ZIP="ThemePark_Map_v0.12.0_MultiSource_Source.zip"
-          EXPECTED_SHA256="48d875eb4c04ee07bb1d804b49d69ed6340eb5427abe0b9476901925fd18b465"
-
+          SOURCE_ZIP="ThemePark_Map_v0.11.1_Aerial_Surface_Vegetation_Source.zip"
+          EXPECTED_SHA256="cdc31ca95010458ed967c37f735a6fbf723cae230c97b85deb9a7ee620370ba6"
           if [[ ! -f "$SOURCE_ZIP" ]]; then
             echo "Missing $SOURCE_ZIP in the repository root." >&2
-            echo "Upload the supplied source ZIP using Add file → Upload files, then run the workflow again." >&2
+            echo "Upload the supplied v0.11.1 source ZIP without renaming it, then start a new run." >&2
             exit 2
           fi
-
           ACTUAL_SHA256="$(sha256sum "$SOURCE_ZIP" | cut -d' ' -f1)"
           if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
             echo "Source ZIP checksum mismatch." >&2
@@ -131,7 +149,6 @@ jobs:
             echo "Actual:   $ACTUAL_SHA256" >&2
             exit 2
           fi
-
           rm -rf generator
           mkdir -p generator
           unzip -q "$SOURCE_ZIP" -d generator
@@ -146,42 +163,59 @@ jobs:
           cache: npm
           cache-dependency-path: generator/package-lock.json
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install native geospatial tools
+      - name: Install native world and geospatial tools
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            zlib1g-dev libssl-dev \
-            gdal-bin libgdal-dev \
-            libsqlite3-dev jq zip unzip
-
+            zlib1g-dev libssl-dev libsqlite3-dev \
+            gdal-bin libgdal-dev jq zip unzip curl xz-utils
           sudo apt-get install -y --no-install-recommends pdal libpdal-dev || true
-
           gdalinfo --version
           pdal --version || true
-
-      - name: Install Overture downloader
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install "overturemaps>=0.14,<1"
-          overturemaps --help >/dev/null
 
       - name: Install Node dependencies
         working-directory: generator
         run: npm ci
 
-      - name: Run generator tests
+      - name: Run complete generator test suite
         working-directory: generator
         run: npm test
+
+      - name: Stage optional orthophoto evidence
+        id: imagery
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${{ inputs.orthophoto_url }}"
+          if [[ -z "$URL" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "No orthophoto URL supplied; aerial-only path and terrain reconstruction will remain inactive."
+            exit 0
+          fi
+
+          SOURCE="${{ inputs.orthophoto_source }}"
+          LICENSE="${{ inputs.orthophoto_license }}"
+          if [[ -z "$SOURCE" || -z "$LICENSE" ]]; then
+            echo "orthophoto_source and orthophoto_license are required when orthophoto_url is set." >&2
+            exit 2
+          fi
+
+          mkdir -p generator/data
+          curl --fail --location --retry 4 --retry-all-errors \
+            --user-agent "ThemeParkMap/0.11.1 ($TPMAP_CONTACT)" \
+            "$URL" -o generator/data/park-orthophoto.tif
+          test -s generator/data/park-orthophoto.tif
+
+          EXPECTED="${{ inputs.orthophoto_sha256 }}"
+          if [[ -n "$EXPECTED" ]]; then
+            ACTUAL="$(sha256sum generator/data/park-orthophoto.tif | cut -d' ' -f1)"
+            [[ "$ACTUAL" == "$EXPECTED" ]] || { echo "Orthophoto SHA-256 mismatch." >&2; exit 2; }
+          fi
+          gdalinfo generator/data/park-orthophoto.tif >/dev/null
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Build pre-generated Minecraft world
         id: build
@@ -192,39 +226,62 @@ jobs:
           rm -rf "$TPMAP_OUT"
           mkdir -p "$TPMAP_OUT"
 
-          EXTRA_FLAGS=()
-          if [[ -n "${{ steps.params.outputs.extra_source_flags }}" ]]; then
-            read -r -a EXTRA_FLAGS <<< "${{ steps.params.outputs.extra_source_flags }}"
+          ARGS=(
+            build
+            --park-name "${{ steps.params.outputs.park_name }}"
+            --contact "$TPMAP_CONTACT"
+            --accept-nominatim-policy
+            --elevation ea-lidar
+            --buildings markers
+            --path-terrain-mode conform
+            --terrain-detail-mode "${{ steps.params.outputs.terrain_detail_mode }}"
+            --tree-density-per-100m2 2.8
+            --shrub-density-per-100m2 16
+            --tree-line-spacing-m 3
+            --vegetation-min-spacing-m 3
+            --max-vegetation-models 30000
+            --ride-profile-mode auto
+            --ride-terrain-mode inferred
+            --accuracy-mode "${{ steps.params.outputs.accuracy_mode }}"
+            --palette realistic
+            --world-margin "${{ inputs.world_margin }}"
+            --allow-large-area
+            --max-area-km2 12
+            --max-cells 8000000
+            --max-world-chunks 20000
+            --no-addon
+            --out "$TPMAP_OUT"
+          )
+
+          if [[ -n "${{ steps.params.outputs.bbox }}" ]]; then
+            ARGS+=(--bbox "${{ steps.params.outputs.bbox }}")
           fi
 
-          node src/cli.mjs build \
-            --park-name "${{ steps.params.outputs.park_name }}" \
-            --bbox "${{ steps.params.outputs.bbox }}" \
-            --contact "$TPMAP_CONTACT" \
-            --accept-nominatim-policy \
-            --source-profile "${{ steps.params.outputs.source_profile }}" \
-            --source-failure-mode "$TPMAP_SOURCE_FAILURE_MODE" \
-            --overture-types "building,segment,infrastructure,land,land_cover,water,place" \
-            --elevation ea-lidar \
-            --orthophoto-mode evidence \
-            --path-discovery-mode evidence \
-            --path-terrain-mode conform \
-            --terrain-detail-mode evidence \
-            --buildings shells \
-            --ride-profile-mode auto \
-            --ride-terrain-mode inferred \
-            --accuracy-mode verified \
-            --palette realistic \
-            --world-margin "${{ inputs.world_margin }}" \
-            "${EXTRA_FLAGS[@]}" \
-            --out "$TPMAP_OUT" 2>&1 | tee "$TPMAP_OUT/build.log"
+          if [[ "${{ steps.imagery.outputs.enabled }}" == "true" ]]; then
+            ARGS+=(
+              --orthophoto data/park-orthophoto.tif
+              --orthophoto-source "${{ inputs.orthophoto_source }}"
+              --orthophoto-source-url "${{ inputs.orthophoto_url }}"
+              --orthophoto-license "${{ inputs.orthophoto_license }}"
+              --orthophoto-mode evidence
+              --path-discovery-mode evidence
+              --aerial-terrain-mode evidence
+              --aerial-terrain-grid-m 2
+              --aerial-terrain-min-confidence 0.72
+            )
+            if [[ -n "${{ inputs.orthophoto_date }}" ]]; then
+              ARGS+=(--orthophoto-date "${{ inputs.orthophoto_date }}")
+            fi
+          else
+            ARGS+=(--orthophoto-mode off --path-discovery-mode off --aerial-terrain-mode off)
+          fi
 
+          node src/cli.mjs "${ARGS[@]}" 2>&1 | tee "$TPMAP_OUT/build.log"
           MCWORLD="$(find "$TPMAP_OUT" -maxdepth 1 -type f -name '*_1to1.mcworld' -print -quit)"
           if [[ -z "$MCWORLD" ]]; then
             echo "The generator finished without producing a .mcworld." >&2
             exit 3
           fi
-
           echo "MCWORLD=$MCWORLD" >> "$GITHUB_ENV"
           echo "mcworld=$MCWORLD" >> "$GITHUB_OUTPUT"
 
@@ -233,62 +290,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           unzip -t "$MCWORLD"
           ARCHIVE_LIST="$(mktemp)"
           unzip -Z1 "$MCWORLD" > "$ARCHIVE_LIST"
-
           for REQUIRED_ENTRY in level.dat levelname.txt db/CURRENT; do
-            if ! grep -Fxq "$REQUIRED_ENTRY" "$ARCHIVE_LIST"; then
-              echo "Generated .mcworld is missing required entry: $REQUIRED_ENTRY" >&2
-              exit 4
-            fi
+            grep -Fxq "$REQUIRED_ENTRY" "$ARCHIVE_LIST" || { echo "Missing $REQUIRED_ENTRY" >&2; exit 4; }
           done
-
           CURRENT_MANIFEST="$(unzip -p "$MCWORLD" db/CURRENT | tr -d '\r\n')"
-          if [[ -z "$CURRENT_MANIFEST" ]]; then
-            echo "db/CURRENT is empty." >&2
-            exit 4
-          fi
-          if ! grep -Fxq "db/$CURRENT_MANIFEST" "$ARCHIVE_LIST"; then
-            echo "LevelDB manifest referenced by db/CURRENT is missing: db/$CURRENT_MANIFEST" >&2
-            exit 4
-          fi
+          [[ -n "$CURRENT_MANIFEST" ]] || { echo "db/CURRENT is empty." >&2; exit 4; }
+          grep -Fxq "db/$CURRENT_MANIFEST" "$ARCHIVE_LIST" || { echo "Missing LevelDB manifest $CURRENT_MANIFEST" >&2; exit 4; }
 
           WORLD_BYTES="$(stat -c '%s' "$MCWORLD")"
           WORLD_SHA256="$(sha256sum "$MCWORLD" | cut -d' ' -f1)"
           ARCHIVE_ENTRIES="$(wc -l < "$ARCHIVE_LIST" | tr -d ' ')"
           DATABASE_ENTRIES="$(grep -c '^db/' "$ARCHIVE_LIST" || true)"
           LEVEL_NAME="$(unzip -p "$MCWORLD" levelname.txt | tr -d '\r\n')"
-
           jq -n \
-            --arg status "passed" \
-            --arg validator "generic Bedrock archive and LevelDB structure validator" \
-            --arg filename "$(basename "$MCWORLD")" \
-            --arg levelName "$LEVEL_NAME" \
-            --arg sha256 "$WORLD_SHA256" \
-            --arg manifest "$CURRENT_MANIFEST" \
-            --argjson bytes "$WORLD_BYTES" \
-            --argjson archiveEntries "$ARCHIVE_ENTRIES" \
-            --argjson databaseEntries "$DATABASE_ENTRIES" \
-            '{schemaVersion: 2, status: $status, validator: $validator, world: {filename: $filename, levelName: $levelName, bytes: $bytes, sha256: $sha256, archiveEntries: $archiveEntries}, leveldb: {currentManifest: $manifest, databaseEntries: $databaseEntries, status: "present"}}' \
+            --arg status passed --arg filename "$(basename "$MCWORLD")" \
+            --arg levelName "$LEVEL_NAME" --arg sha256 "$WORLD_SHA256" \
+            --arg manifest "$CURRENT_MANIFEST" --argjson bytes "$WORLD_BYTES" \
+            --argjson archiveEntries "$ARCHIVE_ENTRIES" --argjson databaseEntries "$DATABASE_ENTRIES" \
+            '{schemaVersion: 2, status: $status, world: {filename: $filename, levelName: $levelName, bytes: $bytes, sha256: $sha256, archiveEntries: $archiveEntries}, leveldb: {currentManifest: $manifest, databaseEntries: $databaseEntries, status: "present"}}' \
             > "$TPMAP_OUT/independent-validation.json"
-
-          cat > "$TPMAP_OUT/VALIDATION_REPORT.md" <<EOF
-          # Minecraft Bedrock world validation
-
-          Status: **PASSED**
-
-          - File: \`$(basename "$MCWORLD")\`
-          - Level name: \`$LEVEL_NAME\`
-          - Size: \`$WORLD_BYTES bytes\`
-          - SHA-256: \`$WORLD_SHA256\`
-          - Archive entries: \`$ARCHIVE_ENTRIES\`
-          - LevelDB entries: \`$DATABASE_ENTRIES\`
-          - Active LevelDB manifest: \`$CURRENT_MANIFEST\`
-
-          The archive passed CRC validation and contains the required Bedrock world metadata and LevelDB database structure. This validator is independent of the generator's building-output mode and does not assume marker-only worlds.
-          EOF
 
       - name: Write build summary
         if: always()
@@ -297,24 +320,16 @@ jobs:
           {
             echo "# Theme Park World Build"
             echo
-            echo "- Preset: \`${{ inputs.preset }}\`"
             echo "- Park: **${{ steps.params.outputs.park_name || 'Not resolved' }}**"
-            echo "- Bounds: \`${{ steps.params.outputs.bbox || 'Not resolved' }}\`"
-            echo "- Source profile: \`${{ inputs.quality }}\`"
-            echo "- Provider failure policy: \`${{ inputs.source_failure_mode }}\`"
-            echo
-
+            echo "- Accuracy: \`${{ inputs.accuracy }}\`"
+            echo "- Orthophoto enabled: \`${{ steps.imagery.outputs.enabled || 'false' }}\`"
             if [[ -n "${MCWORLD:-}" && -f "generator/${MCWORLD:-}" ]]; then
               WORLD_PATH="generator/$MCWORLD"
-              echo "## Output"
-              echo
               echo "- File: \`$(basename "$WORLD_PATH")\`"
               echo "- Size: \`$(du -h "$WORLD_PATH" | cut -f1)\`"
               echo "- SHA-256: \`$(sha256sum "$WORLD_PATH" | cut -d' ' -f1)\`"
-              echo
-              echo "The world will be available in the downloadable artifact even if an optional report step fails."
             else
-              echo "The build did not produce a world. Open the first failed step above for the exact reason."
+              echo "The build did not produce a world. Open the first failed step above."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -328,7 +343,7 @@ jobs:
           compression-level: 0
           retention-days: 30
 
-      - name: Upload diagnostics when no world was produced
+      - name: Upload diagnostics after early failure
         if: ${{ failure() && steps.build.outputs.mcworld == '' }}
         uses: actions/upload-artifact@v4
         with:
