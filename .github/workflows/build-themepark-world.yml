@@ -96,7 +96,7 @@ jobs:
       - name: Generate and validate world
         id: build
         shell: bash
-        run: bash scripts/build-themepark-world-v0112.sh
+        run: bash scripts/build-themepark-world-v0113.sh
 
       - name: Write build summary
         if: always()
@@ -109,9 +109,15 @@ jobs:
           {
             printf '%s\n' '# Theme Park World Build'
             printf '\n'
-            printf '%s\n' '- Generator: v0.11.2 direct-world palette fix'
+            printf '%s\n' '- Generator: v0.11.3 Path Geometry Phase 1'
             printf '%s\n' "- Park preset: ${SUMMARY_PRESET:-unknown}"
             printf '%s\n' "- Accuracy: ${SUMMARY_ACCURACY:-unknown}"
+            if [[ "${SUMMARY_ACCURACY:-benchmark}" == verified ]]; then
+              printf '%s\n' '- Path geometry: QA-only, no inferred connectors'
+            else
+              printf '%s\n' '- Path geometry: conservative repair, 3 m / 0.70 threshold'
+            fi
+            printf '%s\n' '- Path edges: explicitly mapped kerbs and edges'
             printf '%s\n' "- Successful source strategy: ${SUMMARY_STRATEGY:-none}"
             if [[ -n "${MCWORLD:-}" && -f "$MCWORLD" ]]; then
               printf '%s\n' "- File: $(basename "$MCWORLD")"
@@ -135,7 +141,6 @@ jobs:
                   ci-diagnostics/source-syntax-check.log \
                   ci-diagnostics/doctor.log \
                   ci-diagnostics/compatibility-tests.log \
-                  ci-diagnostics/source-patch.log \
                   ci-diagnostics/npm-ci.log; do
                   [[ -f "$LOG" ]] || continue
                   printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
