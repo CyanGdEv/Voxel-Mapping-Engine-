@@ -72,10 +72,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          SOURCE_ZIP="ThemePark_Map_v0.12.0_MultiSource_Source.zip"
+          if [[ ! -f "$SOURCE_ZIP" ]]; then
+            echo "Missing $SOURCE_ZIP in the repository root." >&2
+            echo "Download the source ZIP supplied with this setup and upload it using Add file → Upload files." >&2
+            exit 2
+          fi
           mkdir -p generator
-          cat .source/themepark-map-v0.12.0.zip.b64.part-* \
-            | base64 --decode > /tmp/themepark-map-source.zip
-          unzip -q /tmp/themepark-map-source.zip -d generator
+          unzip -q "$SOURCE_ZIP" -d generator
           test -f generator/package.json
           test -f generator/src/cli.mjs
 
