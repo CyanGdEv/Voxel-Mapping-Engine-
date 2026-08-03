@@ -44,8 +44,7 @@ if start < 0 or end < 0:
     raise SystemExit("Could not locate the obsolete v0.11.6 patch bootstrap")
 end += len(end_marker)
 
-standalone_block = '''printf 'standalone_source=true\\npatch_applied=false\\n' \\
-  | tee "$DIAG/v0116-source-mode.txt"\n'''
+standalone_block = "printf 'standalone_source=true\\npatch_applied=false\\n' | tee \"$DIAG/v0116-source-mode.txt\"\n"
 text = text[:start] + standalone_block + text[end:]
 
 target.write_text(text, encoding="utf-8")
