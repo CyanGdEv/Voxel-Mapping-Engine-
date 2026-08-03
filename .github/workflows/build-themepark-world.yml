@@ -25,13 +25,19 @@ on:
         default: benchmark
         type: choice
         options: [benchmark, verified]
+      path_source:
+        description: Path and plaza evidence policy
+        required: true
+        default: aerial-required
+        type: choice
+        options: [aerial-required, aerial-preferred, mapped-only]
       world_margin:
         description: Extra terrain around park, in blocks
         required: true
         default: "32"
         type: string
       orthophoto_url:
-        description: Optional georeferenced RGB GeoTIFF or COG URL
+        description: Optional georeferenced RGB GeoTIFF or COG URL; automatic providers are tried when empty
         required: false
         default: ""
         type: string
@@ -74,6 +80,7 @@ jobs:
       TPMAP_PARK_NAME: ${{ inputs.park_name }}
       TPMAP_BBOX: ${{ inputs.bbox }}
       TPMAP_ACCURACY: ${{ inputs.accuracy }}
+      TPMAP_PATH_SOURCE: ${{ inputs.path_source }}
       TPMAP_WORLD_MARGIN: ${{ inputs.world_margin }}
       TPMAP_ORTHOPHOTO_URL: ${{ inputs.orthophoto_url }}
       TPMAP_ORTHOPHOTO_SOURCE: ${{ inputs.orthophoto_source }}
@@ -96,7 +103,7 @@ jobs:
       - name: Generate and validate world
         id: build
         shell: bash
-        run: bash scripts/build-themepark-world-v0115-standalone.sh
+        run: bash scripts/build-themepark-world-v0116-direct.sh
 
       - name: Write build summary
         if: always()
@@ -104,30 +111,23 @@ jobs:
         env:
           SUMMARY_PRESET: ${{ inputs.preset }}
           SUMMARY_ACCURACY: ${{ inputs.accuracy }}
+          SUMMARY_PATH_SOURCE: ${{ inputs.path_source }}
           SUMMARY_STRATEGY: ${{ steps.build.outputs.strategy || 'none' }}
-          SUMMARY_ORTHOPHOTO: ${{ inputs.orthophoto_url != '' }}
         run: |
           {
             printf '%s\n' '# Theme Park World Build'
             printf '\n'
-            printf '%s\n' '- Generator: v0.11.5 Path Phase 2B'
-            printf '%s\n' '- Source package: standalone checksum-locked v0.11.5 archive'
+            printf '%s\n' '- Generator: v0.11.6 Aerial Acquisition Phase 2C'
+            printf '%s\n' '- Source package: checksum-locked v0.11.5 archive plus verified v0.11.6 aerial-acquisition transformation'
             printf '%s\n' "- Park preset: ${SUMMARY_PRESET:-unknown}"
             printf '%s\n' "- Accuracy: ${SUMMARY_ACCURACY:-unknown}"
-            if [[ "${SUMMARY_ACCURACY:-benchmark}" == verified ]]; then
-              printf '%s\n' '- Path geometry: QA-only, no inferred connectors'
-            else
-              printf '%s\n' '- Path geometry: conservative repair, 3 m / 0.70 threshold'
+            printf '%s\n' "- Path source policy: ${SUMMARY_PATH_SOURCE:-unknown}"
+            if [[ "${SUMMARY_PATH_SOURCE:-mapped-only}" == aerial-required ]]; then
+              printf '%s\n' '- Aerial gate: fail closed at 95% park coverage'
+              printf '%s\n' '- Meaningful-run gate: whole-park hardscape and independent candidates required'
             fi
-            printf '%s\n' "- Orthophoto supplied: ${SUMMARY_ORTHOPHOTO:-false}"
-            if [[ "${SUMMARY_ORTHOPHOTO:-false}" == true ]]; then
-              printf '%s\n' '- Whole-park discovery: enabled for independently visible paths and plazas'
-              printf '%s\n' '- Surface appearance: measured component RGB mapped to Minecraft palettes'
-            else
-              printf '%s\n' '- Whole-park discovery: inactive; no imagery source was supplied'
-            fi
-            printf '%s\n' '- Path surface painting: replace natural top layer, preserve DTM elevation'
-            printf '%s\n' '- Final path edges: clean render; confidence boundaries remain in QA reports only'
+            printf '%s\n' '- Automatic providers: Environment Agency catalogue, then OpenAerialMap'
+            printf '%s\n' '- OSM-only fallback: disabled in aerial-required mode'
             printf '%s\n' "- Successful source strategy: ${SUMMARY_STRATEGY:-none}"
             if [[ -n "${MCWORLD:-}" && -f "$MCWORLD" ]]; then
               printf '%s\n' "- File: $(basename "$MCWORLD")"
@@ -135,34 +135,14 @@ jobs:
               printf '%s\n' "- SHA-256: $(sha256sum "$MCWORLD" | cut -d' ' -f1)"
             else
               printf '\n%s\n' '## Failure details'
-              FOUND_LOG=false
-              for LOG in ci-diagnostics/build-*.log; do
+              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-acquisition.json ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/patch-error.txt ci-diagnostics/patch-checksum.txt ci-diagnostics/v0116-source-patch.log ci-diagnostics/source-syntax-check.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/npm-ci.log ci-diagnostics/gdal-install.log ci-diagnostics/build-*.log; do
                 [[ -f "$LOG" ]] || continue
-                FOUND_LOG=true
                 printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
                 printf '%s\n' '```text'
-                tail -n 60 "$LOG"
+                tail -n 100 "$LOG"
                 printf '%s\n' '```'
                 printf '%s\n' '</details>'
               done
-              if [[ "$FOUND_LOG" != true ]]; then
-                for LOG in \
-                  ci-diagnostics/fatal-error.log \
-                  ci-diagnostics/source-error.txt \
-                  ci-diagnostics/source-checksum.txt \
-                  ci-diagnostics/version-check.log \
-                  ci-diagnostics/source-syntax-check.log \
-                  ci-diagnostics/doctor.log \
-                  ci-diagnostics/compatibility-tests.log \
-                  ci-diagnostics/npm-ci.log; do
-                  [[ -f "$LOG" ]] || continue
-                  printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
-                  printf '%s\n' '```text'
-                  tail -n 80 "$LOG"
-                  printf '%s\n' '```'
-                  printf '%s\n' '</details>'
-                done
-              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
