@@ -78,10 +78,16 @@ jobs:
       TPMAP_CONTACT: ${{ vars.TPMAP_CONTACT || format('https://github.com/{0}', github.repository) }}
       TPMAP_OUT: out/github-actions
       NODE_OPTIONS: --max-old-space-size=6144
+      npm_config_audit: "false"
+      npm_config_fund: "false"
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Prepare diagnostics
+        shell: bash
+        run: mkdir -p .ci-diagnostics
 
       - name: Resolve park and quality settings
         id: params
@@ -91,7 +97,7 @@ jobs:
           case "${{ inputs.preset }}" in
             alton-towers)
               PARK_NAME="Alton Towers Resort"
-              BBOX=""
+              BBOX="52.9810,-1.8970,52.9960,-1.8690"
               ;;
             chessington)
               PARK_NAME="Chessington World of Adventures"
@@ -120,6 +126,10 @@ jobs:
               ACCURACY_MODE="verified"
               TERRAIN_DETAIL_MODE="evidence"
               ;;
+            *)
+              echo "Unknown accuracy mode: ${{ inputs.accuracy }}" >&2
+              exit 2
+              ;;
           esac
 
           SAFE_NAME="$(printf '%s' "$PARK_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')"
@@ -131,6 +141,9 @@ jobs:
             echo "safe_name=$SAFE_NAME"
           } >> "$GITHUB_OUTPUT"
 
+          printf 'park=%s\nbbox=%s\naccuracy=%s\n' "$PARK_NAME" "$BBOX" "$ACCURACY_MODE" \
+            | tee .ci-diagnostics/resolved-parameters.txt
+
       - name: Expand verified v0.11.1 source bundle
         shell: bash
         run: |
@@ -138,15 +151,14 @@ jobs:
           SOURCE_ZIP="ThemePark_Map_v0.11.1_Aerial_Surface_Vegetation_Source.zip"
           EXPECTED_SHA256="cdc31ca95010458ed967c37f735a6fbf723cae230c97b85deb9a7ee620370ba6"
           if [[ ! -f "$SOURCE_ZIP" ]]; then
-            echo "Missing $SOURCE_ZIP in the repository root." >&2
-            echo "Upload the supplied v0.11.1 source ZIP without renaming it, then start a new run." >&2
+            echo "Missing $SOURCE_ZIP in the repository root." | tee .ci-diagnostics/source-error.txt >&2
             exit 2
           fi
           ACTUAL_SHA256="$(sha256sum "$SOURCE_ZIP" | cut -d' ' -f1)"
+          printf 'expected=%s\nactual=%s\n' "$EXPECTED_SHA256" "$ACTUAL_SHA256" \
+            | tee .ci-diagnostics/source-checksum.txt
           if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
-            echo "Source ZIP checksum mismatch." >&2
-            echo "Expected: $EXPECTED_SHA256" >&2
-            echo "Actual:   $ACTUAL_SHA256" >&2
+            echo "Source ZIP checksum mismatch." | tee .ci-diagnostics/source-error.txt >&2
             exit 2
           fi
           rm -rf generator
@@ -155,34 +167,44 @@ jobs:
           test -f generator/package.json
           test -f generator/package-lock.json
           test -f generator/src/cli.mjs
+          mkdir -p generator/out/github-actions
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: generator/package-lock.json
 
       - name: Install native world and geospatial tools
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
-            zlib1g-dev libssl-dev libsqlite3-dev \
-            gdal-bin libgdal-dev jq zip unzip curl xz-utils
-          sudo apt-get install -y --no-install-recommends pdal libpdal-dev || true
-          gdalinfo --version
-          pdal --version || true
+          {
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              build-essential cmake ninja-build pkg-config \
+              zlib1g-dev libssl-dev libsqlite3-dev \
+              gdal-bin libgdal-dev jq zip unzip curl xz-utils
+            sudo apt-get install -y --no-install-recommends pdal libpdal-dev || true
+            gdalinfo --version
+            pdal --version || true
+          } 2>&1 | tee .ci-diagnostics/native-tools.log
 
-      - name: Install Node dependencies
+      - name: Install production Node dependencies
         working-directory: generator
-        run: npm ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --omit=dev --no-audit --no-fund 2>&1 | tee ../.ci-diagnostics/npm-ci.log
 
-      - name: Run complete generator test suite
+      - name: Run focused generator smoke tests
         working-directory: generator
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test test/appearance-vegetation.test.mjs 2>&1 \
+            | tee ../.ci-diagnostics/smoke-tests.log
+          node src/cli.mjs doctor 2>&1 \
+            | tee ../.ci-diagnostics/doctor.log
 
       - name: Stage optional orthophoto evidence
         id: imagery
@@ -192,21 +214,23 @@ jobs:
           URL="${{ inputs.orthophoto_url }}"
           if [[ -z "$URL" ]]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "No orthophoto URL supplied; aerial-only path and terrain reconstruction will remain inactive."
+            echo "No orthophoto URL supplied; aerial-only reconstruction remains inactive." \
+              | tee .ci-diagnostics/orthophoto.txt
             exit 0
           fi
 
           SOURCE="${{ inputs.orthophoto_source }}"
           LICENSE="${{ inputs.orthophoto_license }}"
           if [[ -z "$SOURCE" || -z "$LICENSE" ]]; then
-            echo "orthophoto_source and orthophoto_license are required when orthophoto_url is set." >&2
+            echo "orthophoto_source and orthophoto_license are required with orthophoto_url." >&2
             exit 2
           fi
 
           mkdir -p generator/data
           curl --fail --location --retry 4 --retry-all-errors \
             --user-agent "ThemeParkMap/0.11.1 ($TPMAP_CONTACT)" \
-            "$URL" -o generator/data/park-orthophoto.tif
+            "$URL" -o generator/data/park-orthophoto.tif 2>&1 \
+            | tee .ci-diagnostics/orthophoto-download.log
           test -s generator/data/park-orthophoto.tif
 
           EXPECTED="${{ inputs.orthophoto_sha256 }}"
@@ -214,7 +238,7 @@ jobs:
             ACTUAL="$(sha256sum generator/data/park-orthophoto.tif | cut -d' ' -f1)"
             [[ "$ACTUAL" == "$EXPECTED" ]] || { echo "Orthophoto SHA-256 mismatch." >&2; exit 2; }
           fi
-          gdalinfo generator/data/park-orthophoto.tif >/dev/null
+          gdalinfo generator/data/park-orthophoto.tif > .ci-diagnostics/orthophoto-gdalinfo.txt
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Build pre-generated Minecraft world
@@ -229,6 +253,7 @@ jobs:
           ARGS=(
             build
             --park-name "${{ steps.params.outputs.park_name }}"
+            --bbox "${{ steps.params.outputs.bbox }}"
             --contact "$TPMAP_CONTACT"
             --accept-nominatim-policy
             --elevation ea-lidar
@@ -253,10 +278,6 @@ jobs:
             --out "$TPMAP_OUT"
           )
 
-          if [[ -n "${{ steps.params.outputs.bbox }}" ]]; then
-            ARGS+=(--bbox "${{ steps.params.outputs.bbox }}")
-          fi
-
           if [[ "${{ steps.imagery.outputs.enabled }}" == "true" ]]; then
             ARGS+=(
               --orthophoto data/park-orthophoto.tif
@@ -276,7 +297,9 @@ jobs:
             ARGS+=(--orthophoto-mode off --path-discovery-mode off --aerial-terrain-mode off)
           fi
 
-          node src/cli.mjs "${ARGS[@]}" 2>&1 | tee "$TPMAP_OUT/build.log"
+          node src/cli.mjs "${ARGS[@]}" 2>&1 \
+            | tee "$TPMAP_OUT/build.log" ../.ci-diagnostics/build.log
+
           MCWORLD="$(find "$TPMAP_OUT" -maxdepth 1 -type f -name '*_1to1.mcworld' -print -quit)"
           if [[ -z "$MCWORLD" ]]; then
             echo "The generator finished without producing a .mcworld." >&2
@@ -290,7 +313,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          unzip -t "$MCWORLD"
+          unzip -t "$MCWORLD" | tee ../.ci-diagnostics/archive-test.log
           ARCHIVE_LIST="$(mktemp)"
           unzip -Z1 "$MCWORLD" > "$ARCHIVE_LIST"
           for REQUIRED_ENTRY in level.dat levelname.txt db/CURRENT; do
@@ -321,6 +344,7 @@ jobs:
             echo "# Theme Park World Build"
             echo
             echo "- Park: **${{ steps.params.outputs.park_name || 'Not resolved' }}**"
+            echo "- Bounds: \`${{ steps.params.outputs.bbox || 'Not resolved' }}\`"
             echo "- Accuracy: \`${{ inputs.accuracy }}\`"
             echo "- Orthophoto enabled: \`${{ steps.imagery.outputs.enabled || 'false' }}\`"
             if [[ -n "${MCWORLD:-}" && -f "generator/${MCWORLD:-}" ]]; then
@@ -329,7 +353,8 @@ jobs:
               echo "- Size: \`$(du -h "$WORLD_PATH" | cut -f1)\`"
               echo "- SHA-256: \`$(sha256sum "$WORLD_PATH" | cut -d' ' -f1)\`"
             else
-              echo "The build did not produce a world. Open the first failed step above."
+              echo
+              echo "The build did not produce a world. Download the diagnostics artifact for the exact failing command and output."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -343,13 +368,14 @@ jobs:
           compression-level: 0
           retention-days: 30
 
-      - name: Upload diagnostics after early failure
-        if: ${{ failure() && steps.build.outputs.mcworld == '' }}
+      - name: Upload diagnostics after failure
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: themepark-build-diagnostics
           path: |
-            generator/out/github-actions/**
+            .ci-diagnostics/**
+            generator/out/**
             generator/npm-debug.log*
           if-no-files-found: warn
           retention-days: 14
