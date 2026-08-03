@@ -96,7 +96,7 @@ jobs:
       - name: Generate and validate world
         id: build
         shell: bash
-        run: bash scripts/build-themepark-world-v0114-direct.sh
+        run: bash scripts/build-themepark-world-v0115-direct.sh
 
       - name: Write build summary
         if: always()
@@ -105,12 +105,13 @@ jobs:
           SUMMARY_PRESET: ${{ inputs.preset }}
           SUMMARY_ACCURACY: ${{ inputs.accuracy }}
           SUMMARY_STRATEGY: ${{ steps.build.outputs.strategy || 'none' }}
+          SUMMARY_ORTHOPHOTO: ${{ inputs.orthophoto_url != '' }}
         run: |
           {
             printf '%s\n' '# Theme Park World Build'
             printf '\n'
-            printf '%s\n' '- Generator: v0.11.4 Path Phase 2A'
-            printf '%s\n' '- Source package: checksum-locked v0.11.3 archive plus verified v0.11.4 source transformation'
+            printf '%s\n' '- Generator: v0.11.5 Path Phase 2B'
+            printf '%s\n' '- Source package: checksum-verified v0.11.3 + v0.11.4 + v0.11.5 transformations'
             printf '%s\n' "- Park preset: ${SUMMARY_PRESET:-unknown}"
             printf '%s\n' "- Accuracy: ${SUMMARY_ACCURACY:-unknown}"
             if [[ "${SUMMARY_ACCURACY:-benchmark}" == verified ]]; then
@@ -118,9 +119,15 @@ jobs:
             else
               printf '%s\n' '- Path geometry: conservative repair, 3 m / 0.70 threshold'
             fi
+            printf '%s\n' "- Orthophoto supplied: ${SUMMARY_ORTHOPHOTO:-false}"
+            if [[ "${SUMMARY_ORTHOPHOTO:-false}" == true ]]; then
+              printf '%s\n' '- Whole-park discovery: enabled for independently visible paths and plazas'
+              printf '%s\n' '- Surface appearance: measured component RGB mapped to Minecraft palettes'
+            else
+              printf '%s\n' '- Whole-park discovery: inactive; no imagery source was supplied'
+            fi
             printf '%s\n' '- Path surface painting: replace natural top layer, preserve DTM elevation'
-            printf '%s\n' '- Plaza painting: full accepted polygon area'
-            printf '%s\n' '- Path edges: explicitly mapped kerbs and edges'
+            printf '%s\n' '- Final path edges: clean render; confidence boundaries remain in QA reports only'
             printf '%s\n' "- Successful source strategy: ${SUMMARY_STRATEGY:-none}"
             if [[ -n "${MCWORLD:-}" && -f "$MCWORLD" ]]; then
               printf '%s\n' "- File: $(basename "$MCWORLD")"
@@ -141,11 +148,9 @@ jobs:
               if [[ "$FOUND_LOG" != true ]]; then
                 for LOG in \
                   ci-diagnostics/fatal-error.log \
-                  ci-diagnostics/source-error.txt \
-                  ci-diagnostics/source-checksum.txt \
                   ci-diagnostics/v0114-source-patch.log \
+                  ci-diagnostics/v0115-source-patch.log \
                   ci-diagnostics/source-syntax-check.log \
-                  ci-diagnostics/version-check.log \
                   ci-diagnostics/doctor.log \
                   ci-diagnostics/compatibility-tests.log \
                   ci-diagnostics/npm-ci.log; do
