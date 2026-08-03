@@ -96,7 +96,7 @@ jobs:
       - name: Generate and validate world
         id: build
         shell: bash
-        run: bash scripts/build-themepark-world-v0113-direct.sh
+        run: bash scripts/build-themepark-world-v0114-direct.sh
 
       - name: Write build summary
         if: always()
@@ -109,8 +109,8 @@ jobs:
           {
             printf '%s\n' '# Theme Park World Build'
             printf '\n'
-            printf '%s\n' '- Generator: v0.11.3 Path Geometry Phase 1'
-            printf '%s\n' "- Source package: direct checksum-locked v0.11.3 archive"
+            printf '%s\n' '- Generator: v0.11.4 Path Phase 2A'
+            printf '%s\n' '- Source package: checksum-locked v0.11.3 archive plus verified v0.11.4 source transformation'
             printf '%s\n' "- Park preset: ${SUMMARY_PRESET:-unknown}"
             printf '%s\n' "- Accuracy: ${SUMMARY_ACCURACY:-unknown}"
             if [[ "${SUMMARY_ACCURACY:-benchmark}" == verified ]]; then
@@ -118,6 +118,8 @@ jobs:
             else
               printf '%s\n' '- Path geometry: conservative repair, 3 m / 0.70 threshold'
             fi
+            printf '%s\n' '- Path surface painting: replace natural top layer, preserve DTM elevation'
+            printf '%s\n' '- Plaza painting: full accepted polygon area'
             printf '%s\n' '- Path edges: explicitly mapped kerbs and edges'
             printf '%s\n' "- Successful source strategy: ${SUMMARY_STRATEGY:-none}"
             if [[ -n "${MCWORLD:-}" && -f "$MCWORLD" ]]; then
@@ -141,6 +143,7 @@ jobs:
                   ci-diagnostics/fatal-error.log \
                   ci-diagnostics/source-error.txt \
                   ci-diagnostics/source-checksum.txt \
+                  ci-diagnostics/v0114-source-patch.log \
                   ci-diagnostics/source-syntax-check.log \
                   ci-diagnostics/version-check.log \
                   ci-diagnostics/doctor.log \
