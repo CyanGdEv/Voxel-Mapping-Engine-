@@ -28,14 +28,18 @@ const additions = [
   'minecraft:red_terracotta', 'minecraft:smooth_sandstone', 'minecraft:yellow_terracotta'
 ];
 const marker = 'const BEDROCK_BLOCKS = new Set([';
-const start = mcworld.indexOf(marker);
-const end = mcworld.indexOf(']);', start);
-if (start < 0 || end < 0) throw new Error('mcworld.mjs: BEDROCK_BLOCKS registry not found');
-let registry = mcworld.slice(start, end);
-const missing = additions.filter((id) => !registry.includes(`"${id}"`));
+const arrayStart = mcworld.indexOf(marker);
+const arrayEnd = mcworld.indexOf('\n]);', arrayStart);
+if (arrayStart < 0 || arrayEnd < 0) throw new Error('mcworld.mjs: BEDROCK_BLOCKS registry not found');
+const bodyStart = arrayStart + marker.length;
+let body = mcworld.slice(bodyStart, arrayEnd);
+const missing = additions.filter((id) => !body.includes(`"${id}"`));
 if (missing.length) {
-  registry += `\n  ${missing.map((id) => `"${id}"`).join(', ')},`;
-  mcworld = mcworld.slice(0, start) + registry + mcworld.slice(end);
+  const trimmed = body.trimEnd();
+  const trailingWhitespace = body.slice(trimmed.length);
+  const separator = trimmed.endsWith(',') ? '\n  ' : ',\n  ';
+  body = `${trimmed}${separator}${missing.map((id) => `"${id}"`).join(', ')}${trailingWhitespace}`;
+  mcworld = mcworld.slice(0, bodyStart) + body + mcworld.slice(arrayEnd);
   await writeFile(mcworldPath, mcworld);
 }
 
@@ -51,10 +55,17 @@ await replaceIn('src/lib/sources.mjs', [['ThemeParkMap/0.11.1', 'ThemeParkMap/0.
 
 await mkdir(path.join(root, 'test'), { recursive: true });
 await writeFile(path.join(root, 'test/direct-world-palette-compatibility.test.mjs'), `import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 const P = /["'](minecraft:[a-z0-9_]+)["']/g;
 const blocks = (text) => new Set([...text.matchAll(P)].map((m) => m[1]));
+test("direct-world module is valid JavaScript", () => {
+  const file = fileURLToPath(new URL("../src/lib/mcworld.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
 test("appearance palettes are accepted by the direct-world compiler", async () => {
   const [world, fidelity, aerial, raster] = await Promise.all([
     readFile(new URL("../src/lib/mcworld.mjs", import.meta.url), "utf8"),
