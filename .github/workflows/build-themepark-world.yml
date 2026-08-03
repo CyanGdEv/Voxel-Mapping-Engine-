@@ -125,12 +125,25 @@ jobs:
                 FOUND_LOG=true
                 printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
                 printf '%s\n' '```text'
-                tail -n 50 "$LOG"
+                tail -n 60 "$LOG"
                 printf '%s\n' '```'
                 printf '%s\n' '</details>'
               done
               if [[ "$FOUND_LOG" != true ]]; then
-                printf '%s\n' 'No build-attempt log was created. Check the diagnostics artifact for setup logs.'
+                for LOG in \
+                  ci-diagnostics/fatal-error.log \
+                  ci-diagnostics/source-syntax-check.log \
+                  ci-diagnostics/doctor.log \
+                  ci-diagnostics/compatibility-tests.log \
+                  ci-diagnostics/source-patch.log \
+                  ci-diagnostics/npm-ci.log; do
+                  [[ -f "$LOG" ]] || continue
+                  printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
+                  printf '%s\n' '```text'
+                  tail -n 80 "$LOG"
+                  printf '%s\n' '```'
+                  printf '%s\n' '</details>'
+                done
               fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
