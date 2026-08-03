@@ -1,0 +1,8 @@
+Encoded payload (concatenated part-00 through part-05):
+39aeecf1c95c8aa83a876bc63f4e3bf98a228b06b94aa5f1ddd67802d39c436f
+
+Decoded unified source patch:
+6392166bfbbc51e07496bc8e78b5ca5a9f43d5d6c1c2cad8148c47a2eba74425
+
+Full standalone v0.11.3 source release ZIP:
+4df978ef814084d2b7c72c13c11981ec377bb27baef22dacdc0c0249e7f0ae0b
