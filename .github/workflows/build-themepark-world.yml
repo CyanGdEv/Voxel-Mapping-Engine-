@@ -96,7 +96,7 @@ jobs:
       - name: Generate and validate world
         id: build
         shell: bash
-        run: bash scripts/build-themepark-world-v0113.sh
+        run: bash scripts/build-themepark-world-v0113-direct.sh
 
       - name: Write build summary
         if: always()
@@ -110,6 +110,7 @@ jobs:
             printf '%s\n' '# Theme Park World Build'
             printf '\n'
             printf '%s\n' '- Generator: v0.11.3 Path Geometry Phase 1'
+            printf '%s\n' "- Source package: direct checksum-locked v0.11.3 archive"
             printf '%s\n' "- Park preset: ${SUMMARY_PRESET:-unknown}"
             printf '%s\n' "- Accuracy: ${SUMMARY_ACCURACY:-unknown}"
             if [[ "${SUMMARY_ACCURACY:-benchmark}" == verified ]]; then
@@ -138,7 +139,10 @@ jobs:
               if [[ "$FOUND_LOG" != true ]]; then
                 for LOG in \
                   ci-diagnostics/fatal-error.log \
+                  ci-diagnostics/source-error.txt \
+                  ci-diagnostics/source-checksum.txt \
                   ci-diagnostics/source-syntax-check.log \
+                  ci-diagnostics/version-check.log \
                   ci-diagnostics/doctor.log \
                   ci-diagnostics/compatibility-tests.log \
                   ci-diagnostics/npm-ci.log; do
