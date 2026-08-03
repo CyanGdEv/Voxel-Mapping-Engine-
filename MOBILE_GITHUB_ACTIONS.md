@@ -4,11 +4,13 @@ The included GitHub Actions workflow runs the complete generator on GitHub's Lin
 
 ## One-time repository setup
 
-1. Open **Settings → Actions → General**.
-2. Confirm that GitHub Actions is allowed to run in this repository.
-3. Open **Settings → Secrets and variables → Actions → Variables**.
-4. Add a repository variable named `TPMAP_CONTACT`.
-5. Set it to an email address or a public project URL. Mapping services expect an identifiable contact in automated requests.
+1. Download `ThemePark_Map_v0.12.0_MultiSource_Source.zip` to the iOS Files app.
+2. In this repository, choose **Add file → Upload files**.
+3. Select the ZIP and commit it to the repository root without renaming it.
+4. Open **Settings → Actions → General** and confirm that GitHub Actions is allowed to run.
+5. Open **Settings → Secrets and variables → Actions → Variables**.
+6. Add a repository variable named `TPMAP_CONTACT`.
+7. Set it to an email address or a public project URL. Mapping services expect an identifiable contact in automated requests.
 
 The workflow falls back to the repository URL if this variable is not set.
 
