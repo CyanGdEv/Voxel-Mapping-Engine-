@@ -2,6 +2,20 @@
 set -Eeuo pipefail
 
 ROOT="$(pwd)"
+DIAG="$ROOT/ci-diagnostics"
+mkdir -p "$DIAG"
+
+on_error() {
+  local status=$?
+  {
+    echo "exit_status=$status"
+    echo "line=${BASH_LINENO[0]:-unknown}"
+    echo "command=${BASH_COMMAND:-unknown}"
+  } > "$DIAG/fatal-error.log"
+  exit "$status"
+}
+trap on_error ERR
+
 BASE_SCRIPT="$ROOT/scripts/build-themepark-world-v0116-direct.sh"
 PATCH_B64="$ROOT/patches/v0117-ea-wfs-namespace/v0117.patch.gz.b64"
 PATCH_FILE="${RUNNER_TEMP:-/tmp}/v0117-ea-wfs-namespace.patch"
@@ -24,13 +38,18 @@ ACTUAL_PATCH_SHA="$(sha256sum "$PATCH_FILE" | cut -d' ' -f1)"
   exit 2
 }
 
-python3 - "$BASE_SCRIPT" "$RUNTIME_SCRIPT" "$PATCH_FILE" <<'PY'
+python3 - "$BASE_SCRIPT" "$RUNTIME_SCRIPT" "$PATCH_FILE" \
+  "$EXPECTED_PATCH_B64_SHA" "$ACTUAL_PATCH_B64_SHA" "$EXPECTED_PATCH_SHA" "$ACTUAL_PATCH_SHA" <<'PY'
 from pathlib import Path
 import sys
 
 source = Path(sys.argv[1])
 target = Path(sys.argv[2])
 patch_file = Path(sys.argv[3])
+expected_b64 = sys.argv[4]
+actual_b64 = sys.argv[5]
+expected_patch = sys.argv[6]
+actual_patch = sys.argv[7]
 text = source.read_text(encoding="utf-8")
 
 replacements = {
@@ -67,7 +86,7 @@ if unzip_marker not in text:
 patch_command = (
     unzip_marker
     + f'printf "encoded_expected=%s\\nencoded_actual=%s\\ndecoded_expected=%s\\ndecoded_actual=%s\\n" '
-      f'"{EXPECTED_PATCH_B64_SHA}" "{ACTUAL_PATCH_B64_SHA}" "{EXPECTED_PATCH_SHA}" "{ACTUAL_PATCH_SHA}" '
+      f'"{expected_b64}" "{actual_b64}" "{expected_patch}" "{actual_patch}" '
       f'| tee "$DIAG/v0117-patch-checksum.txt"\n'
     + f'patch -d "$GEN" -p1 --batch --forward < "{patch_file}" 2>&1 | tee "$DIAG/v0117-source-patch.log"\n'
 )
