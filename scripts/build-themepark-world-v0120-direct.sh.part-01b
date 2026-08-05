@@ -124,6 +124,35 @@ PY
     rm -f "$PHASE20_TARGET.rej"
   fi
 
+  python3 - "$PHASE20_TARGET" <<'PYLINKS' \
+    | tee "$DIAG/phase20-link-label-repair.log"
+from pathlib import Path
+import sys
+
+target = Path(sys.argv[1])
+text = target.read_text(encoding="utf-8")
+replacements = [
+    (
+        'classifyDocumentCandidate({ ...link, sourcePageUrl: seed })',
+        'classifyDocumentCandidate({ ...link, linkText: link.text, sourcePageUrl: seed })'
+    ),
+    (
+        'classifyDocumentCandidate({ ...link, sourcePageUrl: documentsPage.url })',
+        'classifyDocumentCandidate({ ...link, linkText: link.text, sourcePageUrl: documentsPage.url })'
+    )
+]
+for old, new in replacements:
+    if new in text:
+        continue
+    if text.count(old) != 1:
+        raise SystemExit(f"Expected exactly one planning-document link classification call: {old}")
+    text = text.replace(old, new, 1)
+if text.count('linkText: link.text') != 2:
+    raise SystemExit("Planning-document link labels were not wired into both classifier calls")
+target.write_text(text, encoding="utf-8")
+print("wired application and nested portal anchor labels into document classification")
+PYLINKS
+
   cp "$PHASE20_TARGET" "$DIAG/phase20-planning-documents-final.mjs"
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase20-syntax-check.log"
