@@ -80,7 +80,7 @@ PY
     fi
   done
 
-  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm park_bbox=$BBOX terrain_bbox=$TERRAIN_BBOX terrain_context_blocks=$WORLD_MARGIN expected_cells=$TERRAIN_EXPECTED_CELLS expected_chunks=$TERRAIN_EXPECTED_CHUNKS max_world_chunks=250000" | tee "$log"
+  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm ea_vom=${TPMAP_EA_VOM:-true} park_bbox=$BBOX terrain_bbox=$TERRAIN_BBOX terrain_context_blocks=$WORLD_MARGIN expected_cells=$TERRAIN_EXPECTED_CELLS expected_chunks=$TERRAIN_EXPECTED_CHUNKS max_world_chunks=250000" | tee "$log"
   printf 'park_bbox=%s\nterrain_bbox=%s\nterrain_context_blocks=%s\nterrain_area_km2=%s\nexpected_cells=%s\nexpected_chunks=%s\n' \
     "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" \
     > "$DIAG/terrain-context.txt"
@@ -124,6 +124,7 @@ PY
     "${IMAGERY_ARGS[@]}"
   )
   [[ "$dsm" == "off" ]] && args+=(--no-dsm)
+  [[ "${TPMAP_EA_VOM:-true}" == "true" ]] && args+=(--ea-vom --ea-vom-bbox "$BBOX")
 
   local status
   if (cd "$GEN" && node src/cli.mjs "${args[@]}") 2>&1 | tee -a "$log"; then
@@ -162,8 +163,8 @@ console.log(`terrain passed provider=${elevation.provider} coverage=${Number.isF
 NODE
 
   cp "$log" "$GEN/$OUT_REL/build.log"
-  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0","parkBbox":"%s","terrainBbox":"%s","terrainContextBlocks":%s,"terrainAreaKm2":%s,"expectedCells":%s,"expectedChunks":%s,"worldMargin":0,"maxWorldChunks":250000}\n' \
-    "$label" "$elevation" "$overpass" "$dsm" "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" \
+  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0","parkBbox":"%s","terrainBbox":"%s","terrainContextBlocks":%s,"terrainAreaKm2":%s,"expectedCells":%s,"expectedChunks":%s,"eaVom":%s,"worldMargin":0,"maxWorldChunks":250000}\n' \
+    "$label" "$elevation" "$overpass" "$dsm" "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" "${TPMAP_EA_VOM:-true}" \
     > "$GEN/$OUT_REL/build-strategy.json"
   SUCCESS_STRATEGY="$label"
   return 0

@@ -2,6 +2,7 @@
     test/supplemental-sources.test.mjs \
     test/appearance-vegetation.test.mjs \
     test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
     2>&1 | tee "$DIAG/compatibility-tests.log"
   node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"
 )
