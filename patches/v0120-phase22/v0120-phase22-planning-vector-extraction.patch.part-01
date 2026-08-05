@@ -1,0 +1,218 @@
++      input: "Only accepted georeferenced vector-PDF pages with an explicit affine page-to-British-National-Grid transform are eligible.",
++      extraction: "PDF drawing vectors are flattened into line and polygon candidates; raster scans and uncertain fills remain QA-only.",
++      authority: "Every extracted feature is evidence-only and worldEligible=false until implementation status, provenance, confidence and OSM conflicts pass planning-authority fusion gates.",
++      uncertainty: "The extractor never completes occluded lines, guesses missing connections, or treats drawing-page borders and text glyphs as map geometry."
++    },
++    configuration: {
++      maxDocuments: config.maxDocuments,
++      maxFeatures: config.maxFeatures,
++      maxFeaturesPerDocument: config.maxFeaturesPerDocument,
++      minLengthM: config.minLengthM,
++      minAreaM2: config.minAreaM2,
++      maxGeoreferenceRmseM: config.maxRmseM,
++      curveTolerancePoints: config.curveTolerance
++    },
++    documentsQueued: 0,
++    documentsConsidered: 0,
++    documentsExtracted: 0,
++    documentsRejected: 0,
++    featuresAccepted: 0,
++    featuresWithheld: 0,
++    byRole: {},
++    documents: [],
++    warnings: [],
++    candidates: { type: "FeatureCollection", features: [] }
++  };
++  if (mode === "off") return report;
++
++  const accepted = collectVectorizableDocuments(catalogue);
++  report.documentsQueued = accepted.length;
++  const documents = accepted.slice(0, config.maxDocuments);
++  const cacheDirectory = path.join(runtime.cacheDir, "supplemental", "planning-documents");
++  const workDirectory = path.join(runtime.cacheDir, "supplemental", "planning-vectorize");
++  await mkdir(workDirectory, { recursive: true });
++
++  for (const entry of documents) {
++    if (report.candidates.features.length >= config.maxFeatures) break;
++    report.documentsConsidered += 1;
++    try {
++      if (!entry.georeference.affine) {
++        rejectDocument(report, entry, "missing-affine-page-transform");
++        continue;
++      }
++      if (!Number.isFinite(entry.georeference.rmseM) || entry.georeference.rmseM > config.maxRmseM) {
++        rejectDocument(report, entry, "georeference-rmse-exceeds-vectorization-limit");
++        continue;
++      }
++      if (entry.document.mime !== "application/pdf") {
++        rejectDocument(report, entry, "raster-document-vectorization-not-enabled");
++        continue;
++      }
++      const sourceFile = await locateCachedDocument(cacheDirectory, entry.document);
++      if (!sourceFile) {
++        rejectDocument(report, entry, "cached-document-not-found");
++        continue;
++      }
++      const svg = await renderPdfPageAsSvg(runtime, sourceFile, entry.georeference.page || 1, workDirectory, entry.document);
++      const parsed = parseSvgDrawing(svg, { curveTolerance: config.curveTolerance });
++      const extracted = await buildGeoJsonCandidates(runtime, parsed, entry, config);
++      const remaining = config.maxFeatures - report.candidates.features.length;
++      const acceptedFeatures = extracted.features.slice(0, Math.min(remaining, config.maxFeaturesPerDocument));
++      report.candidates.features.push(...acceptedFeatures);
++      report.featuresAccepted += acceptedFeatures.length;
++      report.featuresWithheld += extracted.withheld + Math.max(0, extracted.features.length - acceptedFeatures.length);
++      for (const feature of acceptedFeatures) {
++        const role = feature.properties.geometry_role;
++        report.byRole[role] = (report.byRole[role] || 0) + 1;
++      }
++      report.documentsExtracted += 1;
++      report.documents.push(documentReport(entry, {
++        status: "extracted",
++        page: entry.georeference.page || 1,
++        svgShapeCount: parsed.shapes.length,
++        acceptedFeatures: acceptedFeatures.length,
++        withheldFeatures: extracted.withheld + Math.max(0, extracted.features.length - acceptedFeatures.length),
++        svgSha256: sha256Text(svg)
++      }));
++    } catch (error) {
++      report.documentsRejected += 1;
++      report.documents.push(documentReport(entry, { status: "error", reason: error?.message || String(error) }));
++      report.warnings.push(`${entry.document.applicationReference || entry.document.id}: ${error?.message || error}`);
++      if (config.failClosed) throw error;
++    }
++  }
++  if (!report.documentsConsidered) report.status = "no-accepted-georeferenced-drawings";
++  else if (!report.featuresAccepted) report.status = "qa-only-no-safe-vectors";
++  else report.status = "candidate-vectors-extracted";
++  if (accepted.length > config.maxDocuments) report.warnings.push(`Vectorization capped at ${config.maxDocuments} documents.`);
++  if (report.candidates.features.length >= config.maxFeatures) report.warnings.push(`Vectorization capped at ${config.maxFeatures} features.`);
++  return report;
++}
++
++function collectVectorizableDocuments(catalogue) {
++  const documents = [];
++  const lookup = new Map();
++  for (const application of catalogue.applications || []) {
++    for (const document of application.documents || []) {
++      lookup.set(document.id, { ...document, applicationReference: application.reference || application.id || null, applicationStatus: application.status || "unknown" });
++    }
++  }
++  for (const georeference of catalogue.georeference?.documents || []) {
++    if (georeference.status !== "accepted") continue;
++    const document = lookup.get(georeference.id);
++    if (!document) continue;
++    documents.push({ document, georeference });
++  }
++  return documents.sort((a, b) => vectorDocumentPriority(b) - vectorDocumentPriority(a));
++}
++
++function vectorDocumentPriority(entry) {
++  let score = Number(entry.document.score) || 0;
++  if (["approved", "as-built"].includes(entry.document.state)) score += 30;
++  if (["ride-layout", "access-plan", "site-plan", "block-plan", "landscape-plan"].includes(entry.document.role)) score += 25;
++  score -= Math.min(30, Number(entry.georeference.rmseM) || 0) * 5;
++  return score;
++}
++
++async function renderPdfPageAsSvg(runtime, filename, page, outputDirectory, document) {
++  if (typeof runtime.planningVectorSvgProvider === "function") {
++    return String(await runtime.planningVectorSvgProvider({ filename, page, document }));
++  }
++  const key = safeKey(document.sha256 || document.cacheKey || document.id);
++  const output = path.join(outputDirectory, `${key}-p${page}.svg`);
++  await rm(output, { force: true });
++  await execFileAsync("pdftocairo", ["-svg", "-f", String(page), "-l", String(page), filename, output], {
++    timeout: 120_000, maxBuffer: 16 * 1024 * 1024
++  });
++  return readFile(output, "utf8");
++}
++
++export function parseSvgDrawing(svg, options = {}) {
++  const source = String(svg || "");
++  const root = source.match(/<svg\b([^>]*)>/i)?.[1] || "";
++  const viewBox = parseNumberList(attribute(root, "viewBox"));
++  const width = svgLength(attribute(root, "width"), viewBox?.[2]);
++  const height = svgLength(attribute(root, "height"), viewBox?.[3]);
++  const shapes = [];
++  const stack = [identityMatrix()];
++  const tokenPattern = /<\/?g\b[^>]*>|<(?:path|polyline|polygon|line|rect)\b[^>]*\/?\s*>/gi;
++  for (const match of source.matchAll(tokenPattern)) {
++    const tag = match[0];
++    if (/^<\/g/i.test(tag)) {
++      if (stack.length > 1) stack.pop();
++      continue;
++    }
++    const name = tag.match(/^<([a-z]+)/i)?.[1]?.toLowerCase();
++    const attrs = tag.replace(/^<\/?[a-z]+/i, "").replace(/\/?>$/, "");
++    if (name === "g") {
++      stack.push(multiplyMatrices(stack[stack.length - 1], parseTransform(attribute(attrs, "transform"))));
++      continue;
++    }
++    const matrix = multiplyMatrices(stack[stack.length - 1], parseTransform(attribute(attrs, "transform")));
++    const style = parseStyle(attrs);
++    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
++    const geometry = shapeGeometry(name, attrs, Number(options.curveTolerance) || DEFAULT_CURVE_TOLERANCE);
++    for (const part of geometry) {
++      const points = dedupeSequential(part.points.map((point) => applyMatrix(matrix, point)));
++      if (points.length < 2) continue;
++      shapes.push({
++        type: name,
++        points,
++        closed: part.closed,
++        curved: part.curved || false,
++        stroke: style.stroke || null,
++        fill: style.fill || null,
++        strokeWidth: svgLength(style.strokeWidth, 1),
++        opacity: Number.isFinite(Number(style.opacity)) ? Number(style.opacity) : 1
++      });
++    }
++  }
++  return { width, height, viewBox: viewBox || [0, 0, width, height], shapes };
++}
++
++function shapeGeometry(name, attrs, tolerance) {
++  if (name === "path") return parsePathData(attribute(attrs, "d"), tolerance);
++  if (name === "polyline" || name === "polygon") {
++    const points = pointPairs(attribute(attrs, "points"));
++    return points.length ? [{ points, closed: name === "polygon", curved: false }] : [];
++  }
++  if (name === "line") {
++    const points = [{ x: Number(attribute(attrs, "x1") || 0), y: Number(attribute(attrs, "y1") || 0) }, { x: Number(attribute(attrs, "x2") || 0), y: Number(attribute(attrs, "y2") || 0) }];
++    return points.every(validPoint) ? [{ points, closed: false, curved: false }] : [];
++  }
++  if (name === "rect") {
++    const x = Number(attribute(attrs, "x") || 0), y = Number(attribute(attrs, "y") || 0), w = Number(attribute(attrs, "width")), h = Number(attribute(attrs, "height"));
++    return [x, y, w, h].every(Number.isFinite) && w > 0 && h > 0 ? [{ points: [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h},{x,y}], closed: true, curved: false }] : [];
++  }
++  return [];
++}
++
++export function parsePathData(data, tolerance = DEFAULT_CURVE_TOLERANCE) {
++  const tokens = String(data || "").match(/[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g) || [];
++  const parts = [];
++  let index = 0, command = null, current = { x: 0, y: 0 }, start = null, previousControl = null, active = null;
++  const next = () => Number(tokens[index++]);
++  const ensure = () => { if (!active) { active = { points: [current], closed: false, curved: false }; parts.push(active); } };
++  while (index < tokens.length) {
++    if (/^[a-zA-Z]$/.test(tokens[index])) command = tokens[index++];
++    if (!command) break;
++    const relative = command === command.toLowerCase();
++    const op = command.toUpperCase();
++    const point = (x, y) => ({ x: relative ? current.x + x : x, y: relative ? current.y + y : y });
++    if (op === "M") {
++      const p = point(next(), next()); if (!validPoint(p)) break;
++      current = p; start = p; active = { points: [p], closed: false, curved: false }; parts.push(active); previousControl = null;
++      command = relative ? "l" : "L";
++    } else if (op === "L") {
++      ensure(); const p = point(next(), next()); if (!validPoint(p)) break; active.points.push(p); current = p; previousControl = null;
++    } else if (op === "H") {
++      ensure(); const value = next(); const p = { x: relative ? current.x + value : value, y: current.y }; active.points.push(p); current = p; previousControl = null;
++    } else if (op === "V") {
++      ensure(); const value = next(); const p = { x: current.x, y: relative ? current.y + value : value }; active.points.push(p); current = p; previousControl = null;
++    } else if (op === "C") {
++      ensure(); const c1 = point(next(), next()), c2 = point(next(), next()), end = point(next(), next());
++      const samples = flattenCubic(current, c1, c2, end, tolerance); active.points.push(...samples); active.curved = true; current = end; previousControl = c2;
++    } else if (op === "S") {
++      ensure(); const c1 = previousControl ? { x: 2*current.x-previousControl.x, y: 2*current.y-previousControl.y } : current;
++      const c2 = point(next(), next()), end = point(next(), next()); const samples = flattenCubic(current, c1, c2, end, tolerance); active.points.push(...samples); active.curved = true; current = end; previousControl = c2;
++    } else if (op === "Q") {
