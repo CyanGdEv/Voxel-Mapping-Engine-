@@ -1,0 +1,116 @@
++      ensure(); const c = point(next(), next()), end = point(next(), next()); const samples = flattenQuadratic(current, c, end, tolerance); active.points.push(...samples); active.curved = true; current = end; previousControl = c;
++    } else if (op === "T") {
++      ensure(); const c = previousControl ? { x: 2*current.x-previousControl.x, y: 2*current.y-previousControl.y } : current;
++      const end = point(next(), next()); const samples = flattenQuadratic(current, c, end, tolerance); active.points.push(...samples); active.curved = true; current = end; previousControl = c;
++    } else if (op === "A") {
++      ensure(); next(); next(); next(); next(); next(); const end = point(next(), next()); if (!validPoint(end)) break; active.points.push(end); active.curved = true; current = end; previousControl = null;
++    } else if (op === "Z") {
++      ensure(); if (start && distance(current, start) > 1e-9) active.points.push(start); active.closed = true; current = start || current; active = null; previousControl = null; command = null;
++    } else break;
++  }
++  return parts.filter((part) => part.points.length >= 2);
++}
++
++function flattenCubic(p0, p1, p2, p3, tolerance) {
++  const estimated = distance(p0,p1)+distance(p1,p2)+distance(p2,p3);
++  const steps = clamp(Math.ceil(estimated / Math.max(0.25, tolerance)), 4, 128);
++  const result=[]; for(let i=1;i<=steps;i++){const t=i/steps,u=1-t;result.push({x:u*u*u*p0.x+3*u*u*t*p1.x+3*u*t*t*p2.x+t*t*t*p3.x,y:u*u*u*p0.y+3*u*u*t*p1.y+3*u*t*t*p2.y+t*t*t*p3.y});} return result;
++}
++function flattenQuadratic(p0,p1,p2,tolerance){const estimated=distance(p0,p1)+distance(p1,p2);const steps=clamp(Math.ceil(estimated/Math.max(.25,tolerance)),3,96);const result=[];for(let i=1;i<=steps;i++){const t=i/steps,u=1-t;result.push({x:u*u*p0.x+2*u*t*p1.x+t*t*p2.x,y:u*u*p0.y+2*u*t*p1.y+t*t*p2.y});}return result;}
++
++async function buildGeoJsonCandidates(runtime, parsed, entry, config) {
++  const features = [], withheldReasons = {};
++  const pageToBng = entry.georeference.affine;
++  const pagePoints = parsed.shapes.flatMap((shape) => shape.points.map((point) => transformAffine(pageToBng, point)));
++  const unique = dedupeCoordinates(pagePoints);
++  const transformed = unique.length ? (typeof runtime.planningVectorCoordinateTransformer === "function"
++    ? await runtime.planningVectorCoordinateTransformer(unique, "EPSG:27700", "EPSG:4326")
++    : await transformCoordinates(unique, "EPSG:27700", "EPSG:4326")) : [];
++  const coordinateMap = new Map(unique.map((point, i) => [coordinateKey(point), transformed[i]]));
++  let withheld = 0;
++  for (let index=0; index<parsed.shapes.length; index++) {
++    const shape = parsed.shapes[index];
++    if (isPageFrame(shape, parsed)) { withheld += 1; count(withheldReasons,"page-frame"); continue; }
++    const bng = shape.points.map((point) => transformAffine(pageToBng, point));
++    const lengthM = polylineLength(bng);
++    const areaM2 = shape.closed ? Math.abs(polygonArea(bng)) : 0;
++    if ((!shape.closed && lengthM < config.minLengthM) || (shape.closed && areaM2 < config.minAreaM2)) { withheld += 1; count(withheldReasons,"below-size-threshold"); continue; }
++    if (shape.closed && !POLYGON_ROLES.has(entry.document.role)) { withheld += 1; count(withheldReasons,"role-not-polygon-eligible"); continue; }
++    if (!shape.closed && !LINE_ROLES.has(entry.document.role)) { withheld += 1; count(withheldReasons,"role-not-line-eligible"); continue; }
++    const wgs84 = bng.map((point) => coordinateMap.get(coordinateKey(point))).filter(Boolean);
++    if (wgs84.length !== bng.length) { withheld += 1; count(withheldReasons,"coordinate-transform-incomplete"); continue; }
++    const role = classifyGeometryRole(entry.document.role, shape.closed);
++    const confidence = vectorConfidence(entry, shape, lengthM, areaM2);
++    features.push({
++      type: "Feature",
++      id: `planning-vector:${safeKey(entry.document.id)}:${index}`,
++      geometry: shape.closed ? { type: "Polygon", coordinates: [[...wgs84.map((p)=>[p.x,p.y]), ...(samePoint(wgs84[0],wgs84.at(-1))?[]:[[wgs84[0].x,wgs84[0].y]])]] } : { type: "LineString", coordinates: wgs84.map((p)=>[p.x,p.y]) },
++      properties: {
++        source_type: "planning-drawing-vector",
++        planning_reference: entry.document.applicationReference || entry.georeference.applicationReference || null,
++        application_status: entry.document.applicationStatus || entry.georeference.applicationStatus || "unknown",
++        document_id: entry.document.id,
++        document_role: entry.document.role,
++        document_state: entry.document.state || "unknown",
++        document_sha256: entry.document.sha256 || entry.georeference.sourceSha256 || null,
++        source_url: entry.document.url || entry.georeference.sourceUrl || null,
++        page: entry.georeference.page || 1,
++        extraction_method: "pdf-svg-vector",
++        geometry_role: role,
++        confidence,
++        georeference_method: entry.georeference.method,
++        georeference_rmse_m: entry.georeference.rmseM,
++        stroke_width_m: Math.round(shape.strokeWidth * (entry.georeference.scaleMPerPoint || 0) * 1000) / 1000,
++        length_m: Math.round(lengthM * 100) / 100,
++        area_m2: Math.round(areaM2 * 100) / 100,
++        curved_source: shape.curved,
++        reuse_status: entry.document.reuseStatus || entry.georeference.reuseStatus || "unknown-not-for-redistribution",
++        world_eligible: false,
++        fusion_status: "awaiting-planning-authority-gates"
++      }
++    });
++  }
++  return { features, withheld, withheldReasons };
++}
++
++function classifyGeometryRole(documentRole, closed) {
++  if (documentRole === "ride-layout") return closed ? "ride-footprint-candidate" : "ride-centerline-candidate";
++  if (documentRole === "access-plan") return closed ? "access-surface-candidate" : "access-path-centerline-candidate";
++  if (documentRole === "landscape-plan") return closed ? "landscape-polygon-candidate" : "landscape-boundary-candidate";
++  if (documentRole === "terrain-or-drainage") return closed ? "terrain-or-drainage-polygon-candidate" : "drainage-or-contour-line-candidate";
++  if (documentRole === "floor-plan") return closed ? "building-footprint-candidate" : "building-detail-line-candidate";
++  if (["site-plan", "block-plan"].includes(documentRole)) return closed ? "site-or-building-footprint-candidate" : "site-plan-linear-candidate";
++  if (documentRole === "lighting-plan") return closed ? "lighting-area-candidate" : "lighting-layout-line-candidate";
++  return closed ? "unknown-polygon-candidate" : "unknown-linear-candidate";
++}
++
++function vectorConfidence(entry, shape, lengthM, areaM2) {
++  let score = 0.52;
++  if (["approved", "as-built"].includes(entry.document.state)) score += 0.1;
++  if (["approved", "implemented", "granted"].includes(String(entry.document.applicationStatus || "").toLowerCase())) score += 0.08;
++  if (["ride-layout", "access-plan", "floor-plan", "landscape-plan"].includes(entry.document.role)) score += 0.08;
++  score += Math.max(0, 0.1 - (Number(entry.georeference.rmseM) || 0) * 0.025);
++  if (shape.curved) score += 0.01;
++  if (lengthM > 10 || areaM2 > 25) score += 0.02;
++  return Math.min(0.94, Math.round(score * 1000) / 1000);
++}
++
++function rejectDocument(report, entry, reason) { report.documentsRejected += 1; report.documents.push(documentReport(entry,{status:"rejected",reason})); }
++function documentReport(entry, extra) { return { documentId: entry.document.id, applicationReference: entry.document.applicationReference || entry.georeference.applicationReference || null, role: entry.document.role || null, sourceSha256: entry.document.sha256 || null, georeferenceMethod: entry.georeference.method || null, georeferenceRmseM: entry.georeference.rmseM ?? null, ...extra }; }
++
++async function locateCachedDocument(cacheDirectory, document) { let entries; try{entries=await readdir(cacheDirectory,{withFileTypes:true});}catch{return null;} const keys=[document.cacheKey,document.sha256].filter(Boolean).map(String); const matches=entries.filter((e)=>e.isFile()&&keys.some((k)=>e.name.startsWith(k))).map((e)=>path.join(cacheDirectory,e.name)); const ranked=[]; for(const filename of matches){ranked.push({filename,size:(await stat(filename)).size});} ranked.sort((a,b)=>b.size-a.size); return ranked[0]?.filename||null; }
++async function transformCoordinates(points,sourceCrs,targetCrs){const input=points.map((p)=>`${p.x} ${p.y}`).join("\n")+"\n";const output=await spawnWithInput("gdaltransform",["-s_srs",sourceCrs,"-t_srs",targetCrs],input,60_000);const lines=output.trim().split(/\r?\n/).filter(Boolean);if(lines.length!==points.length)throw new Error("gdaltransform returned an unexpected coordinate count");return lines.map((line)=>{const [x,y]=line.trim().split(/\s+/).map(Number);if(![x,y].every(Number.isFinite))throw new Error("gdaltransform returned invalid coordinates");return{x,y};});}
++async function spawnWithInput(command,args,input,timeoutMs){return new Promise((resolve,reject)=>{const child=spawn(command,args,{stdio:["pipe","pipe","pipe"]});let stdout="",stderr="";const timer=setTimeout(()=>{child.kill("SIGKILL");reject(new Error(`${command} timed out`));},timeoutMs);child.stdout.setEncoding("utf8");child.stderr.setEncoding("utf8");child.stdout.on("data",(c)=>stdout+=c);child.stderr.on("data",(c)=>stderr+=c);child.on("error",(e)=>{clearTimeout(timer);reject(e);});child.on("close",(code)=>{clearTimeout(timer);code===0?resolve(stdout):reject(new Error(`${command} failed (${code}): ${stderr.trim()}`));});child.stdin.end(input);});}
++
++function parseStyle(attrs){const style={};const inline=attribute(attrs,"style");for(const item of String(inline||"").split(";")){const [k,v]=item.split(":").map((x)=>x?.trim());if(k)style[camel(k)]=v;}for(const key of ["stroke","fill","stroke-width","opacity","display","visibility"]){const value=attribute(attrs,key);if(value!==null)style[camel(key)]=value;}return style;}
++function attribute(attrs,name){const match=String(attrs||"").match(new RegExp(`\\b${name.replace(/[-/\\^$*+?.()|[\\]{}]/g,"\\$&")}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,"i"));return match?(match[1]??match[2]):null;}
++function parseTransform(value){let matrix=identityMatrix();for(const match of String(value||"").matchAll(/(matrix|translate|scale|rotate)\s*\(([^)]*)\)/gi)){const nums=parseNumberList(match[2])||[];let next=identityMatrix();if(match[1].toLowerCase()==="matrix"&&nums.length>=6)next=nums.slice(0,6);else if(match[1].toLowerCase()==="translate")next=[1,0,0,1,nums[0]||0,nums[1]||0];else if(match[1].toLowerCase()==="scale")next=[nums[0]??1,0,0,nums[1]??nums[0]??1,0,0];else if(match[1].toLowerCase()==="rotate"){const r=(nums[0]||0)*Math.PI/180,c=Math.cos(r),s=Math.sin(r);next=[c,s,-s,c,0,0];if(nums.length>=3)next=multiplyMatrices(multiplyMatrices([1,0,0,1,nums[1],nums[2]],next),[1,0,0,1,-nums[1],-nums[2]]);}matrix=multiplyMatrices(matrix,next);}return matrix;}
++function identityMatrix(){return[1,0,0,1,0,0];}
++function multiplyMatrices(a,b){return[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];}
++function applyMatrix(m,p){return{x:m[0]*p.x+m[2]*p.y+m[4],y:m[1]*p.x+m[3]*p.y+m[5]};}
++function transformAffine(fit,p){return{x:fit.a*p.x+fit.b*p.y+fit.c,y:fit.d*p.x+fit.e*p.y+fit.f};}
++function pointPairs(value){const n=parseNumberList(value)||[];const p=[];for(let i=0;i+1<n.length;i+=2)p.push({x:n[i],y:n[i+1]});return p;}
++function parseNumberList(value){const m=String(value||"").match(/[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g);return m?.map(Number).filter(Number.isFinite)||null;}
++function svgLength(value,fallback=0){const n=Number(String(value??"").match(/[-+]?\d*\.?\d+/)?.[0]);return Number.isFinite(n)?n:Number(fallback)||0;}
++function validPoint(p){return Number.isFinite(p.x)&&Number.isFinite(p.y);}
++function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
