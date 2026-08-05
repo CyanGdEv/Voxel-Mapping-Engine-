@@ -57,94 +57,94 @@
 +  safeHttpUrl,
 +  looksDownloadable
 +};
-+diff -ruN v012_documents_base/src/lib/report.mjs v012_documents_work/src/lib/report.mjs
-+--- v012_documents_base/src/lib/report.mjs	2026-08-05 18:08:45.662529373 +0000
-++++ v012_documents_work/src/lib/report.mjs	2026-08-05 18:34:45.157024994 +0000
-+@@ -56,6 +56,7 @@
-+ - Non-OSM map inputs accepted: ${map.sourceFusion?.acceptedFeatures ?? 0} (${map.sourceFusion?.overture?.accepted ?? 0} Overture gap feature(s), ${map.sourceFusion?.publicData?.accepted ?? 0} public-data observation(s))
-+ - Overture overlap safeguards: ${map.sourceFusion?.overture?.duplicatesWithheld ?? 0} duplicate(s) and ${map.sourceFusion?.overture?.partialOverlapsWithheld ?? 0} partial overlap(s) withheld
-+ - Planning authority fusion: ${map.sourceFusion?.planningAuthority?.gapFilled ?? 0} missing feature(s) added, ${map.sourceFusion?.planningAuthority?.osmOverridden ?? 0} inaccurate OSM feature(s) replaced, ${map.sourceFusion?.planningAuthority?.corroborated ?? 0} OSM feature(s) corroborated, ${map.sourceFusion?.planningAuthority?.conflictsWithheld ?? 0} unsafe conflict(s) withheld
-++- Planning documents: ${sources.supplemental?.evidence?.["planning-documents"]?.applicationsConsidered ?? 0} application(s) inspected, ${sources.supplemental?.evidence?.["planning-documents"]?.candidatesFound ?? 0} candidate file(s) found, ${sources.supplemental?.evidence?.["planning-documents"]?.documentsDownloaded ?? 0} cache-only download(s), ${sources.supplemental?.evidence?.["planning-documents"]?.textExtracted ?? 0} embedded-text extraction(s)
-+ - OSM relation features assembled: ${map.topology?.relationFeatures ?? 0}
-+ - Disjoint polygon parts retained: ${map.topology?.polygonParts ?? 0}
-+ - Interior rings retained as holes: ${map.topology?.interiorRings ?? 0}
-+diff -ruN v012_documents_base/src/lib/supplemental-sources.mjs v012_documents_work/src/lib/supplemental-sources.mjs
-+--- v012_documents_base/src/lib/supplemental-sources.mjs	2026-08-05 18:08:00.179459608 +0000
-++++ v012_documents_work/src/lib/supplemental-sources.mjs	2026-08-05 18:34:45.156478299 +0000
-+@@ -6,6 +6,7 @@
-+ import { bboxCenter } from "./geo.mjs";
-+ import { UserError, invariant } from "./errors.mjs";
-+ import { cachedBinary, cachedJson, ensureDir, fetchBinary, fetchJson, readJson, sha256 } from "./io.mjs";
-++import { acquirePlanningDocumentEvidence } from "./planning-documents.mjs";
-+ 
-+ const OGL_3 = "Open Government Licence v3.0";
-+ const PLANNING_DATA_URL = "https://www.planning.data.gov.uk/entity.geojson";
-+@@ -26,7 +27,7 @@
-+ 
-+ export async function acquireSupplementalSources(options, context) {
-+   const requested = Boolean(
-+-    options.englandOpenData || options.treesOutsideWoodland || options.planningData ||
-++    options.englandOpenData || options.treesOutsideWoodland || options.planningData || options.planningDocuments ||
-+     options.planningGeometry?.length || options.microsoftBuildings || options.wikidataPlaces || options.wikimediaCommons ||
-+     options.openAerialMap || options.osOpenMapLocal?.length || options.sourceConfig?.length
-+   );
-+@@ -69,6 +70,12 @@
-+   if (options.englandOpenData || options.planningData) {
-+     await run("planning-data", () => acquirePlanningData(runtime, options));
-+   }
-++  if (options.planningDocuments) {
-++    await run("planning-documents", async () => ({
-++      collections: [],
-++      evidence: await acquirePlanningDocumentEvidence(runtime, options, result.collections)
-++    }));
-++  }
-+   for (const filename of options.planningGeometry || []) {
-+     await run(`planning-geometry:${path.basename(filename)}`, () => acquirePlanningGeometry(runtime, filename));
-+   }
-+@@ -324,6 +331,9 @@
-+       planning_reference: firstString(properties, ["reference", "application-reference", "application_reference", "entity"]),
-+       planning_start_date: firstString(properties, ["start-date", "start_date", "valid-from", "valid_from"]),
-+       planning_decision_date: firstString(properties, ["decision-date", "decision_date", "end-date", "end_date"]),
-++      planning_documentation_url: firstString(properties, ["documentation-url", "documentation_url", "website"]),
-++      planning_application_url: firstString(properties, ["application-url", "application_url"]),
-++      planning_document_urls: splitPlanningUrls(properties["document-urls"] ?? properties.document_urls ?? properties.document_url),
-+       planning_document_url: firstString(properties, ["documentation-url", "documentation_url", "application-url", "application_url", "website"]),
-+       render_in_world: dataset !== "planning-application"
-+     }
-+@@ -405,6 +415,12 @@
-+   };
-+ }
-+ 
-++function splitPlanningUrls(value) {
-++  if (Array.isArray(value)) return value.flatMap(splitPlanningUrls);
-++  if (!value) return [];
-++  return String(value).split(/[;\n]+/).map((item) => item.trim()).filter((item) => /^https?:\/\//i.test(item));
-++}
-++
-+ function planningCollectionSourceDefaults(collection) {
-+   const source = collection.source || collection.properties?.source || {};
-+   return {
-+diff -ruN v012_documents_base/test/planning-documents.test.mjs v012_documents_work/test/planning-documents.test.mjs
-+--- v012_documents_base/test/planning-documents.test.mjs	1970-01-01 00:00:00.000000000 +0000
-++++ v012_documents_work/test/planning-documents.test.mjs	2026-08-05 18:35:20.818015078 +0000
-+@@ -0,0 +1,188 @@
-++import test from "node:test";
-++import assert from "node:assert/strict";
-++import http from "node:http";
-++import path from "node:path";
-++import { mkdtemp } from "node:fs/promises";
-++import { tmpdir } from "node:os";
-++import { parseArgs } from "../src/lib/args.mjs";
-++import { acquirePlanningDocumentEvidence, __test } from "../src/lib/planning-documents.mjs";
-++import { __test as supplementalTest } from "../src/lib/supplemental-sources.mjs";
-++
-++function planningCollection(properties) {
-++  return [{
-++    id: "planning-data",
-++    adapter: "planning-data-api",
-++    collection: {
-++      type: "FeatureCollection",
-++      features: [{
-++        type: "Feature",
-++        geometry: { type: "Polygon", coordinates: [[[-1.9, 52.98], [-1.89, 52.98], [-1.89, 52.99], [-1.9, 52.99], [-1.9, 52.98]]] },
-++        properties: {
+diff -ruN v012_documents_base/src/lib/report.mjs v012_documents_work/src/lib/report.mjs
+--- v012_documents_base/src/lib/report.mjs	2026-08-05 18:08:45.662529373 +0000
++++ v012_documents_work/src/lib/report.mjs	2026-08-05 18:34:45.157024994 +0000
+@@ -56,6 +56,7 @@
+ - Non-OSM map inputs accepted: ${map.sourceFusion?.acceptedFeatures ?? 0} (${map.sourceFusion?.overture?.accepted ?? 0} Overture gap feature(s), ${map.sourceFusion?.publicData?.accepted ?? 0} public-data observation(s))
+ - Overture overlap safeguards: ${map.sourceFusion?.overture?.duplicatesWithheld ?? 0} duplicate(s) and ${map.sourceFusion?.overture?.partialOverlapsWithheld ?? 0} partial overlap(s) withheld
+ - Planning authority fusion: ${map.sourceFusion?.planningAuthority?.gapFilled ?? 0} missing feature(s) added, ${map.sourceFusion?.planningAuthority?.osmOverridden ?? 0} inaccurate OSM feature(s) replaced, ${map.sourceFusion?.planningAuthority?.corroborated ?? 0} OSM feature(s) corroborated, ${map.sourceFusion?.planningAuthority?.conflictsWithheld ?? 0} unsafe conflict(s) withheld
++- Planning documents: ${sources.supplemental?.evidence?.["planning-documents"]?.applicationsConsidered ?? 0} application(s) inspected, ${sources.supplemental?.evidence?.["planning-documents"]?.candidatesFound ?? 0} candidate file(s) found, ${sources.supplemental?.evidence?.["planning-documents"]?.documentsDownloaded ?? 0} cache-only download(s), ${sources.supplemental?.evidence?.["planning-documents"]?.textExtracted ?? 0} embedded-text extraction(s)
+ - OSM relation features assembled: ${map.topology?.relationFeatures ?? 0}
+ - Disjoint polygon parts retained: ${map.topology?.polygonParts ?? 0}
+ - Interior rings retained as holes: ${map.topology?.interiorRings ?? 0}
+diff -ruN v012_documents_base/src/lib/supplemental-sources.mjs v012_documents_work/src/lib/supplemental-sources.mjs
+--- v012_documents_base/src/lib/supplemental-sources.mjs	2026-08-05 18:08:00.179459608 +0000
++++ v012_documents_work/src/lib/supplemental-sources.mjs	2026-08-05 18:34:45.156478299 +0000
+@@ -6,6 +6,7 @@
+ import { bboxCenter } from "./geo.mjs";
+ import { UserError, invariant } from "./errors.mjs";
+ import { cachedBinary, cachedJson, ensureDir, fetchBinary, fetchJson, readJson, sha256 } from "./io.mjs";
++import { acquirePlanningDocumentEvidence } from "./planning-documents.mjs";
+ 
+ const OGL_3 = "Open Government Licence v3.0";
+ const PLANNING_DATA_URL = "https://www.planning.data.gov.uk/entity.geojson";
+@@ -26,7 +27,7 @@
+ 
+ export async function acquireSupplementalSources(options, context) {
+   const requested = Boolean(
+-    options.englandOpenData || options.treesOutsideWoodland || options.planningData ||
++    options.englandOpenData || options.treesOutsideWoodland || options.planningData || options.planningDocuments ||
+     options.planningGeometry?.length || options.microsoftBuildings || options.wikidataPlaces || options.wikimediaCommons ||
+     options.openAerialMap || options.osOpenMapLocal?.length || options.sourceConfig?.length
+   );
+@@ -69,6 +70,12 @@
+   if (options.englandOpenData || options.planningData) {
+     await run("planning-data", () => acquirePlanningData(runtime, options));
+   }
++  if (options.planningDocuments) {
++    await run("planning-documents", async () => ({
++      collections: [],
++      evidence: await acquirePlanningDocumentEvidence(runtime, options, result.collections)
++    }));
++  }
+   for (const filename of options.planningGeometry || []) {
+     await run(`planning-geometry:${path.basename(filename)}`, () => acquirePlanningGeometry(runtime, filename));
+   }
+@@ -324,6 +331,9 @@
+       planning_reference: firstString(properties, ["reference", "application-reference", "application_reference", "entity"]),
+       planning_start_date: firstString(properties, ["start-date", "start_date", "valid-from", "valid_from"]),
+       planning_decision_date: firstString(properties, ["decision-date", "decision_date", "end-date", "end_date"]),
++      planning_documentation_url: firstString(properties, ["documentation-url", "documentation_url", "website"]),
++      planning_application_url: firstString(properties, ["application-url", "application_url"]),
++      planning_document_urls: splitPlanningUrls(properties["document-urls"] ?? properties.document_urls ?? properties.document_url),
+       planning_document_url: firstString(properties, ["documentation-url", "documentation_url", "application-url", "application_url", "website"]),
+       render_in_world: dataset !== "planning-application"
+     }
+@@ -405,6 +415,12 @@
+   };
+ }
+ 
++function splitPlanningUrls(value) {
++  if (Array.isArray(value)) return value.flatMap(splitPlanningUrls);
++  if (!value) return [];
++  return String(value).split(/[;\n]+/).map((item) => item.trim()).filter((item) => /^https?:\/\//i.test(item));
++}
++
+ function planningCollectionSourceDefaults(collection) {
+   const source = collection.source || collection.properties?.source || {};
+   return {
+diff -ruN v012_documents_base/test/planning-documents.test.mjs v012_documents_work/test/planning-documents.test.mjs
+--- v012_documents_base/test/planning-documents.test.mjs	1970-01-01 00:00:00.000000000 +0000
++++ v012_documents_work/test/planning-documents.test.mjs	2026-08-05 18:35:20.818015078 +0000
+@@ -0,0 +1,188 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import http from "node:http";
++import path from "node:path";
++import { mkdtemp } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { parseArgs } from "../src/lib/args.mjs";
++import { acquirePlanningDocumentEvidence, __test } from "../src/lib/planning-documents.mjs";
++import { __test as supplementalTest } from "../src/lib/supplemental-sources.mjs";
++
++function planningCollection(properties) {
++  return [{
++    id: "planning-data",
++    adapter: "planning-data-api",
++    collection: {
++      type: "FeatureCollection",
++      features: [{
++        type: "Feature",
++        geometry: { type: "Polygon", coordinates: [[[-1.9, 52.98], [-1.89, 52.98], [-1.89, 52.99], [-1.9, 52.99], [-1.9, 52.98]]] },
++        properties: {
