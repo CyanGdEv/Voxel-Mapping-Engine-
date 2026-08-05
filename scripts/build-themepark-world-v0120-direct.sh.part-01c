@@ -1,0 +1,28 @@
+  PHASE21_B64="$ROOT/patches/v0120-phase21/phase21-planning-georeference.patch.gz.b64"
+  PHASE21_PATCH="$ROOT/.phase21-planning-georeference.patch"
+  EXPECTED_PHASE21_BLOB="2a750e30fb6151a0f2b87ebb9bfc72947abb3543"
+  ACTUAL_PHASE21_BLOB="$(git hash-object "$PHASE21_B64")"
+  printf 'phase21_bundle_expected_blob=%s\nphase21_bundle_actual_blob=%s\n' \
+    "$EXPECTED_PHASE21_BLOB" "$ACTUAL_PHASE21_BLOB" \
+    | tee "$DIAG/phase21-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE21_BLOB" == "$EXPECTED_PHASE21_BLOB" ]] || {
+    echo "Phase 21 planning georeference bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  base64 --decode "$PHASE21_B64" | gzip -dc > "$PHASE21_PATCH"
+  ACTUAL_PHASE21_PATCH_SHA="$(sha256sum "$PHASE21_PATCH" | cut -d' ' -f1)"
+  printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE21_PATCH_SHA" | tee -a "$DIAG/phase21-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE21_PATCH_SHA" == "02a4a956412716cbdcb8fcd8fcc37f7ac637b0abe1a64c1730572c88abeef1ae" ]] || {
+    echo "Phase 21 assembled patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward -d "$GEN" -p1 < "$PHASE21_PATCH" \
+    2>&1 | tee "$DIAG/phase21-patch-apply.log"
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase21-syntax-check.log"
+  node --test test/planning-georeference.test.mjs \
+    2>&1 | tee "$DIAG/phase21-planning-georeference-tests.log"
+
+  node --test \
+    test/planning-georeference.test.mjs \
