@@ -41,11 +41,12 @@
 
   PHASE20_TARGET="$GEN/src/lib/planning-documents.mjs"
   rm -f "$PHASE20_TARGET.rej"
-  set +e
-  patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
-    2>&1 | tee "$DIAG/phase20-patch-apply.log"
-  phase20_patch_status=${PIPESTATUS[0]}
-  set -e
+  if patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
+    2>&1 | tee "$DIAG/phase20-patch-apply.log"; then
+    phase20_patch_status=0
+  else
+    phase20_patch_status=${PIPESTATUS[0]}
+  fi
 
   if (( phase20_patch_status != 0 )); then
     mapfile -t phase20_rejects < <(find "$GEN" -type f -name '*.rej' -print)
