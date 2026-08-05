@@ -47,42 +47,42 @@ diff -ruN phase20_rebase_base/PLANNING_PORTAL_FALLBACK.md phase20_rebase_work/PL
 +For an Alton Towers build, the fallback can recover historical major applications including rollercoasters, indoor attractions, accommodation, paths, landscaping, drainage, parking, and associated buildings that are absent from the national Planning Data response.
 +
 +The build diagnostics report the provider, seed pages fetched, matched applications, rejected rows, portal failures, and geometry queue size.
-+diff -ruN phase20_rebase_base/src/lib/planning-documents.mjs phase20_rebase_work/src/lib/planning-documents.mjs
-+--- phase20_rebase_base/src/lib/planning-documents.mjs	2026-08-05 21:37:12.694138743 +0000
-++++ phase20_rebase_work/src/lib/planning-documents.mjs	2026-08-05 21:42:38.205020452 +0000
-+@@ -9,6 +9,21 @@
-+ const PAGE_LINK_WORDS = /\b(documents?|plans?|drawings?|attachments?|application files?|view files?)\b/i;
-+ const REJECT_WORDS = /\b(comment|representation|neighbour|consultation|application form|ownership certificate|fee|validation checklist|covering letter|email|correspondence|public notice|press notice|privacy|redact)\b/i;
-+ const CANDIDATE_WORDS = /\b(site plan|block plan|location plan|masterplan|layout|general arrangement|ga plan|landscape|landscaping|planting|floor plan|roof plan|elevation|section|drainage|lighting|access plan|ride layout|track layout|as built|as-built|approved plan|proposed plan|existing plan|drawing)\b/i;
-++const GEOMETRY_DOCUMENT_ROLES = new Set([
-++  "site-plan", "block-plan", "landscape-plan", "ride-layout", "floor-plan", "elevation",
-++  "section", "terrain-or-drainage", "access-plan", "lighting-plan"
-++]);
-++const DEFAULT_PLANNING_PORTALS = [{
-++  id: "staffordshire-moorlands-major-applications",
-++  name: "Staffordshire Moorlands District Council planning register",
-++  seedPages: ["https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/MajorContentiousDevelopmentservlet"],
-++  parkNamePattern: /\balton towers(?: resort)?\b/i,
-++  rowPattern: /\b(alton towers|farley lane)\b/i,
-++  applicationUrlPattern: /ApplicationSearchServlet\?PKID=/i,
-++  referencePattern: /\bSMD\/\d{4}\/\d{4}\b/i,
-++  bbox: { south: 52.82, west: -2.18, north: 53.28, east: -1.72 },
-++  policy: "bounded-major-register"
-++}];
-+ 
-+ export async function acquirePlanningDocumentEvidence(runtime, options, collections = []) {
-+   const mode = normalizeMode(options.planningDocumentMode || (options.planningDocuments ? "extract" : "off"));
-+@@ -22,13 +37,19 @@
-+     reuseLicense: options.planningDocumentLicense || null,
-+     noCache: runtime.noCache === true
-+   };
-+-  const applications = collectPlanningApplications(collections).slice(0, config.maxApplications);
-++  let applications = collectPlanningApplications(collections);
-++  const portalFallback = mode === "off"
-++    ? emptyPortalFallback("disabled")
-++    : await discoverFallbackPlanningApplications(runtime, options, config, applications.length);
-++  applications = mergePlanningApplications([...applications, ...portalFallback.applications])
-++    .slice(0, config.maxApplications);
-+   const evidence = {
-+     schemaVersion: 1,
-+     status: mode === "off" ? "disabled" : applications.length ? "active" : "no-applications",
+diff -ruN phase20_rebase_base/src/lib/planning-documents.mjs phase20_rebase_work/src/lib/planning-documents.mjs
+--- phase20_rebase_base/src/lib/planning-documents.mjs	2026-08-05 21:37:12.694138743 +0000
++++ phase20_rebase_work/src/lib/planning-documents.mjs	2026-08-05 21:42:38.205020452 +0000
+@@ -9,6 +9,21 @@
+ const PAGE_LINK_WORDS = /\b(documents?|plans?|drawings?|attachments?|application files?|view files?)\b/i;
+ const REJECT_WORDS = /\b(comment|representation|neighbour|consultation|application form|ownership certificate|fee|validation checklist|covering letter|email|correspondence|public notice|press notice|privacy|redact)\b/i;
+ const CANDIDATE_WORDS = /\b(site plan|block plan|location plan|masterplan|layout|general arrangement|ga plan|landscape|landscaping|planting|floor plan|roof plan|elevation|section|drainage|lighting|access plan|ride layout|track layout|as built|as-built|approved plan|proposed plan|existing plan|drawing)\b/i;
++const GEOMETRY_DOCUMENT_ROLES = new Set([
++  "site-plan", "block-plan", "landscape-plan", "ride-layout", "floor-plan", "elevation",
++  "section", "terrain-or-drainage", "access-plan", "lighting-plan"
++]);
++const DEFAULT_PLANNING_PORTALS = [{
++  id: "staffordshire-moorlands-major-applications",
++  name: "Staffordshire Moorlands District Council planning register",
++  seedPages: ["https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/MajorContentiousDevelopmentservlet"],
++  parkNamePattern: /\balton towers(?: resort)?\b/i,
++  rowPattern: /\b(alton towers|farley lane)\b/i,
++  applicationUrlPattern: /ApplicationSearchServlet\?PKID=/i,
++  referencePattern: /\bSMD\/\d{4}\/\d{4}\b/i,
++  bbox: { south: 52.82, west: -2.18, north: 53.28, east: -1.72 },
++  policy: "bounded-major-register"
++}];
+ 
+ export async function acquirePlanningDocumentEvidence(runtime, options, collections = []) {
+   const mode = normalizeMode(options.planningDocumentMode || (options.planningDocuments ? "extract" : "off"));
+@@ -22,13 +37,19 @@
+     reuseLicense: options.planningDocumentLicense || null,
+     noCache: runtime.noCache === true
+   };
+-  const applications = collectPlanningApplications(collections).slice(0, config.maxApplications);
++  let applications = collectPlanningApplications(collections);
++  const portalFallback = mode === "off"
++    ? emptyPortalFallback("disabled")
++    : await discoverFallbackPlanningApplications(runtime, options, config, applications.length);
++  applications = mergePlanningApplications([...applications, ...portalFallback.applications])
++    .slice(0, config.maxApplications);
+   const evidence = {
+     schemaVersion: 1,
+     status: mode === "off" ? "disabled" : applications.length ? "active" : "no-applications",
