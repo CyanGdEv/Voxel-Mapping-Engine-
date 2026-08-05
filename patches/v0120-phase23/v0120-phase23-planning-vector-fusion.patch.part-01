@@ -1,0 +1,225 @@
++  ["lighting-area-candidate", { kind: "detail", subtype: "planning-lighting-area", geometry: "area", priority: 35 }],
++  ["lighting-layout-line-candidate", { kind: "detail", subtype: "planning-lighting-layout", geometry: "line", priority: 35 }]
++]);
++
++const BLOCKED_STATUS = /(?:refused|withdrawn|invalid|expired|cancelled|canceled|superseded|draft|pending|submitted|undecided|obsolete)/i;
++const IMPLEMENTED_STATUS = /(?:implemented|built|complete|completed|operational|existing|current|extant|as[- ]?built)/i;
++const APPROVED_STATUS = /(?:approved|granted|consented|permitted)/i;
++const OPEN_LICENSE = /(?:open government licence|ogl|cc[- ]?by|creative commons attribution|odbl|open data commons|public domain|cc0)/i;
++
++export function preparePlanningVectorFusion(options = {}, catalogue = {}) {
++  const mode = normalizeMode(options.planningVectorFusionMode || "gated");
++  const config = {
++    mode,
++    minConfidence: number(options.planningVectorFusionMinConfidence, 0.78, 0, 1),
++    maxRmseM: number(options.planningVectorFusionMaxRmseM, 2.5, 0.1, 25),
++    minLineLengthM: number(options.planningVectorFusionMinLengthM, 4, 0.1, 200),
++    minAreaM2: number(options.planningVectorFusionMinAreaM2, 8, 0.1, 100_000),
++    maxFeatures: integer(options.planningVectorFusionMaxFeatures, 5_000, 1, 100_000)
++  };
++  const candidates = catalogue.vectorExtraction?.candidates?.features || [];
++  const documentIndex = indexDocuments(catalogue);
++  const evidence = {
++    schemaVersion: 1,
++    status: mode === "off" ? "disabled" : candidates.length ? "active" : "no-vector-candidates",
++    mode,
++    policy: {
++      promotion: "Only semantically supported, provenance-complete, accurately georeferenced planning vectors are promoted into the existing planning-authority fusion layer.",
++      currentLayout: "Implemented, existing and as-built geometry may fill gaps. Approved-only geometry may repair a matching OSM feature but cannot create a missing feature in gated mode.",
++      licensing: mode === "private"
++        ? "Unknown document reuse status is allowed only as private-use-restricted evidence and is explicitly marked non-redistributable."
++        : "Automatic promotion requires a declared reusable/open licence. Public portal visibility alone is not treated as a reuse licence.",
++      authority: "Promotion is not acceptance. The existing planning-authority matcher still applies confidence, overlap, displacement and ambiguity gates before changing the normalized map."
++    },
++    configuration: config,
++    considered: 0,
++    promoted: 0,
++    privateUsePromoted: 0,
++    rejectedRole: 0,
++    rejectedStatus: 0,
++    rejectedConfidence: 0,
++    rejectedGeoreference: 0,
++    rejectedSize: 0,
++    rejectedProvenance: 0,
++    rejectedLicense: 0,
++    capped: 0,
++    byKind: {},
++    decisions: [],
++    decisionsTruncated: false
++  };
++  const promoted = [];
++  if (mode === "off") return { evidence, collection: emptyCollection() };
++
++  const ordered = [...candidates].sort((a, b) => candidatePriority(b) - candidatePriority(a));
++  for (const [index, candidate] of ordered.entries()) {
++    evidence.considered += 1;
++    if (promoted.length >= config.maxFeatures) {
++      evidence.capped += 1;
++      recordDecision(evidence, candidate, { action: "withheld-cap" });
++      continue;
++    }
++    const properties = candidate.properties || {};
++    const role = String(properties.geometry_role || "");
++    const mapping = SUPPORTED_VECTOR_ROLES.get(role);
++    if (!mapping || !geometryMatches(candidate.geometry, mapping.geometry)) {
++      evidence.rejectedRole += 1;
++      recordDecision(evidence, candidate, { action: "withheld-role", role });
++      continue;
++    }
++
++    const document = documentIndex.get(properties.document_id) || {};
++    const applicationStatus = String(properties.application_status || document.applicationStatus || "unknown").toLowerCase();
++    const documentState = String(properties.document_state || document.state || "unknown").toLowerCase();
++    if (BLOCKED_STATUS.test(`${applicationStatus} ${documentState}`)) {
++      evidence.rejectedStatus += 1;
++      recordDecision(evidence, candidate, { action: "withheld-status", role, applicationStatus, documentState });
++      continue;
++    }
++
++    const confidence = clamp01(Number(properties.confidence));
++    if (confidence < config.minConfidence) {
++      evidence.rejectedConfidence += 1;
++      recordDecision(evidence, candidate, { action: "withheld-confidence", role, confidence });
++      continue;
++    }
++    const rmseM = Number(properties.georeference_rmse_m);
++    if (!Number.isFinite(rmseM) || rmseM > config.maxRmseM) {
++      evidence.rejectedGeoreference += 1;
++      recordDecision(evidence, candidate, { action: "withheld-georeference", role, rmseM });
++      continue;
++    }
++    if (!sizeEligible(properties, mapping.geometry, config)) {
++      evidence.rejectedSize += 1;
++      recordDecision(evidence, candidate, { action: "withheld-size", role });
++      continue;
++    }
++
++    const sourceUrl = properties.source_url || document.url || null;
++    const sourceHash = properties.document_sha256 || document.sha256 || null;
++    const reference = properties.planning_reference || document.applicationReference || null;
++    if (!sourceUrl || !sourceHash || !reference) {
++      evidence.rejectedProvenance += 1;
++      recordDecision(evidence, candidate, { action: "withheld-provenance", role });
++      continue;
++    }
++
++    const declaredLicense = document.reuseLicense || properties.source_license || null;
++    const reuseStatus = String(properties.reuse_status || document.reuseStatus || "unknown-not-for-redistribution");
++    const reusable = Boolean(declaredLicense && (OPEN_LICENSE.test(declaredLicense) || reuseStatus === "declared"));
++    const privateUse = !reusable && mode === "private";
++    if (!reusable && !privateUse) {
++      evidence.rejectedLicense += 1;
++      recordDecision(evidence, candidate, { action: "withheld-license", role, reuseStatus });
++      continue;
++    }
++
++    const state = planningState(applicationStatus, documentState, mode);
++    if (!state.allowed) {
++      evidence.rejectedStatus += 1;
++      recordDecision(evidence, candidate, { action: "withheld-unresolved-current-status", role, applicationStatus, documentState });
++      continue;
++    }
++
++    const promotedFeature = {
++      type: "Feature",
++      id: candidate.id || `planning-vector-fusion:${index}`,
++      geometry: candidate.geometry,
++      properties: {
++        id: candidate.id || `planning-vector-fusion:${index}`,
++        name: properties.name || document.name || null,
++        kind: mapping.kind,
++        subtype: mapping.subtype,
++        merge_policy: "planning-authority",
++        planning_geometry_role: state.role,
++        planning_status: state.status,
++        planning_implemented: state.implemented,
++        planning_requires_existing_osm_target: state.requiresExistingTarget,
++        planning_allow_gap_fill: state.gapFillAllowed,
++        planning_confidence: confidence,
++        planning_reference: reference,
++        planning_document_id: properties.document_id || document.id || null,
++        planning_document_role: properties.document_role || document.role || null,
++        planning_vector_role: role,
++        planning_vector_source_id: candidate.id || null,
++        planning_georeference_method: properties.georeference_method || null,
++        planning_georeference_rmse_m: rmseM,
++        planning_extraction_method: properties.extraction_method || null,
++        planning_reuse_status: privateUse ? "private-use-restricted" : reuseStatus,
++        planning_private_use_only: privateUse,
++        planning_source_hash: sourceHash,
++        source_name: "Local planning authority drawing vector",
++        source_url: sourceUrl,
++        source_license: privateUse ? "Private-use restricted planning evidence; redistribution not authorised" : declaredLicense,
++        source_dataset: "planning-drawing-vector",
++        checked_at: new Date().toISOString(),
++        accuracy_m: Math.max(rmseM, Number(document.accuracyM) || 0),
++        render_in_world: true,
++        verified: false,
++        world_eligible: true,
++        original_world_eligible: properties.world_eligible === true,
++        original_fusion_status: properties.fusion_status || null,
++        length_m: numberOrNull(properties.length_m),
++        area_m2: numberOrNull(properties.area_m2)
++      }
++    };
++    promoted.push(promotedFeature);
++    evidence.promoted += 1;
++    if (privateUse) evidence.privateUsePromoted += 1;
++    evidence.byKind[mapping.kind] = (evidence.byKind[mapping.kind] || 0) + 1;
++    recordDecision(evidence, candidate, {
++      action: privateUse ? "promoted-private-use" : "promoted",
++      role,
++      kind: mapping.kind,
++      planningRole: state.role,
++      planningStatus: state.status,
++      requiresExistingTarget: state.requiresExistingTarget,
++      confidence,
++      rmseM
++    });
++  }
++
++  if (mode === "review") {
++    evidence.status = promoted.length ? "review-complete-no-map-promotion" : "review-complete-no-eligible-features";
++    evidence.reviewEligible = promoted.length;
++    evidence.promoted = 0;
++    evidence.privateUsePromoted = 0;
++    return { evidence, collection: emptyCollection() };
++  }
++  evidence.status = promoted.length ? "promoted-to-planning-authority-gates" : "no-features-promoted";
++  return {
++    evidence,
++    collection: {
++      type: "FeatureCollection",
++      name: "Planning drawing vectors awaiting planning-authority fusion",
++      source: {
++        name: "Local planning authority drawing vector",
++        url: "planning-document-catalogue.json",
++        license: mode === "private"
++          ? "Mixed: declared licences plus private-use restricted planning evidence"
++          : "Per-feature declared reusable planning-document licence",
++        dataset: "planning-drawing-vector"
++      },
++      features: promoted
++    }
++  };
++}
++
++function planningState(applicationStatus, documentState, mode) {
++  const combined = `${applicationStatus} ${documentState}`;
++  if (IMPLEMENTED_STATUS.test(combined)) {
++    return { allowed: true, role: /as[- ]?built/i.test(combined) ? "as-built" : "implemented-layout", status: "implemented", implemented: true, requiresExistingTarget: false, gapFillAllowed: true };
++  }
++  if (APPROVED_STATUS.test(combined)) {
++    const authoritative = mode === "authoritative";
++    return { allowed: true, role: "approved-layout", status: "approved", implemented: false, requiresExistingTarget: !authoritative, gapFillAllowed: authoritative };
++  }
++  return { allowed: false };
++}
++
++function sizeEligible(properties, geometryType, config) {
++  if (geometryType === "line") return Number(properties.length_m) >= config.minLineLengthM;
++  return Number(properties.area_m2) >= config.minAreaM2;
++}
++
++function geometryMatches(geometry, expected) {
++  if (!geometry) return false;
