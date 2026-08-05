@@ -1,0 +1,118 @@
+     mode,
++    portalFallback: compactPortalFallback(portalFallback),
+     policy: {
+-      discovery: "Follow only record-supplied documentation/document URLs and one explicitly linked documents page.",
++      discovery: "Follow record-supplied URLs, one explicitly linked documents page, and bounded configured local-authority seed pages when national application coverage is empty.",
+       downloads: "Download only geometry-relevant PDF/image candidates within configured count and byte caps.",
+       redistribution: config.reuseLicense
+         ? `Explicit reuse licence supplied: ${config.reuseLicense}`
+@@ -49,6 +70,8 @@
+     documentsDownloaded: 0,
+     textExtracted: 0,
+     totalDownloadedBytes: 0,
++    geometryCandidates: 0,
++    geometryExtractionQueue: [],
+     applications: [],
+     warnings: []
+   };
+@@ -59,7 +82,11 @@
+   let remainingBytes = config.maxBytes;
+   for (const application of applications) {
+     if (remainingDocuments <= 0 || remainingBytes <= 0) break;
+-    const result = await discoverApplicationDocuments(runtime, config, application, {
++    const applicationStatus = String(application.status || "unknown").toLowerCase();
++    const applicationConfig = ["refused", "withdrawn", "invalid"].includes(applicationStatus)
++      ? { ...config, mode: "discover" }
++      : config;
++    const result = await discoverApplicationDocuments(runtime, applicationConfig, application, {
+       remainingDocuments,
+       remainingBytes
+     });
+@@ -72,6 +99,25 @@
+     evidence.totalDownloadedBytes += downloadedBytes;
+     remainingDocuments -= result.documents.filter((item) => item.selected).length;
+     remainingBytes -= downloadedBytes;
++    const geometryDocuments = result.documents.filter((document) => isGeometryDocumentCandidate(document, application));
++    evidence.geometryCandidates += geometryDocuments.length;
++    for (const document of geometryDocuments) {
++      if (evidence.geometryExtractionQueue.length >= 2_000) break;
++      evidence.geometryExtractionQueue.push({
++        applicationReference: application.reference || application.id,
++        applicationStatus: application.status || "unknown",
++        documentId: document.id,
++        role: document.role,
++        state: document.state,
++        sourceUrl: document.url,
++        sha256: document.sha256 || null,
++        mime: document.mime || null,
++        bytes: document.bytes || 0,
++        reuseStatus: document.reuseStatus || "unknown-not-for-redistribution",
++        confidenceHint: geometryConfidenceHint(document, application),
++        status: "awaiting-georeference"
++      });
++    }
+     evidence.applications.push(result);
+     evidence.warnings.push(...result.warnings.map((warning) => `${application.reference || application.id}: ${warning}`));
+   }
+@@ -89,7 +135,7 @@
+     ...(application.documentUrls || []),
+     application.documentationUrl,
+     application.applicationUrl
+-  ]).filter((url) => safeHttpUrl(url));
++  ]).map((url) => normalizePortalUrl(url)).filter((url) => safeHttpUrl(url));
+   const candidateMap = new Map();
+   let pagesFetched = 0;
+ 
+@@ -103,7 +149,7 @@
+       const page = await fetchHtmlPage(runtime, seed);
+       pagesFetched += 1;
+       for (const link of extractLinks(page.html, page.finalUrl || seed)) {
+-        const classified = classifyDocumentCandidate({ ...link, sourcePageUrl: seed });
++        const classified = classifyDocumentCandidate({ url: link.url, linkText: link.text, sourcePageUrl: seed });
+         if (classified.downloadable || classified.score >= config.minScore) addCandidate(candidateMap, classified);
+       }
+       const documentsPages = extractLinks(page.html, page.finalUrl || seed)
+@@ -115,7 +161,7 @@
+           const nested = await fetchHtmlPage(runtime, documentsPage.url);
+           pagesFetched += 1;
+           for (const link of extractLinks(nested.html, nested.finalUrl || documentsPage.url)) {
+-            const classified = classifyDocumentCandidate({ ...link, sourcePageUrl: documentsPage.url });
++            const classified = classifyDocumentCandidate({ url: link.url, linkText: link.text, sourcePageUrl: documentsPage.url });
+             if (classified.downloadable || classified.score >= config.minScore) addCandidate(candidateMap, classified);
+           }
+         } catch (error) {
+@@ -279,6 +325,180 @@
+   return [...unique.values()];
+ }
+ 
++async function discoverFallbackPlanningApplications(runtime, options, config, existingApplicationCount) {
++  if (existingApplicationCount > 0 && options.planningPortalFallback !== true) {
++    return emptyPortalFallback("not-needed");
++  }
++  const providers = portalProvidersFor(runtime, options);
++  const result = {
++    schemaVersion: 1,
++    status: providers.length ? "active" : "no-matching-provider",
++    providersConsidered: providers.length,
++    pagesFetched: 0,
++    rowsConsidered: 0,
++    rowsMatched: 0,
++    applications: [],
++    providerResults: [],
++    warnings: []
++  };
++  for (const provider of providers) {
++    if (result.applications.length >= config.maxApplications) break;
++    const providerResult = {
++      id: provider.id,
++      name: provider.name,
++      policy: provider.policy || "bounded-seed-pages",
++      seedPages: [...provider.seedPages],
++      pagesFetched: 0,
++      rowsConsidered: 0,
++      rowsMatched: 0,
++      applications: 0,
++      failures: []
++    };
++    for (const seedPage of provider.seedPages) {
++      if (result.applications.length >= config.maxApplications) break;

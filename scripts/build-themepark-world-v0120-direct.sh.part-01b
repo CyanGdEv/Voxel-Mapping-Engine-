@@ -1,15 +1,20 @@
     test/planning-documents.test.mjs \
     2>&1 | tee "$DIAG/phase20-runner-boundary-regression.log"
 
-  PHASE20_PATCH="$ROOT/.phase20-planning-authority-discovery.patch"
-  PHASE20_PARTS=(
-    "$ROOT/patches/v0120-phase20/phase20.patch.b64.part-00"
-    "$ROOT/patches/v0120-phase20/phase20.bundle.b64.part-01"
-  )
+  PHASE20_PATCH="$ROOT/.phase20-planning-portal-fallback.patch"
+  PHASE20_PARTS=("$ROOT"/patches/v0120-phase20/v0120-phase20-portal-rebased.patch.part-*)
   PHASE20_EXPECTED_BLOBS=(
-    1e3dc46458eb8ba5223be16b593d136c5403e32b
-    0faa5bd9de0036891b619a67ad6c5807afc429be
+    dbff148a01e832d3a3abb48036c8127a9b33c7cd
+    4884059ec1265f159d2db1d1ede2ca1ec6a159e4
+    f5515ed4224f9bcd5143485e96a453e20fa24f4f
+    4bbe4a40773fd5210211a3532e30afb35b32ea0b
+    4b09dc135017fdbe8bc2f16e96a6346afeaf9414
   )
+  EXPECTED_PHASE20_PATCH_SHA="ce2a7fe44f8bb87cec8ff8c32bf9683a4b537a9ba5429a89d0d448391bc9f91e"
+  [[ ${#PHASE20_PARTS[@]} -eq ${#PHASE20_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 20 corrected portal patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
   : > "$PHASE20_PATCH"
   : > "$DIAG/phase20-patch-checksum.txt"
   for (( phase20_index=0; phase20_index<${#PHASE20_PARTS[@]}; phase20_index++ )); do
@@ -20,16 +25,27 @@
       "$(basename "$phase20_part")" "$phase20_expected_blob" "$phase20_actual_blob" \
       | tee -a "$DIAG/phase20-patch-checksum.txt"
     [[ "$phase20_actual_blob" == "$phase20_expected_blob" ]] || {
-      echo "Phase 20 planning authority discovery bundle chunk mismatch: $(basename "$phase20_part")" | tee -a "$DIAG/source-error.txt" >&2
+      echo "Phase 20 corrected portal patch chunk mismatch: $(basename "$phase20_part")" | tee -a "$DIAG/source-error.txt" >&2
       exit 2
     }
-    base64 --decode "$phase20_part" >> "$PHASE20_PATCH"
+    cat "$phase20_part" >> "$PHASE20_PATCH"
   done
   ACTUAL_PHASE20_PATCH_SHA="$(sha256sum "$PHASE20_PATCH" | cut -d' ' -f1)"
-  printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE20_PATCH_SHA" | tee -a "$DIAG/phase20-patch-checksum.txt"
-  patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE20_PATCH_SHA" "$ACTUAL_PHASE20_PATCH_SHA" \
+    | tee -a "$DIAG/phase20-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE20_PATCH_SHA" == "$EXPECTED_PHASE20_PATCH_SHA" ]] || {
+    echo "Phase 20 corrected portal patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE20_PATCH" \
     2>&1 | tee "$DIAG/phase20-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 20 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase20-syntax-check.log"
-  node --test test/planning-authority-discovery.test.mjs \
-    2>&1 | tee "$DIAG/phase20-planning-authority-discovery-tests.log"
+  node --test test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase20-planning-portal-tests.log"

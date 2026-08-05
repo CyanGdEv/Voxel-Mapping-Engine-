@@ -1,0 +1,103 @@
++  discoverFallbackPlanningApplications,
++  extractPortalApplications,
+   extractLinks,
+   classifyDocumentCandidate,
+   inferRole,
+   inferState,
++  inferPortalApplicationStatus,
++  portalApplicationPriority,
++  normalizePortalUrl,
+   safeHttpUrl,
+-  looksDownloadable
++  looksDownloadable,
++  portalProvidersFor
+ };
+diff -ruN phase20_rebase_base/test/planning-documents.test.mjs phase20_rebase_work/test/planning-documents.test.mjs
+--- phase20_rebase_base/test/planning-documents.test.mjs	2026-08-05 21:37:12.694860306 +0000
++++ phase20_rebase_work/test/planning-documents.test.mjs	2026-08-05 21:37:12.696418319 +0000
+@@ -186,3 +186,85 @@
+   assert.match(evidence.policy.authority, /No document automatically overrides OSM/);
+   assert.equal("collections" in evidence, false);
+ });
++
++test("legacy AttachmentShowServlet links are downloadable candidates", () => {
++  const url = "https://publicaccess.example/portal/servlets/AttachmentShowServlet?ImageName=170690";
++  assert.equal(__test.looksDownloadable(url), true);
++  const candidate = __test.classifyDocumentCandidate({ url, linkText: "Approved Site Layout" });
++  assert.equal(candidate.downloadable, true);
++  assert.equal(candidate.role, "site-plan");
++});
++
++test("portal row extraction retains only matching park applications", () => {
++  const parsed = __test.extractPortalApplications(`
++    <table>
++      <tr><td><a href="/portal/servlets/ApplicationSearchServlet?PKID=100">SMD/2016/0315</a></td><td>Alton Towers, Farley Lane</td><td>New rollercoaster and landscaping</td><td>Planning Permission - Approved</td></tr>
++      <tr><td><a href="/portal/servlets/ApplicationSearchServlet?PKID=200">SMD/2016/0400</a></td><td>Unrelated site</td><td>Housing</td><td>Approved</td></tr>
++    </table>
++  `, "https://publicaccess.example/portal/servlets/MajorContentiousDevelopmentservlet", {
++    id: "test-authority",
++    rowPattern: /alton towers|farley lane/i,
++    applicationUrlPattern: /ApplicationSearchServlet\?PKID=/i,
++    referencePattern: /SMD\/\d{4}\/\d{4}/i
++  });
++  assert.equal(parsed.rowsConsidered, 2);
++  assert.equal(parsed.rowsMatched, 1);
++  assert.equal(parsed.applications[0].reference, "SMD/2016/0315");
++  assert.equal(parsed.applications[0].status, "approved");
++});
++
++test("portal fallback supplies applications and downloads geometry plans when Planning Data is empty", async () => {
++  const pdf = Buffer.from("%PDF-1.4\n%%EOF\n");
++  const server = http.createServer((request, response) => {
++    if (request.url === "/major") {
++      response.setHeader("content-type", "text/html");
++      response.end(`
++        <table><tr>
++          <td><a href="/portal/servlets/ApplicationSearchServlet?PKID=42">SMD/2022/0556</a></td>
++          <td>Test Park, Park Road</td><td>Indoor attraction, paths and landscaping</td><td>Planning Permission - Approved</td>
++        </tr></table>
++      `);
++      return;
++    }
++    if (request.url === "/portal/servlets/ApplicationSearchServlet?PKID=42") {
++      response.setHeader("content-type", "text/html");
++      response.end('<a href="/portal/servlets/AttachmentShowServlet?ImageName=9">Approved Site Plan</a>');
++      return;
++    }
++    if (request.url === "/portal/servlets/AttachmentShowServlet?ImageName=9") {
++      response.setHeader("content-type", "application/pdf");
++      response.end(pdf);
++      return;
++    }
++    response.statusCode = 404;
++    response.end("not found");
++  });
++  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-planning-portal-"));
++  try {
++    const evidence = await acquirePlanningDocumentEvidence({
++      cacheDir: path.join(root, "cache"), userAgent: "test", parkName: "Test Park"
++    }, {
++      parkName: "Test Park",
++      planningDocuments: true,
++      planningDocumentMode: "download",
++      planningDocumentMinScore: 35,
++      planningPortalProviders: [{
++        id: "test-portal", name: "Test portal", force: true,
++        seedPages: [`http://127.0.0.1:${address.port}/major`],
++        rowPattern: /test park/i,
++        applicationUrlPattern: /ApplicationSearchServlet\?PKID=/i,
++        referencePattern: /SMD\/\d{4}\/\d{4}/i
++      }]
++    }, []);
++    assert.equal(evidence.portalFallback.applicationsFound, 1);
++    assert.equal(evidence.applicationsConsidered, 1);
++    assert.equal(evidence.documentsDownloaded, 1);
++    assert.equal(evidence.geometryCandidates, 1);
++    assert.equal(evidence.geometryExtractionQueue[0].status, "awaiting-georeference");
++    assert.equal(evidence.geometryExtractionQueue[0].applicationReference, "SMD/2022/0556");
++  } finally {
++    await new Promise((resolve) => server.close(resolve));
++  }
++});
