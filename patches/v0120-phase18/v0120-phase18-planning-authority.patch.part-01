@@ -1,0 +1,160 @@
+@@ -125,7 +129,8 @@ function normalize(options) {
+     "terrainRockMinSpacingM", "terrainCliffMarkerSpacingM", "maxTerrainRocks",
+     "aerialTerrainGridM", "aerialTerrainMinConfidence", "treeDensityPer100m2",
+     "shrubDensityPer100m2", "treeLineSpacingM", "vegetationMinSpacingM",
+-    "maxVegetationModels", "microsoftBuildingsMinConfidence", "wikidataLimit",
++    "maxVegetationModels", "microsoftBuildingsMinConfidence", "planningOverrideMinConfidence",
++    "planningOverrideMinOverlap", "planningOverrideMaxOffsetM", "wikidataLimit",
+     "wikimediaCommonsLimit", "maxSupplementalFeatures", "supplementalPageSize",
+     "maxSupplementalDownloadMb"
+   ];
+@@ -173,6 +178,18 @@ function normalize(options) {
+     (options.microsoftBuildingsMinConfidence < 0 || options.microsoftBuildingsMinConfidence > 1)) {
+     throw new UserError("--microsoft-buildings-min-confidence must be between 0 and 1");
+   }
++  if (options.planningOverrideMode && !["off", "gated", "authoritative"].includes(options.planningOverrideMode)) {
++    throw new UserError("--planning-override-mode must be off, gated, or authoritative");
++  }
++  for (const [key, minimum, maximum] of [
++    ["planningOverrideMinConfidence", 0, 1],
++    ["planningOverrideMinOverlap", 0, 1],
++    ["planningOverrideMaxOffsetM", 0, 100]
++  ]) {
++    if (options[key] !== undefined && (options[key] < minimum || options[key] > maximum)) {
++      throw new UserError(`--${toKebab(key)} must be between ${minimum} and ${maximum}`);
++    }
++  }
+   for (const [key, minimum, maximum] of [
+     ["eaTileSizeM", 100, 5000], ["eaTileConcurrency", 1, 8],
+     ["eaTileMinCoverage", 0, 1], ["eaTileMaxResolutionM", 0.25, 20],
+diff --git a/src/lib/pipeline.mjs b/src/lib/pipeline.mjs
+index c6eb0c5..f15277a 100644
+--- a/src/lib/pipeline.mjs
++++ b/src/lib/pipeline.mjs
+@@ -93,6 +93,10 @@ export async function buildPark(options = {}, progress = () => {}) {
+   const sourceFusionPath = await writeJson(
+     path.join(outputDir, "source-fusion.json"), map.sourceFusion
+   );
++  const planningAuthorityPath = await writeJson(
++    path.join(outputDir, "planning-authority-decisions.json"),
++    map.sourceFusion?.planningAuthority || { schemaVersion: 1, status: "not-configured", decisions: [] }
++  );
+   const supplementalSourcesPath = await writeJson(
+     path.join(outputDir, "supplemental-sources.json"), compactSupplementalSources(sources.supplemental)
+   );
+@@ -167,6 +171,7 @@ export async function buildPark(options = {}, progress = () => {}) {
+       pathTopologyQa: pathTopologyQaPath,
+       terrainDetails: terrainDetailsPath,
+       sourceFusion: sourceFusionPath,
++      planningAuthority: planningAuthorityPath,
+       supplementalSources: supplementalSourcesPath,
+       buildingLabels: buildingLabelsPath,
+       rideProfiles: rideProfilesPath,
+diff --git a/src/lib/raster.mjs b/src/lib/raster.mjs
+index a5d9e3f..b793199 100644
+--- a/src/lib/raster.mjs
++++ b/src/lib/raster.mjs
+@@ -722,6 +722,7 @@ function compileVerticalFeatures(context) {
+     }
+ 
+     if (["attraction", "amenity", "detail"].includes(feature.kind)) {
++      if (feature.tags?.render_in_world === false || String(feature.tags?.render_in_world).toLowerCase() === "false") continue;
+       const [x, z] = featureCentroid(feature.localGeometry).map(Math.round);
+       const index = cellIndex(x, z, minX, minZ, width, height);
+       if (index < 0 || !mask[index]) continue;
+diff --git a/src/lib/report.mjs b/src/lib/report.mjs
+index b347e94..28c6134 100644
+--- a/src/lib/report.mjs
++++ b/src/lib/report.mjs
+@@ -55,6 +55,7 @@ ${counts}
+ - Normalized source features: ${map.features.length}
+ - Non-OSM map inputs accepted: ${map.sourceFusion?.acceptedFeatures ?? 0} (${map.sourceFusion?.overture?.accepted ?? 0} Overture gap feature(s), ${map.sourceFusion?.publicData?.accepted ?? 0} public-data observation(s))
+ - Overture overlap safeguards: ${map.sourceFusion?.overture?.duplicatesWithheld ?? 0} duplicate(s) and ${map.sourceFusion?.overture?.partialOverlapsWithheld ?? 0} partial overlap(s) withheld
++- Planning authority fusion: ${map.sourceFusion?.planningAuthority?.gapFilled ?? 0} missing feature(s) added, ${map.sourceFusion?.planningAuthority?.osmOverridden ?? 0} inaccurate OSM feature(s) replaced, ${map.sourceFusion?.planningAuthority?.corroborated ?? 0} OSM feature(s) corroborated, ${map.sourceFusion?.planningAuthority?.conflictsWithheld ?? 0} unsafe conflict(s) withheld
+ - OSM relation features assembled: ${map.topology?.relationFeatures ?? 0}
+ - Disjoint polygon parts retained: ${map.topology?.polygonParts ?? 0}
+ - Interior rings retained as holes: ${map.topology?.interiorRings ?? 0}
+@@ -200,6 +201,9 @@ const formatFusionSources = (fusion) => {
+       : null,
+     publicFiles.length
+       ? `- Public-data GeoJSON inputs: ${publicFiles.map((file) => `${file.file} (SHA-256 \`${file.sha256}\`)`).join(", ")}; feature-level provider, URL, and licence are retained in the normalized GeoJSON.`
+-      : null
++      : null,
++    fusion.planningAuthority?.considered
++      ? `- Planning authority decisions: ${fusion.planningAuthority.gapFilled} gap fill(s), ${fusion.planningAuthority.osmOverridden} OSM override(s), ${fusion.planningAuthority.corroborated} corroboration(s), ${fusion.planningAuthority.ambiguousWithheld} ambiguous conflict(s) withheld; full audit in planning-authority-decisions.json.`
++      : null,
+   ].filter(Boolean).join("\n") || "- Additional map-source fusion: inputs supplied, no features accepted.";
+ };
+diff --git a/src/lib/source-fusion.mjs b/src/lib/source-fusion.mjs
+index 87a348d..2339713 100644
+--- a/src/lib/source-fusion.mjs
++++ b/src/lib/source-fusion.mjs
+@@ -1,5 +1,5 @@
+ import path from "node:path";
+-import { geometryBounds, geometryMapCoordinates } from "./geo.mjs";
++import { geometryBounds, geometryMapCoordinates, pointInPolygon, polygonArea } from "./geo.mjs";
+ import { UserError } from "./errors.mjs";
+ import { readJson, sha256, sha256File } from "./io.mjs";
+ 
+@@ -21,12 +21,21 @@ const SUPPORTED_PUBLIC_KINDS = new Set([
+  */
+ export async function fuseAdditionalMapSources(features, projector, options = {}) {
+   const toleranceM = Number(options.sourceFusionToleranceM ?? 3);
++  const planningConfig = {
++    mode: String(options.planningOverrideMode || "gated"),
++    minConfidence: Number(options.planningOverrideMinConfidence ?? 0.86),
++    minOverlap: Number(options.planningOverrideMinOverlap ?? 0.18),
++    maxOffsetM: Number(options.planningOverrideMaxOffsetM ?? 25),
++    toleranceM
++  };
+   const summary = {
+     schemaVersion: 1,
+     status: options.overture?.length || options.publicData?.length || options.acquiredPublicData?.length ? "active" : "osm-only",
+     policy: {
+       overture: "gap-fill only: clear duplicates and partially overlapping lines are withheld",
+       publicData: "provenance-complete GeoJSON is retained; `replaces` is required to supersede a named feature",
++      planningAuthority: "planning geometry may fill gaps or replace OSM only after role, status, confidence, overlap and ambiguity gates",
++      planningOverride: planningConfig,
+       precedence: [
+         "verified replacement observations",
+         "licensed public-data observations",
+@@ -38,6 +47,7 @@ export async function fuseAdditionalMapSources(features, projector, options = {}) {
+     overture: sourceStats(),
+     publicData: sourceStats(),
+     acquired: sourceStats(),
++    planningAuthority: planningStats(planningConfig),
+     providers: {},
+     warnings: [
+       "Overture transportation is a mixed-source product whose primary source is OpenStreetMap; it is useful for normalization and gaps but is not automatically independent corroboration.",
+@@ -82,7 +92,8 @@ export async function fuseAdditionalMapSources(features, projector, options = {}) {
+     summary.publicData.files.push(await sourceFile(resolved, collection));
+     ingestPublicCollection({
+       collection, label: resolved, defaults, bucket: summary.publicData, summary,
+-      features, projector, lineIndex, toleranceM, accepted: []
++      features, projector, lineIndex, toleranceM, accepted: [],
++      planningConfig, planningStats: summary.planningAuthority
+     });
+   }
+ 
+@@ -107,7 +118,8 @@ export async function fuseAdditionalMapSources(features, projector, options = {}) {
+     ingestPublicCollection({
+       collection, label, defaults, bucket: summary.acquired, summary,
+       features, projector, lineIndex, toleranceM, accepted: acceptedAcquired,
+-      acquired: true, adapter: entry.adapter || null
++      acquired: true, adapter: entry.adapter || null,
++      planningConfig, planningStats: summary.planningAuthority
+     });
+   }
+ 
+@@ -119,7 +131,7 @@ export async function fuseAdditionalMapSources(features, projector, options = {}) {
+ 
+ function ingestPublicCollection({
+   collection, label, defaults, bucket, summary, features, projector, lineIndex, toleranceM,
+-  accepted, acquired = false, adapter = null
++  accepted, acquired = false, adapter = null, planningConfig, planningStats
+ }) {
+   for (const [index, raw] of collection.features.entries()) {
+     bucket.considered += 1;
+@@ -131,11 +143,23 @@ function ingestPublicCollection({
+       else {
+         bucket.replaced += 1;
