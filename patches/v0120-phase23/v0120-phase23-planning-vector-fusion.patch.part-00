@@ -166,6 +166,3 @@ diff -ruN phase23_base/src/lib/planning-vector-fusion.mjs phase23_work/src/lib/p
 +  ["landscape-polygon-candidate", { kind: "vegetation", subtype: "planning-landscape-area", geometry: "area", priority: 72 }],
 +  ["landscape-boundary-candidate", { kind: "barrier", subtype: "planning-landscape-boundary", geometry: "line", priority: 48 }],
 +  ["drainage-or-contour-line-candidate", { kind: "water", subtype: "planning-drainage-line", geometry: "line", priority: 62 }],
-+  ["lighting-area-candidate", { kind: "detail", subtype: "planning-lighting-area", geometry: "area", priority: 35 }],
-+  ["lighting-layout-line-candidate", { kind: "detail", subtype: "planning-lighting-layout", geometry: "line", priority: 35 }]
-+]);
