@@ -1,7 +1,6 @@
     test/planning-documents.test.mjs \
     2>&1 | tee "$DIAG/phase20-runner-boundary-regression.log"
 
-  PHASE20_B64="$ROOT/.phase20-planning-authority-discovery.patch.b64"
   PHASE20_PATCH="$ROOT/.phase20-planning-authority-discovery.patch"
   PHASE20_PARTS=(
     "$ROOT/patches/v0120-phase20/phase20.patch.b64.part-00"
@@ -11,7 +10,7 @@
     1e3dc46458eb8ba5223be16b593d136c5403e32b
     0faa5bd9de0036891b619a67ad6c5807afc429be
   )
-  : > "$PHASE20_B64"
+  : > "$PHASE20_PATCH"
   : > "$DIAG/phase20-patch-checksum.txt"
   for (( phase20_index=0; phase20_index<${#PHASE20_PARTS[@]}; phase20_index++ )); do
     phase20_part="${PHASE20_PARTS[$phase20_index]}"
@@ -24,9 +23,8 @@
       echo "Phase 20 planning authority discovery bundle chunk mismatch: $(basename "$phase20_part")" | tee -a "$DIAG/source-error.txt" >&2
       exit 2
     }
-    cat "$phase20_part" >> "$PHASE20_B64"
+    base64 --decode "$phase20_part" >> "$PHASE20_PATCH"
   done
-  base64 --decode "$PHASE20_B64" > "$PHASE20_PATCH"
   ACTUAL_PHASE20_PATCH_SHA="$(sha256sum "$PHASE20_PATCH" | cut -d' ' -f1)"
   printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE20_PATCH_SHA" | tee -a "$DIAG/phase20-patch-checksum.txt"
   patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
