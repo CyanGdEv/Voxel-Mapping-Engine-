@@ -1,3 +1,6 @@
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase20-runner-boundary-regression.log"
+
   PHASE20_B64="$ROOT/.phase20-planning-authority-discovery.patch.b64"
   PHASE20_PATCH="$ROOT/.phase20-planning-authority-discovery.patch"
   EXPECTED_PHASE20_PATCH_SHA="881974491fcf428db7e54f9787369ffaba5255c852061e2f0393198873f18c6d"
