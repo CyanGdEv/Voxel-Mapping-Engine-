@@ -1,0 +1,150 @@
++    } catch {
++      // Ignore malformed portal links.
++    }
++  }
++  return links;
++}
++
++export function classifyDocumentCandidate({ url, linkText = "", sourcePageUrl = null }) {
++  const filename = filenameFromUrl(url);
++  const text = `${decodeURIComponentSafe(filename)} ${linkText}`.replace(/[_+.-]+/g, " ").replace(/\s+/g, " ").trim();
++  const role = inferRole(text);
++  const state = inferState(text);
++  let score = roleScore(role);
++  if (/\bapproved\b/i.test(text)) score += 25;
++  if (/\bas[- ]?built|implemented|completion\b/i.test(text)) score += 35;
++  if (/\bproposed\b/i.test(text)) score += 8;
++  if (/\bexisting\b/i.test(text)) score += 4;
++  if (/\bsuperseded|withdrawn|obsolete\b/i.test(text)) score -= 80;
++  if (REJECT_WORDS.test(text)) score -= 100;
++  if (CANDIDATE_WORDS.test(text)) score += 12;
++  const downloadable = looksDownloadable(url);
++  if (downloadable) score += 5;
++  return {
++    id: `planning-document:${sha256(url).slice(0, 16)}`,
++    url,
++    sourcePageUrl,
++    linkText: stripHtml(linkText),
++    filename,
++    role,
++    state,
++    score,
++    downloadable,
++    rejected: REJECT_WORDS.test(text) || state === "superseded"
++  };
++}
++
++function refineClassification(candidate, content) {
++  const text = `${candidate.filename} ${candidate.linkText} ${String(content).slice(0, 25_000)}`;
++  const role = inferRole(text);
++  const state = inferState(text);
++  const rescored = classifyDocumentCandidate({ ...candidate, linkText: text });
++  return { ...candidate, role: role === "unknown" ? candidate.role : role, state, score: Math.max(candidate.score, rescored.score) };
++}
++
++function inferRole(text) {
++  const value = String(text || "").toLowerCase();
++  if (/\b(site plan|proposed site|approved site|site layout|master ?plan|general arrangement|ga plan)\b/.test(value)) return "site-plan";
++  if (/\b(block plan)\b/.test(value)) return "block-plan";
++  if (/\b(location plan|red line|site location)\b/.test(value)) return "location-plan";
++  if (/\b(landscape|landscaping|planting plan|soft landscape|hard landscape)\b/.test(value)) return "landscape-plan";
++  if (/\b(ride layout|track layout|roller coaster|coaster layout)\b/.test(value)) return "ride-layout";
++  if (/\b(floor plan|ground floor|first floor|roof plan)\b/.test(value)) return "floor-plan";
++  if (/\b(elevation|facade)\b/.test(value)) return "elevation";
++  if (/\b(section|cross section|longitudinal section)\b/.test(value)) return "section";
++  if (/\b(drainage|levels plan|contours?|topographic|topographical)\b/.test(value)) return "terrain-or-drainage";
++  if (/\b(lighting|illumination)\b/.test(value)) return "lighting-plan";
++  if (/\b(access plan|highway layout|road layout|parking layout)\b/.test(value)) return "access-plan";
++  if (/\b(decision notice|grant of permission|planning decision)\b/.test(value)) return "decision-notice";
++  return "unknown";
++}
++
++function inferState(text) {
++  const value = String(text || "").toLowerCase();
++  if (/\bsuperseded|obsolete|withdrawn\b/.test(value)) return "superseded";
++  if (/\bas[- ]?built|implemented|completion\b/.test(value)) return "as-built";
++  if (/\bapproved|granted|decision notice\b/.test(value)) return "approved";
++  if (/\bproposed\b/.test(value)) return "proposed";
++  if (/\bexisting\b/.test(value)) return "existing";
++  return "unknown";
++}
++
++function roleScore(role) {
++  return ({
++    "site-plan": 90,
++    "block-plan": 82,
++    "landscape-plan": 78,
++    "ride-layout": 95,
++    "floor-plan": 62,
++    elevation: 58,
++    section: 58,
++    "terrain-or-drainage": 65,
++    "access-plan": 60,
++    "lighting-plan": 45,
++    "location-plan": 32,
++    "decision-notice": 20,
++    unknown: 0
++  })[role] ?? 0;
++}
++
++function addCandidate(map, candidate) {
++  const existing = map.get(candidate.url);
++  if (!existing || candidate.score > existing.score) map.set(candidate.url, candidate);
++}
++
++function safeHttpUrl(value) {
++  try {
++    const url = new URL(value);
++    if (url.protocol === "https:") return true;
++    return url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
++  } catch {
++    return false;
++  }
++}
++
++function looksDownloadable(value) {
++  try {
++    const extension = path.extname(new URL(value).pathname).toLowerCase();
++    return DOWNLOADABLE_EXTENSIONS.has(extension) || /(?:download|document|file|attachment)[=/]/i.test(value);
++  } catch {
++    return false;
++  }
++}
++
++function extensionForCandidate(candidate) {
++  try {
++    const extension = path.extname(new URL(candidate.url).pathname).toLowerCase();
++    return DOWNLOADABLE_EXTENSIONS.has(extension) ? extension : ".bin";
++  } catch {
++    return ".bin";
++  }
++}
++
++function sniffMime(bytes, url) {
++  if (bytes.subarray(0, 5).toString("ascii") === "%PDF-") return "application/pdf";
++  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
++  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
++  if (bytes.length >= 4 && ((bytes[0] === 0x49 && bytes[1] === 0x49) || (bytes[0] === 0x4d && bytes[1] === 0x4d))) return "image/tiff";
++  const extension = path.extname(new URL(url).pathname).toLowerCase();
++  return ({ ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".tif": "image/tiff", ".tiff": "image/tiff" })[extension] || "application/octet-stream";
++}
++
++function isAllowedMime(mime) {
++  return ["application/pdf", "image/png", "image/jpeg", "image/tiff"].includes(mime);
++}
++
++function sameOriginOrHost(a, b) {
++  try {
++    const left = new URL(a);
++    const right = new URL(b);
++    return left.origin === right.origin || left.hostname === right.hostname;
++  } catch {
++    return false;
++  }
++}
++
++function filenameFromUrl(value) {
++  try {
++    const url = new URL(value);
++    return decodeURIComponentSafe(path.basename(url.pathname)) || "document";
++  } catch {
