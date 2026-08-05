@@ -39,16 +39,37 @@
     2>&1 | tee "$DIAG/phase17b-resolution-tests.log"
 
   PHASE18_PATCH="$ROOT/.phase18-planning-authority.patch"
-  EXPECTED_PHASE18_PATCH_SHA="5d4b38e82d33953493e85139e62dad9019615791b4cae695c36aa8ec98ab8689"
-  cat "$ROOT"/patches/v0120-phase18/v0120-phase18-planning-authority.patch.part-* > "$PHASE18_PATCH"
-  ACTUAL_PHASE18_PATCH_SHA="$(sha256sum "$PHASE18_PATCH" | cut -d' ' -f1)"
-  printf 'phase18_patch_expected=%s\nphase18_patch_actual=%s\n' \
-    "$EXPECTED_PHASE18_PATCH_SHA" "$ACTUAL_PHASE18_PATCH_SHA" \
-    | tee "$DIAG/phase18-patch-checksum.txt"
-  [[ "$ACTUAL_PHASE18_PATCH_SHA" == "$EXPECTED_PHASE18_PATCH_SHA" ]] || {
-    echo "Phase 18 planning authority patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+  PHASE18_PARTS=("$ROOT"/patches/v0120-phase18/v0120-phase18-planning-authority.patch.part-*)
+  PHASE18_EXPECTED_BLOBS=(
+    f040d82f950cba1e16704dd6c85779f10a5df5a0
+    4aed5464232540a30b37ac4044f386166887d651
+    c4f2c69504b926a31afa67153bb8ed55bd88ea2c
+    ce1cba3b78f4682977b14a0cebdc335d41e78a41
+    02be6b1aa86f8df75a6e96727ad597b9a71a0439
+    628ebcad61529075ed57426f0a59cebcc86c5921
+    938d3dee4ed0ad93fa403b9d4a33dc60ddd6faf6
+  )
+  [[ ${#PHASE18_PARTS[@]} -eq ${#PHASE18_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 18 planning authority patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
+  : > "$PHASE18_PATCH"
+  : > "$DIAG/phase18-patch-checksum.txt"
+  for (( phase18_index=0; phase18_index<${#PHASE18_PARTS[@]}; phase18_index++ )); do
+    phase18_part="${PHASE18_PARTS[$phase18_index]}"
+    phase18_expected_blob="${PHASE18_EXPECTED_BLOBS[$phase18_index]}"
+    phase18_actual_blob="$(git hash-object "$phase18_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase18_part")" "$phase18_expected_blob" "$phase18_actual_blob" \
+      | tee -a "$DIAG/phase18-patch-checksum.txt"
+    [[ "$phase18_actual_blob" == "$phase18_expected_blob" ]] || {
+      echo "Phase 18 planning authority patch chunk mismatch: $(basename "$phase18_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase18_part" >> "$PHASE18_PATCH"
+  done
+  ACTUAL_PHASE18_PATCH_SHA="$(sha256sum "$PHASE18_PATCH" | cut -d' ' -f1)"
+  printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE18_PATCH_SHA" | tee -a "$DIAG/phase18-patch-checksum.txt"
   patch --batch --forward -d "$GEN" -p1 < "$PHASE18_PATCH" \
     2>&1 | tee "$DIAG/phase18-patch-apply.log"
 
