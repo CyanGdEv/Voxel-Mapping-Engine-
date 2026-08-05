@@ -1,0 +1,150 @@
++          id: "planning:application:1",
++          source_adapter: "planning-data-api",
++          source_dataset: "planning-application",
++          planning_reference: "APP/1",
++          planning_status: "approved",
++          ...properties
++        }
++      }]
++    }
++  }];
++}
++
++test("planning document CLI controls validate", () => {
++  const { options } = parseArgs([
++    "build", "--planning-documents", "--planning-document-mode", "extract",
++    "--planning-document-max-applications", "50", "--planning-document-max-documents", "120",
++    "--planning-document-max-mb", "18", "--planning-document-max-pages", "4",
++    "--planning-document-min-score", "45"
++  ]);
++  assert.equal(options.planningDocuments, true);
++  assert.equal(options.planningDocumentMode, "extract");
++  assert.equal(options.planningDocumentMaxApplications, 50);
++  assert.equal(options.planningDocumentMaxDocuments, 120);
++  assert.throws(() => parseArgs(["build", "--planning-document-mode", "crawl-everything"]), /off, discover, download, or extract/);
++  assert.throws(() => parseArgs(["build", "--planning-document-max-pages", "0"]), /between 1 and 50/);
++});
++
++test("Planning Data preserves documentation and direct document URLs", () => {
++  const feature = supplementalTest.standardizePlanningFeature({
++    type: "Feature",
++    geometry: { type: "Polygon", coordinates: [[[-1.9, 52.98], [-1.89, 52.98], [-1.89, 52.99], [-1.9, 52.99], [-1.9, 52.98]]] },
++    properties: {
++      entity: 9,
++      dataset: "planning-application",
++      reference: "APP/9",
++      "documentation-url": "https://authority.example/application/9",
++      "document-urls": "https://authority.example/files/site-plan.pdf;https://authority.example/files/elevations.pdf"
++    }
++  }, 0, "https://www.planning.data.gov.uk/entity.geojson");
++  assert.equal(feature.properties.planning_documentation_url, "https://authority.example/application/9");
++  assert.deepEqual(feature.properties.planning_document_urls, [
++    "https://authority.example/files/site-plan.pdf",
++    "https://authority.example/files/elevations.pdf"
++  ]);
++});
++
++test("HTML extraction resolves relative portal links and rejects unsafe schemes", () => {
++  const links = __test.extractLinks(`
++    <a href="/docs/approved-site-plan.pdf">Approved site plan</a>
++    <a href="javascript:alert(1)">Bad</a>
++    <a href="mailto:test@example.com">Email</a>
++  `, "https://planning.example/app/1");
++  assert.deepEqual(links, [{
++    url: "https://planning.example/docs/approved-site-plan.pdf",
++    text: "Approved site plan"
++  }]);
++});
++
++test("document classifier prioritises implemented geometry and rejects comments", () => {
++  const site = __test.classifyDocumentCandidate({
++    url: "https://planning.example/docs/APP-1-approved-site-layout.pdf",
++    linkText: "Approved Site Layout"
++  });
++  const comment = __test.classifyDocumentCandidate({
++    url: "https://planning.example/docs/neighbour-comment.pdf",
++    linkText: "Neighbour representation"
++  });
++  const superseded = __test.classifyDocumentCandidate({
++    url: "https://planning.example/docs/superseded-proposed-plan.pdf",
++    linkText: "Superseded proposed plan"
++  });
++  assert.equal(site.role, "site-plan");
++  assert.equal(site.state, "approved");
++  assert.ok(site.score >= 100);
++  assert.equal(comment.rejected, true);
++  assert.equal(superseded.state, "superseded");
++  assert.equal(superseded.rejected, true);
++});
++
++test("automatic discovery follows one documents page and downloads only selected plans", async () => {
++  const pdf = Buffer.from("%PDF-1.4\n% minimal test document\n%%EOF\n");
++  const server = http.createServer((request, response) => {
++    if (request.url === "/application/APP-1") {
++      response.setHeader("content-type", "text/html");
++      response.end('<a href="/application/APP-1/documents">View documents</a>');
++      return;
++    }
++    if (request.url === "/application/APP-1/documents") {
++      response.setHeader("content-type", "text/html");
++      response.end(`
++        <a href="/files/approved-site-layout.pdf">Approved Site Layout</a>
++        <a href="/files/landscape-plan.pdf">Landscape Plan</a>
++        <a href="/files/neighbour-comment.pdf">Neighbour Comment</a>
++      `);
++      return;
++    }
++    if (request.url?.startsWith("/files/")) {
++      response.setHeader("content-type", "application/pdf");
++      response.end(pdf);
++      return;
++    }
++    response.statusCode = 404;
++    response.end("not found");
++  });
++  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-planning-docs-"));
++  try {
++    const evidence = await acquirePlanningDocumentEvidence({
++      cacheDir: path.join(root, "cache"),
++      userAgent: "themepark-map-test/0.12.0"
++    }, {
++      planningDocuments: true,
++      planningDocumentMode: "download",
++      planningDocumentMaxApplications: 10,
++      planningDocumentMaxDocuments: 10,
++      planningDocumentMaxMb: 2,
++      planningDocumentMinScore: 35
++    }, planningCollection({
++      planning_documentation_url: `http://127.0.0.1:${address.port}/application/APP-1`
++    }));
++    assert.equal(evidence.pagesFetched, 2);
++    assert.equal(evidence.documentsDownloaded, 2);
++    assert.equal(evidence.applications[0].documents.some((document) => document.role === "site-plan" && document.downloaded), true);
++    assert.equal(evidence.applications[0].documents.some((document) => document.role === "landscape-plan" && document.downloaded), true);
++    assert.equal(evidence.applications[0].documents.some((document) => /comment/i.test(document.filename) && document.downloaded), false);
++    assert.equal(evidence.applications[0].documents.filter((document) => document.downloaded).every((document) => document.reuseStatus === "unknown-not-for-redistribution"), true);
++  } finally {
++    await new Promise((resolve) => server.close(resolve));
++  }
++});
++
++test("direct Planning Data document links work without a portal page", async () => {
++  const pdf = Buffer.from("%PDF-1.4\n%%EOF\n");
++  const server = http.createServer((request, response) => {
++    response.setHeader("content-type", "application/pdf");
++    response.end(pdf);
++  });
++  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-planning-direct-"));
++  try {
++    const evidence = await acquirePlanningDocumentEvidence({
++      cacheDir: path.join(root, "cache"), userAgent: "test"
++    }, {
++      planningDocuments: true, planningDocumentMode: "download", planningDocumentMinScore: 20
++    }, planningCollection({
++      planning_document_urls: [`http://127.0.0.1:${address.port}/approved-block-plan.pdf`]
++    }));
++    assert.equal(evidence.documentsDownloaded, 1);

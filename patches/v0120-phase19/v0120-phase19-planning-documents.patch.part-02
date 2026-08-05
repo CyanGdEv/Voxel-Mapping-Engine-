@@ -1,0 +1,150 @@
++    }
++    if (remainingBytes <= 0) {
++      documents.push({ ...candidate, selected: true, downloaded: false, failure: "download-byte-cap-reached" });
++      continue;
++    }
++    try {
++      const downloaded = await downloadCandidate(runtime, config, application, candidate, remainingBytes);
++      remainingBytes -= downloaded.bytes || 0;
++      documents.push({ ...candidate, selected: true, ...downloaded });
++    } catch (error) {
++      documents.push({ ...candidate, selected: true, downloaded: false, failure: error?.message || String(error) });
++    }
++  }
++
++  return {
++    id: application.id,
++    reference: application.reference,
++    status: application.status,
++    documentationUrl: application.documentationUrl,
++    applicationUrl: application.applicationUrl,
++    documentUrls: application.documentUrls,
++    pagesFetched,
++    candidates,
++    documents,
++    warnings
++  };
++}
++
++async function fetchHtmlPage(runtime, url) {
++  const { data, filename, cacheHit } = await cachedBinary({
++    cacheDir: path.join(runtime.cacheDir, "supplemental", "planning-document-pages"),
++    key: url,
++    noCache: runtime.noCache,
++    extension: ".html",
++    fetcher: () => fetchBinary(url, {
++      headers: {
++        "User-Agent": runtime.userAgent,
++        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
++      }
++    }, { timeoutMs: 90_000, retries: 1 })
++  });
++  const bytes = data || await readFile(filename);
++  if (bytes.length > 5 * 1024 * 1024) throw new Error("HTML page exceeded the 5 MB discovery limit");
++  return { html: bytes.toString("utf8"), cacheHit, finalUrl: url };
++}
++
++async function downloadCandidate(runtime, config, application, candidate, remainingBytes) {
++  const extension = extensionForCandidate(candidate);
++  const key = `${application.id}\n${candidate.url}`;
++  const { data, filename, cacheHit } = await cachedBinary({
++    cacheDir: path.join(runtime.cacheDir, "supplemental", "planning-documents"),
++    key,
++    noCache: runtime.noCache,
++    extension,
++    fetcher: () => fetchBinary(candidate.url, {
++      headers: {
++        "User-Agent": runtime.userAgent,
++        Accept: "application/pdf,image/png,image/jpeg,image/tiff;q=0.9,*/*;q=0.1"
++      }
++    }, { timeoutMs: 180_000, retries: 2 })
++  });
++  const bytes = data || await readFile(filename);
++  if (bytes.length > remainingBytes) throw new Error("document exceeds remaining aggregate download cap");
++  if (bytes.length > config.maxBytes) throw new Error("document exceeds configured download cap");
++  const mime = sniffMime(bytes, candidate.url);
++  if (!isAllowedMime(mime)) throw new Error(`unsupported downloaded document type ${mime}`);
++  const fileHash = await sha256File(filename);
++  const text = config.mode === "extract" && mime === "application/pdf"
++    ? await extractPdfText(filename, config.maxPages)
++    : null;
++  const refined = text?.content ? refineClassification(candidate, text.content) : candidate;
++  return {
++    downloaded: true,
++    cacheHit,
++    bytes: bytes.length,
++    sha256: fileHash,
++    mime,
++    cacheKey: sha256(key),
++    reuseLicense: config.reuseLicense,
++    reuseStatus: config.reuseLicense ? "declared" : "unknown-not-for-redistribution",
++    role: refined.role,
++    state: refined.state,
++    score: refined.score,
++    text: text ? {
++      method: text.method,
++      pagesRequested: config.maxPages,
++      textHash: sha256(text.content),
++      excerpt: text.content.slice(0, 1_000)
++    } : null
++  };
++}
++
++async function extractPdfText(filename, maxPages) {
++  try {
++    const { stdout } = await execFileAsync("pdftotext", ["-f", "1", "-l", String(maxPages), "-layout", filename, "-"], {
++      timeout: 60_000,
++      maxBuffer: 4 * 1024 * 1024,
++      encoding: "utf8"
++    });
++    const content = String(stdout || "").replace(/\u0000/g, "").trim();
++    return content ? { method: "pdftotext-embedded-text", content } : null;
++  } catch {
++    return null;
++  }
++}
++
++export function collectPlanningApplications(collections = []) {
++  const applications = [];
++  for (const entry of collections) {
++    for (const feature of entry.collection?.features || []) {
++      const properties = feature.properties || {};
++      if (properties.source_adapter !== "planning-data-api" || properties.source_dataset !== "planning-application") continue;
++      applications.push({
++        id: properties.id || feature.id || `planning-application:${applications.length}`,
++        reference: properties.planning_reference || properties.reference || null,
++        status: properties.planning_status || properties.status || "unknown",
++        documentationUrl: firstUrl(properties.planning_documentation_url || properties.documentation_url || properties.planning_document_url),
++        applicationUrl: firstUrl(properties.planning_application_url || properties.application_url),
++        documentUrls: uniqueUrls([
++          ...asUrlList(properties.planning_document_urls),
++          ...asUrlList(properties.document_urls),
++          ...asUrlList(properties["document-urls"])
++        ])
++      });
++    }
++  }
++  const unique = new Map();
++  for (const application of applications) {
++    const key = application.reference || application.id;
++    if (!unique.has(key)) unique.set(key, application);
++    else {
++      const existing = unique.get(key);
++      existing.documentUrls = uniqueUrls([...existing.documentUrls, ...application.documentUrls]);
++      existing.documentationUrl ||= application.documentationUrl;
++      existing.applicationUrl ||= application.applicationUrl;
++    }
++  }
++  return [...unique.values()];
++}
++
++export function extractLinks(html, baseUrl) {
++  const links = [];
++  const anchor = /<a\b[^>]*?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
++  for (const match of String(html || "").matchAll(anchor)) {
++    const rawHref = decodeHtml(match[1] || match[2] || match[3] || "").trim();
++    if (!rawHref || rawHref.startsWith("#") || /^(mailto|tel|javascript|data):/i.test(rawHref)) continue;
++    try {
++      const url = new URL(rawHref, baseUrl).toString();
++      if (!safeHttpUrl(url)) continue;
++      links.push({ url, text: stripHtml(decodeHtml(match[4] || "")) });

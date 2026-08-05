@@ -78,4 +78,48 @@
   node --test test/planning-authority.test.mjs \
     2>&1 | tee "$DIAG/phase18-planning-authority-tests.log"
 
+  PHASE19_PATCH="$ROOT/.phase19-planning-documents.patch"
+  PHASE19_PARTS=("$ROOT"/patches/v0120-phase19/v0120-phase19-planning-documents.patch.part-*)
+  PHASE19_EXPECTED_BLOBS=(
+    01b310bf0b36f8825c7f3f53015d25b4f79c165e
+    ef65c40c2b5be9dfa0269969cc0417da711bc202
+    a1c930d7433b33fb4717080519cb1ca80208c406
+    e1035b08311ff7b43921679a6e1c9f59b3873fdd
+    5889423c95b08724f85214d53c839e829f4a4bf2
+    14f94e6aa1f10b269f8dcacb63bd9fc47d2f2d68
+    d75087416d2eb8a03b1f881bd812b968de039a6a
+  )
+  [[ ${#PHASE19_PARTS[@]} -eq ${#PHASE19_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 19 planning document patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE19_PATCH"
+  : > "$DIAG/phase19-patch-checksum.txt"
+  for (( phase19_index=0; phase19_index<${#PHASE19_PARTS[@]}; phase19_index++ )); do
+    phase19_part="${PHASE19_PARTS[$phase19_index]}"
+    phase19_expected_blob="${PHASE19_EXPECTED_BLOBS[$phase19_index]}"
+    phase19_actual_blob="$(git hash-object "$phase19_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase19_part")" "$phase19_expected_blob" "$phase19_actual_blob" \
+      | tee -a "$DIAG/phase19-patch-checksum.txt"
+    [[ "$phase19_actual_blob" == "$phase19_expected_blob" ]] || {
+      echo "Phase 19 planning document patch chunk mismatch: $(basename "$phase19_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase19_part" >> "$PHASE19_PATCH"
+  done
+  ACTUAL_PHASE19_PATCH_SHA="$(sha256sum "$PHASE19_PATCH" | cut -d' ' -f1)"
+  printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE19_PATCH_SHA" | tee -a "$DIAG/phase19-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE19_PATCH_SHA" == "95035e53b3f4b6996266c9b5f3848b4f2990394927015cbe5dae948a131d67f3" ]] || {
+    echo "Phase 19 assembled patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward -d "$GEN" -p1 < "$PHASE19_PATCH" \
+    2>&1 | tee "$DIAG/phase19-patch-apply.log"
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase19-syntax-check.log"
+  node --test test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase19-planning-document-tests.log"
+
   node --test \
