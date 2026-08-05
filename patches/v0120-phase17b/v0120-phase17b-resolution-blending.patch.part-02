@@ -1,0 +1,161 @@
+olution blending requires core <= near <= outer resolution");
++  invariant(nearDistanceM >= 0 && featherM >= 0, "Resolution blend distances must be non-negative");
++  invariant(boundsIntersect(bounds, coreBounds), "Resolution core bounds must intersect the terrain bounds");
++  return {
++    enabled: true,
++    bounds: { ...bounds },
++    coreBounds: { ...coreBounds },
++    coreResolutionM,
++    nearResolutionM,
++    outerResolutionM,
++    nearDistanceM,
++    featherM
++  };
++}
++
++export function classifyResolutionTile(tileBounds, profile) {
++  const distanceToCoreM = boundsDistanceM(tileBounds, profile.coreBounds);
++  const tier = boundsOverlapArea(tileBounds, profile.coreBounds)
++    ? "core"
++    : distanceToCoreM <= profile.nearDistanceM ? "near" : "outer";
++  const requestedResolutionM = tier === "core"
++    ? profile.coreResolutionM
++    : tier === "near" ? profile.nearResolutionM : profile.outerResolutionM;
++  return {
++    tier,
++    requestedResolutionM,
++    distanceToCoreM: Math.round(distanceToCoreM * 100) / 100
++  };
++}
++
++function publicResolutionProfile(profile) {
++  return {
++    enabled: true,
++    coreBounds: [profile.coreBounds.minE, profile.coreBounds.minN, profile.coreBounds.maxE, profile.coreBounds.maxN],
++    coreResolutionM: profile.coreResolutionM,
++    nearResolutionM: profile.nearResolutionM,
++    outerResolutionM: profile.outerResolutionM,
++    nearDistanceM: profile.nearDistanceM,
++    featherM: profile.featherM,
++    interpolation: "bilinear-slope-preserving",
++    seamPolicy: profile.featherM > 0 ? "resolution-weighted-feather" : "direct"
++  };
++}
++
++export function planCoverageTiles(bounds, tileSizeM = 1_000, resolutionProfile = null) {
+   invariant(Number.isFinite(tileSizeM) && tileSizeM >= 100 && tileSizeM <= 5_000,
+     "EA tile size must be between 100 and 5000 metres");
+   const widthM = bounds.maxE - bounds.minE;
+@@ -446,20 +557,26 @@ export function planCoverageTiles(bounds, tileSizeM = 1_000) {
+     for (let column = 0; column < columns; column += 1) {
+       const minE = bounds.minE + column * tileSizeM;
+       const minN = bounds.minN + row * tileSizeM;
++      const tileBounds = {
++        minE,
++        minN,
++        maxE: Math.min(bounds.maxE, minE + tileSizeM),
++        maxN: Math.min(bounds.maxN, minN + tileSizeM)
++      };
++      const resolution = resolutionProfile ? classifyResolutionTile(tileBounds, resolutionProfile) : null;
+       tiles.push({
+         id: `r${String(row).padStart(2, "0")}-c${String(column).padStart(2, "0")}`,
+         row,
+         column,
+-        bounds: {
+-          minE,
+-          minN,
+-          maxE: Math.min(bounds.maxE, minE + tileSizeM),
+-          maxN: Math.min(bounds.maxN, minN + tileSizeM)
+-        }
++        bounds: tileBounds,
++        ...(resolution || {})
+       });
+     }
+   }
+-  return { bounds: { ...bounds }, tileSizeM, widthM, heightM, columns, rows, tiles };
++  return {
++    bounds: { ...bounds }, tileSizeM, widthM, heightM, columns, rows, tiles,
++    resolutionProfile: resolutionProfile ? publicResolutionProfile(resolutionProfile) : null
++  };
+ }
+ 
+ export function validateCoverageTile(raster, requestedBounds, options = {}) {
+@@ -481,26 +598,64 @@ export function validateCoverageTile(raster, requestedBounds, options = {}) {
+   };
+ }
+ 
+-export function createTiledRasterSampler(mosaic) {
++export function createTiledRasterSampler(mosaic, options = {}) {
++  const featherM = Math.max(0, Number(options.featherM) || 0);
+   const tileMap = new Map(mosaic.tiles.map((tile) => [`${tile.row},${tile.column}`, {
+     ...tile,
+     sampler: tile.sampler || createProjectedRasterSampler(tile.raster)
+   }]));
+-  const sampleTile = (row, column, x, y) => tileMap.get(`${row},${column}`)?.sampler(x, y) ?? null;
++  const tileAt = (row, column) => tileMap.get(`${row},${column}`) || null;
++  const sampleInsideOrEdge = (tile, x, y) => {
++    if (!tile) return null;
++    const epsilon = Math.max(0.001, Math.min(0.25, (tile.raster?.resolutionM || 1) * 0.05));
++    const clampedX = clamp(x, tile.bounds.minE + epsilon, tile.bounds.maxE - epsilon);
++    const clampedY = clamp(y, tile.bounds.minN + epsilon, tile.bounds.maxN - epsilon);
++    return tile.sampler(clampedX, clampedY);
++  };
+   return (x, y) => {
+     if (x < mosaic.bounds.minE || x > mosaic.bounds.maxE || y < mosaic.bounds.minN || y > mosaic.bounds.maxN) return null;
+     const column = clamp(Math.floor((x - mosaic.bounds.minE) / mosaic.tileSizeM), 0, mosaic.columns - 1);
+     const row = clamp(Math.floor((y - mosaic.bounds.minN) / mosaic.tileSizeM), 0, mosaic.rows - 1);
+-    const direct = sampleTile(row, column, x, y);
+-    if (Number.isFinite(direct)) return direct;
++    const directTile = tileAt(row, column);
++    const direct = directTile?.sampler(x, y) ?? null;
++    if (!featherM || !directTile) {
++      if (Number.isFinite(direct)) return direct;
++      return sampleNearbyTile(tileAt, row, column, x, y);
++    }
++
++    const candidates = [];
++    let hasResolutionBoundary = false;
+     for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+       for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
+-        if (!rowOffset && !columnOffset) continue;
+-        const nearby = sampleTile(row + rowOffset, column + columnOffset, x, y);
+-        if (Number.isFinite(nearby)) return nearby;
++        const tile = tileAt(row + rowOffset, column + columnOffset);
++        if (!tile) continue;
++        const distanceM = pointToBoundsDistanceM(x, y, tile.bounds);
++        if (distanceM > featherM) continue;
++        if ((tile.requestedResolutionM || 1) !== (directTile.requestedResolutionM || 1)) {
++          hasResolutionBoundary = true;
++        }
++        candidates.push({ tile, distanceM });
+       }
+     }
+-    return null;
++    if (!hasResolutionBoundary && Number.isFinite(direct)) return direct;
++
++    let weighted = 0;
++    let totalWeight = 0;
++    for (const candidate of candidates) {
++      if (candidate.tile !== directTile && !hasResolutionBoundary && Number.isFinite(direct)) continue;
++      const value = sampleInsideOrEdge(candidate.tile, x, y);
++      if (!Number.isFinite(value)) continue;
++      const spatialWeight = candidate.distanceM <= 0
++        ? 1
++        : smoothStep(1 - candidate.distanceM / featherM);
++      const qualityWeight = 1 / Math.sqrt(Math.max(0.25, candidate.tile.requestedResolutionM || 1));
++      const weight = spatialWeight * qualityWeight;
++      weighted += value * weight;
++      totalWeight += weight;
++    }
++    if (totalWeight > 0) return weighted / totalWeight;
++    if (Number.isFinite(direct)) return direct;
++    return sampleNearbyTile(tileAt, row, column, x, y);
+   };
+ }
+ 
+@@ -511,7 +666,7 @@ export function summarizeCoverageTiles({ role, endpoint, coverageId, plan, tiles
+   const maxM = Math.max(...tiles.map((tile) => tile.raster.max));
+   const resolutionM = Math.max(...tiles.map((tile) => tile.raster.resolutionM));
+   return {
+-    mode: "tiled",
++    mode: plan.resolutionProfile ? "
