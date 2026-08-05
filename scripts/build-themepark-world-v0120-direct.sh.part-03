@@ -1,0 +1,85 @@
+  rm -rf "$GEN/$OUT_REL"
+  mkdir -p "$GEN/$OUT_REL"
+  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm" | tee "$log"
+
+  local args=(
+    build
+    --park-name "$PARK_NAME"
+    --bbox "$BBOX"
+    --contact "$CONTACT"
+    --accept-nominatim-policy
+    --overpass-url "$overpass"
+    --elevation "$elevation"
+    --buildings markers
+    --path-width-mode inferred
+    --path-terrain-mode "$PATH_TERRAIN_MODE"
+    --path-geometry-mode "$PATH_GEOMETRY_MODE"
+    --path-snap-tolerance-m 3
+    --path-snap-min-confidence 0.70
+    --path-edge-mode evidence
+    --terrain-detail-mode "$TERRAIN_DETAIL_MODE"
+    --terrain-rock-density-per-100m2 0.75
+    --terrain-rock-min-spacing-m 4
+    --tree-density-per-100m2 2.8
+    --shrub-density-per-100m2 16
+    --tree-line-spacing-m 3
+    --vegetation-min-spacing-m 3
+    --max-vegetation-models 30000
+    --ride-profile-mode auto
+    --ride-terrain-mode inferred
+    --accuracy-mode "$ACCURACY_MODE"
+    --palette realistic
+    --world-margin "$WORLD_MARGIN"
+    --allow-large-area
+    --max-area-km2 12
+    --max-cells 8000000
+    --max-world-chunks 20000
+    --no-addon
+    --out "$OUT_REL"
+    "${SOURCE_ARGS[@]}"
+    "${IMAGERY_ARGS[@]}"
+  )
+  [[ "$dsm" == "off" ]] && args+=(--no-dsm)
+
+  local status
+  if (cd "$GEN" && node src/cli.mjs "${args[@]}") 2>&1 | tee -a "$log"; then
+    status=0
+  else
+    status=${PIPESTATUS[0]}
+  fi
+  echo "exit_status=$status" | tee -a "$log"
+  capture_reports
+  [[ $status -eq 0 ]] || return "$status"
+
+  MCWORLD="$(find "$GEN/$OUT_REL" -maxdepth 1 -type f -name '*_1to1.mcworld' -print -quit)"
+  [[ -n "$MCWORLD" ]] || {
+    echo "No .mcworld was produced." | tee -a "$log"
+    return 3
+  }
+  cp "$log" "$GEN/$OUT_REL/build.log"
+  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0"}\n' \
+    "$label" "$elevation" "$overpass" "$dsm" > "$GEN/$OUT_REL/build-strategy.json"
+  SUCCESS_STRATEGY="$label"
+  return 0
+}
+
+PRIMARY="https://overpass-api.de/api/interpreter"
+ALTERNATE="https://overpass.kumi.systems/api/interpreter"
+SUCCESS_STRATEGY=""
+MCWORLD=""
+
+if run_attempt 01-ea-lidar-primary ea-lidar "$PRIMARY" on; then :
+elif [[ "$ACCURACY" == "verified" ]]; then
+  echo "Verified mode refuses elevation/source fallback." >&2
+  exit 2
+elif run_attempt 02-ea-dtm-alternate ea-lidar "$ALTERNATE" off; then :
+elif run_attempt 03-flat-alternate none "$ALTERNATE" off; then :
+else
+  echo "All world-build strategies failed." >&2
+  exit 2
+fi
+
+unzip -t "$MCWORLD" | tee "$DIAG/world-zip-validation.log"
+ARCHIVE_LIST="$DIAG/world-archive-list.txt"
+unzip -Z1 "$MCWORLD" > "$ARCHIVE_LIST"
+for required in level.dat levelname.txt db/CURRENT; do
