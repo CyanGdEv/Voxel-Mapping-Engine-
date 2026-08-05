@@ -1,0 +1,143 @@
++function dedupeSequential(points){return points.filter((p,i)=>i===0||distance(p,points[i-1])>1e-6);}
++function coordinateKey(p){return `${p.x.toFixed(6)},${p.y.toFixed(6)}`;}
++function dedupeCoordinates(points){const map=new Map();for(const p of points)map.set(coordinateKey(p),p);return[...map.values()];}
++function polylineLength(points){let total=0;for(let i=1;i<points.length;i++)total+=distance(points[i-1],points[i]);return total;}
++function polygonArea(points){let total=0;for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length];total+=a.x*b.y-b.x*a.y;}return total/2;}
++function samePoint(a,b){return a&&b&&Math.abs(a.x-b.x)<1e-9&&Math.abs(a.y-b.y)<1e-9;}
++function isPageFrame(shape,parsed){if(!shape.closed||shape.points.length<4)return false;const xs=shape.points.map((p)=>p.x),ys=shape.points.map((p)=>p.y);const width=Math.max(...xs)-Math.min(...xs),height=Math.max(...ys)-Math.min(...ys);return parsed.width>0&&parsed.height>0&&width>=parsed.width*.92&&height>=parsed.height*.92;}
++function safeKey(value){return String(value||"drawing").replace(/[^a-zA-Z0-9_-]+/g,"-").slice(0,80);}
++function camel(value){return String(value).replace(/-([a-z])/g,(_,c)=>c.toUpperCase());}
++function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
++function count(object,key){object[key]=(object[key]||0)+1;}
++function sha256Text(value){return createHash("sha256").update(String(value)).digest("hex");}
++function integer(value,fallback,min,max){const n=value===undefined?fallback:Number(value);return Number.isInteger(n)&&n>=min&&n<=max?n:fallback;}
++function number(value,fallback,min,max){const n=value===undefined?fallback:Number(value);return Number.isFinite(n)&&n>=min&&n<=max?n:fallback;}
++function normalizeMode(value){const mode=String(value||"off").trim().toLowerCase();return["off","qa","extract","strict"].includes(mode)?mode:"off";}
++
++export const __test = { parseSvgDrawing, parsePathData, parseTransform, multiplyMatrices, classifyGeometryRole, collectVectorizableDocuments, vectorConfidence, transformAffine };
+diff -ruN phase21_green/src/lib/report.mjs phase22_work/src/lib/report.mjs
+--- phase21_green/src/lib/report.mjs	2026-08-05 21:52:54.000000000 +0000
++++ phase22_work/src/lib/report.mjs	2026-08-05 21:58:37.261924625 +0000
+@@ -57,6 +57,7 @@
+ - Overture overlap safeguards: ${map.sourceFusion?.overture?.duplicatesWithheld ?? 0} duplicate(s) and ${map.sourceFusion?.overture?.partialOverlapsWithheld ?? 0} partial overlap(s) withheld
+ - Planning authority fusion: ${map.sourceFusion?.planningAuthority?.gapFilled ?? 0} missing feature(s) added, ${map.sourceFusion?.planningAuthority?.osmOverridden ?? 0} inaccurate OSM feature(s) replaced, ${map.sourceFusion?.planningAuthority?.corroborated ?? 0} OSM feature(s) corroborated, ${map.sourceFusion?.planningAuthority?.conflictsWithheld ?? 0} unsafe conflict(s) withheld
+ - Planning documents: ${sources.supplemental?.evidence?.["planning-documents"]?.applicationsConsidered ?? 0} application(s) inspected, ${sources.supplemental?.evidence?.["planning-documents"]?.candidatesFound ?? 0} candidate file(s) found, ${sources.supplemental?.evidence?.["planning-documents"]?.documentsDownloaded ?? 0} cache-only download(s), ${sources.supplemental?.evidence?.["planning-documents"]?.textExtracted ?? 0} embedded-text extraction(s)
++- Planning vectors: ${sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction?.documentsExtracted ?? 0} drawing(s) vectorised, ${sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction?.featuresAccepted ?? 0} evidence-only feature candidate(s), ${sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction?.featuresWithheld ?? 0} unsafe/noise feature(s) withheld
+ - OSM relation features assembled: ${map.topology?.relationFeatures ?? 0}
+ - Disjoint polygon parts retained: ${map.topology?.polygonParts ?? 0}
+ - Interior rings retained as holes: ${map.topology?.interiorRings ?? 0}
+diff -ruN phase21_green/test/planning-vectorize.test.mjs phase22_work/test/planning-vectorize.test.mjs
+--- phase21_green/test/planning-vectorize.test.mjs	1970-01-01 00:00:00.000000000 +0000
++++ phase22_work/test/planning-vectorize.test.mjs	2026-08-05 21:59:17.588523176 +0000
+@@ -0,0 +1,111 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import path from "node:path";
++import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { parseArgs } from "../src/lib/args.mjs";
++import { vectorizePlanningDrawings, __test } from "../src/lib/planning-vectorize.mjs";
++
++const affine = { a: 1, b: 0, c: 400000, d: 0, e: -1, f: 300000 };
++
++function catalogue(overrides = {}) {
++  const document = {
++    id: "planning-document:test",
++    downloaded: true,
++    rejected: false,
++    mime: "application/pdf",
++    role: "access-plan",
++    state: "approved",
++    score: 120,
++    sha256: "abc123",
++    cacheKey: "cache123",
++    url: "https://planning.example/approved-access-plan.pdf",
++    reuseStatus: "unknown-not-for-redistribution",
++    ...overrides.document
++  };
++  return {
++    applications: [{ reference: "SMD/2024/0001", status: "approved", documents: [document] }],
++    georeference: {
++      accepted: 1,
++      documents: [{
++        id: document.id,
++        status: "accepted",
++        method: "explicit-control-points",
++        page: 1,
++        rmseM: 0.4,
++        scaleMPerPoint: 1,
++        affine,
++        applicationReference: "SMD/2024/0001",
++        applicationStatus: "approved",
++        ...overrides.georeference
++      }]
++    }
++  };
++}
++
++test("planning vectorization CLI controls validate", () => {
++  const { options } = parseArgs(["build", "--planning-vectorize-mode", "extract", "--planning-vectorize-max-documents", "20", "--planning-vectorize-max-features", "5000", "--planning-vectorize-min-length-m", "1.5"]);
++  assert.equal(options.planningVectorizeMode, "extract");
++  assert.equal(options.planningVectorizeMaxDocuments, 20);
++  assert.equal(options.planningVectorizeMaxFeatures, 5000);
++  assert.throws(() => parseArgs(["build", "--planning-vectorize-mode", "guess"]), /off, qa, extract, or strict/);
++  assert.throws(() => parseArgs(["build", "--planning-vectorize-max-features", "0"]), /between 1 and 100000/);
++});
++
++test("SVG parser applies group transforms and retains open and closed geometry", () => {
++  const parsed = __test.parseSvgDrawing(`<svg width="100pt" height="80pt" viewBox="0 0 100 80"><g transform="translate(10 5)"><path d="M0 0 L20 0 L20 10" stroke="#000" fill="none"/><polygon points="30,10 50,10 50,30 30,30"/></g></svg>`);
++  assert.equal(parsed.shapes.length, 2);
++  assert.deepEqual(parsed.shapes[0].points[0], { x: 10, y: 5 });
++  assert.equal(parsed.shapes[0].closed, false);
++  assert.equal(parsed.shapes[1].closed, true);
++});
++
++test("Bezier path flattening is deterministic and preserves endpoints", () => {
++  const [part] = __test.parsePathData("M0 0 C10 0 10 10 20 10", 2);
++  assert.equal(part.curved, true);
++  assert.deepEqual(part.points[0], { x: 0, y: 0 });
++  assert.deepEqual(part.points.at(-1), { x: 20, y: 10 });
++  assert.ok(part.points.length >= 5);
++});
++
++test("document roles classify extracted lines and polygons conservatively", () => {
++  assert.equal(__test.classifyGeometryRole("access-plan", false), "access-path-centerline-candidate");
++  assert.equal(__test.classifyGeometryRole("ride-layout", false), "ride-centerline-candidate");
++  assert.equal(__test.classifyGeometryRole("floor-plan", true), "building-footprint-candidate");
++  assert.equal(__test.classifyGeometryRole("site-plan", false), "site-plan-linear-candidate");
++});
++
++test("unaccepted or high-error alignments are withheld", async () => {
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-vector-reject-"));
++  const report = await vectorizePlanningDrawings({ cacheDir: root }, { planningVectorizeMode: "extract", planningVectorizeMaxRmseM: 3 }, catalogue({ georeference: { rmseM: 9 } }));
++  assert.equal(report.featuresAccepted, 0);
++  assert.equal(report.documentsRejected, 1);
++  assert.equal(report.documents[0].reason, "georeference-rmse-exceeds-vectorization-limit");
++});
++
++test("accepted georeferenced vector PDF produces evidence-only path and footprint candidates", async () => {
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-vector-"));
++  const cache = path.join(root, "supplemental", "planning-documents");
++  await mkdir(cache, { recursive: true });
++  await writeFile(path.join(cache, "cache123.pdf"), "%PDF-1.4\n%%EOF\n");
++  const svg = `<svg width="100pt" height="100pt" viewBox="0 0 100 100">
++    <path d="M10 10 L40 10 L70 30" stroke="#333" stroke-width="2" fill="none"/>
++    <polygon points="20,40 50,40 50,70 20,70" stroke="#000" fill="none"/>
++    <rect x="0" y="0" width="100" height="100"/>
++  </svg>`;
++  const runtime = {
++    cacheDir: root,
++    planningVectorSvgProvider: async () => svg,
++    planningVectorCoordinateTransformer: async (points) => points.map((point) => ({ x: -1.9 + (point.x - 400000) / 100000, y: 53 + (point.y - 300000) / 100000 }))
++  };
++  const report = await vectorizePlanningDrawings(runtime, { planningVectorizeMode: "extract", planningVectorizeMinLengthM: 2, planningVectorizeMinAreaM2: 4 }, catalogue());
++  assert.equal(report.status, "candidate-vectors-extracted");
++  assert.equal(report.documentsExtracted, 1);
++  assert.equal(report.featuresAccepted, 2);
++  assert.equal(report.featuresWithheld, 1);
++  const roles = report.candidates.features.map((feature) => feature.properties.geometry_role).sort();
++  assert.deepEqual(roles, ["access-path-centerline-candidate", "access-surface-candidate"]);
++  assert.equal(report.candidates.features.every((feature) => feature.properties.world_eligible === false), true);
++  assert.equal(report.candidates.features.every((feature) => feature.properties.fusion_status === "awaiting-planning-authority-gates"), true);
++  assert.equal(report.candidates.features[0].properties.planning_reference, "SMD/2024/0001");
++});
