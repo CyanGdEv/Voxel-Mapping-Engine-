@@ -1,7 +1,7 @@
   PHASE20_B64="$ROOT/.phase20-planning-authority-discovery.patch.b64"
   PHASE20_PATCH="$ROOT/.phase20-planning-authority-discovery.patch"
   EXPECTED_PHASE20_PATCH_SHA="881974491fcf428db7e54f9787369ffaba5255c852061e2f0393198873f18c6d"
-  cat "$ROOT"/patches/v0120-phase20/phase20.patch.b64.part-* > "$PHASE20_B64"
+  cat "$ROOT"/patches/v0120-phase20/phase20.bundle.b64.part-* > "$PHASE20_B64"
   base64 --decode "$PHASE20_B64" > "$PHASE20_PATCH"
   ACTUAL_PHASE20_PATCH_SHA="$(sha256sum "$PHASE20_PATCH" | cut -d' ' -f1)"
   printf 'phase20_patch_expected=%s\nphase20_patch_actual=%s\n' \
