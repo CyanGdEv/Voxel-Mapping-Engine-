@@ -1,46 +1,62 @@
 # Voxel Mapping Engine
 
-A phone-controlled cloud generator that converts public geospatial evidence into a pre-generated Minecraft Bedrock `.mcworld`.
+A phone-controlled cloud generator that converts public geospatial evidence into a high-fidelity, pre-generated Minecraft Bedrock `.mcworld`.
 
-## Current generator
+## GitHub Actions mobile generator
 
-The Actions workflow now targets **ThemePark Map v0.11.1**, based on the proven v0.11 source. Its accuracy upgrade adds:
+The repository workflow now runs **ThemePark Map v0.12.0 Supplemental Source Fusion**. It can be launched from the GitHub app or a mobile browser without a local computer.
 
-- colour- and material-matched three-block path palettes;
-- deterministic paving patterns such as herringbone, running bond, slabs and mosaic;
-- rights-gated aerial terrain texturing for grass, woodland floor, soil, gravel/rock and sand;
-- mapped forest, woodland, orchard, scrub, shrub, bush, tree-row and hedge reconstruction;
-- dense tree-line placement, continuous hedges and irregular bush models;
-- high-confidence aerial-canopy gap filling outside incomplete vegetation polygons;
-- DSM-minus-DTM tree-height evidence where available.
+The build combines bounded evidence from:
 
-Buildings stay in **marker mode** for the benchmark world rather than being generated as inaccurate solid shells.
+- OpenStreetMap and Overpass;
+- Environment Agency DTM, DSM, and LiDAR coverage;
+- Planning Data trees, TPO areas, ancient woodland, and listed buildings;
+- National Trees Outside Woodland canopy polygons and height evidence;
+- Microsoft Global ML Building Footprints as confidence-gated gap fill;
+- optional OS OpenMap Local WGS84 GeoJSON;
+- Wikidata place and attraction labels;
+- Wikimedia Commons geotagged photo/licence evidence;
+- OpenAerialMap imagery discovery;
+- generic OGC API Features, ArcGIS Feature Layer, and GeoJSON source configs;
+- optional rights-cleared georeferenced orthophotos.
 
-## Generate Alton Towers from a phone
+The source archive is stored as checksum-locked base64 text so GitHub Actions can reconstruct the exact v0.12.0 source without requiring a manual ZIP upload.
 
-1. Upload `ThemePark_Map_v0.11.1_Aerial_Surface_Vegetation_Source.zip` to the repository root without renaming it.
-2. Open **Actions**.
-3. Select **Build Minecraft Theme Park World**.
-4. Tap **Run workflow**.
-5. Keep:
-   - preset: `alton-towers`
-   - accuracy: `benchmark`
-   - world margin: `32`
-6. Leave the orthophoto fields empty unless you have a direct, georeferenced RGB GeoTIFF/COG URL and explicit reuse licence.
-7. Start the workflow.
-8. When it finishes, download the artifact ending in `-mcworld`.
-9. Unzip the artifact in the iOS Files app and tap the contained `.mcworld` to import it into Minecraft.
+## Generate a world from a phone
 
-## Optional aerial evidence
+1. Open **Actions**.
+2. Select **Build Minecraft Theme Park World**.
+3. Tap **Run workflow**.
+4. Choose `alton-towers`, `chessington`, `thorpe-park`, or `custom`.
+5. Keep the default source switches enabled.
+6. Start the workflow.
+7. Download the artifact ending in `-mcworld-v0120`.
+8. Extract the artifact in the iOS Files app and tap the `.mcworld` file to import it into Minecraft.
 
-The workflow can download a georeferenced orthophoto when these inputs are supplied:
+For a custom park, enter a name and WGS84 bounding box in this order:
 
-- `orthophoto_url`
-- `orthophoto_source`
-- `orthophoto_license`
-- `orthophoto_date` (recommended)
-- `orthophoto_sha256` (recommended)
+```text
+south,west,north,east
+```
 
-Without a rights-cleared orthophoto, the build still uses live OSM, Environment Agency DTM/DSM, mapped path surface tags and mapped vegetation extents. Aerial-only path recovery, colour sampling and canopy-gap filling remain inactive rather than using unlicensed imagery.
+## Accuracy profiles
 
-See [`MOBILE_GITHUB_ACTIONS.md`](MOBILE_GITHUB_ACTIONS.md) for full phone setup and download instructions.
+- `benchmark` uses evidence where available and clearly disclosed deterministic reconstruction where public data has gaps.
+- `verified` uses conservative evidence-only behavior and refuses elevation/source fallback.
+
+Buildings remain in marker mode by default so uncertain heights are not converted into misleading solid structures. Verified building, LiDAR, or planning evidence can still improve the compiled representation.
+
+## Source and download safety
+
+The GitHub Actions build applies:
+
+- SHA-256 verification of the encoded source and decoded archive;
+- bounded supplemental feature counts and pagination;
+- compressed-download ceilings;
+- confidence-gated Microsoft footprints;
+- source provenance and licence recording;
+- fail-open optional providers by default;
+- optional fail-closed supplemental-source mode;
+- independent `.mcworld` archive validation before upload.
+
+See [`MOBILE_GITHUB_ACTIONS.md`](MOBILE_GITHUB_ACTIONS.md) for phone instructions, custom providers, optional imagery, and diagnostics.

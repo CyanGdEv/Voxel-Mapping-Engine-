@@ -1,0 +1,85 @@
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    2>&1 | tee "$DIAG/compatibility-tests.log"
+  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"
+)
+
+SOURCE_ARGS=(
+  --max-supplemental-features "${TPMAP_MAX_SUPPLEMENTAL_FEATURES:-50000}"
+  --supplemental-page-size "${TPMAP_SUPPLEMENTAL_PAGE_SIZE:-5000}"
+  --max-supplemental-download-mb "${TPMAP_MAX_SUPPLEMENTAL_DOWNLOAD_MB:-250}"
+)
+
+[[ "${TPMAP_ENGLAND_OPEN_DATA:-true}" == "true" ]] && SOURCE_ARGS+=(--england-open-data)
+if [[ "${TPMAP_MICROSOFT_BUILDINGS:-true}" == "true" ]]; then
+  SOURCE_ARGS+=(
+    --microsoft-buildings
+    --microsoft-buildings-min-confidence "${TPMAP_MICROSOFT_MIN_CONFIDENCE:-0.65}"
+  )
+fi
+[[ "${TPMAP_WIKIDATA_PLACES:-true}" == "true" ]] && SOURCE_ARGS+=(--wikidata-places)
+[[ "${TPMAP_WIKIMEDIA_COMMONS:-false}" == "true" ]] && SOURCE_ARGS+=(--wikimedia-commons)
+[[ "${TPMAP_OPEN_AERIAL_MAP:-true}" == "true" ]] && SOURCE_ARGS+=(--open-aerial-map)
+[[ "${TPMAP_STRICT_SUPPLEMENTAL_SOURCES:-false}" == "true" ]] && SOURCE_ARGS+=(--strict-supplemental-sources)
+
+add_optional_repo_file() {
+  local env_value="$1" flag="$2" label="$3"
+  [[ -n "$env_value" ]] || return 0
+  local source_path="$ROOT/$env_value"
+  [[ -f "$source_path" ]] || {
+    echo "$label file does not exist in the repository: $env_value" >&2
+    exit 2
+  }
+  local copied_path="$GEN/data/mobile-inputs/$(basename "$env_value")"
+  mkdir -p "$(dirname "$copied_path")"
+  cp "$source_path" "$copied_path"
+  SOURCE_ARGS+=("$flag" "data/mobile-inputs/$(basename "$env_value")")
+}
+
+add_optional_repo_file "${TPMAP_SOURCE_CONFIG_PATH:-}" --source-config "Supplemental source config"
+add_optional_repo_file "${TPMAP_OS_OPENMAP_LOCAL_PATH:-}" --os-openmap-local "OS OpenMap Local"
+
+IMAGERY_ARGS=(
+  --orthophoto-mode off
+  --path-discovery-mode off
+  --aerial-terrain-mode off
+)
+if [[ -n "${TPMAP_ORTHOPHOTO_URL:-}" ]]; then
+  [[ -n "${TPMAP_ORTHOPHOTO_SOURCE:-}" && -n "${TPMAP_ORTHOPHOTO_LICENSE:-}" ]] || {
+    echo "orthophoto_source and orthophoto_license are required with orthophoto_url." >&2
+    exit 2
+  }
+  mkdir -p "$GEN/data"
+  curl --fail --location --retry 4 --retry-all-errors \
+    --user-agent "ThemeParkMap/0.12.0 ($CONTACT)" \
+    "$TPMAP_ORTHOPHOTO_URL" -o "$GEN/data/park-orthophoto.tif" \
+    2>&1 | tee "$DIAG/orthophoto-download.log"
+  [[ -s "$GEN/data/park-orthophoto.tif" ]]
+  if [[ -n "${TPMAP_ORTHOPHOTO_SHA256:-}" ]]; then
+    [[ "$(sha256sum "$GEN/data/park-orthophoto.tif" | cut -d' ' -f1)" == "$TPMAP_ORTHOPHOTO_SHA256" ]] || {
+      echo "Orthophoto checksum mismatch." >&2
+      exit 2
+    }
+  fi
+  gdalinfo "$GEN/data/park-orthophoto.tif" > "$DIAG/orthophoto-gdalinfo.txt"
+  IMAGERY_ARGS=(
+    --orthophoto data/park-orthophoto.tif
+    --orthophoto-source "$TPMAP_ORTHOPHOTO_SOURCE"
+    --orthophoto-source-url "$TPMAP_ORTHOPHOTO_URL"
+    --orthophoto-license "$TPMAP_ORTHOPHOTO_LICENSE"
+    --orthophoto-mode evidence
+    --path-discovery-mode evidence
+    --path-discovery-min-confidence 0.74
+    --path-discovery-min-area-m2 12
+    --aerial-terrain-mode evidence
+    --aerial-terrain-grid-m 2
+    --aerial-terrain-min-confidence 0.72
+  )
+  [[ -n "${TPMAP_ORTHOPHOTO_DATE:-}" ]] && IMAGERY_ARGS+=(--orthophoto-date "$TPMAP_ORTHOPHOTO_DATE")
+fi
+
+run_attempt() {
+  local label="$1" elevation="$2" overpass="$3" dsm="$4"
+  local log="$DIAG/build-$label.log"

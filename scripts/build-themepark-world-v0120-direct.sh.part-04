@@ -1,0 +1,34 @@
+  grep -Fxq "$required" "$ARCHIVE_LIST" || {
+    echo "Generated world is missing $required" >&2
+    exit 4
+  }
+done
+MANIFEST="$(unzip -p "$MCWORLD" db/CURRENT | tr -d '\r\n')"
+[[ -n "$MANIFEST" ]] && grep -Fxq "db/$MANIFEST" "$ARCHIVE_LIST"
+
+WORLD_SHA="$(sha256sum "$MCWORLD" | cut -d' ' -f1)"
+WORLD_BYTES="$(stat -c '%s' "$MCWORLD")"
+VALIDATION_PATH="$GEN/$OUT_REL/independent-validation.json"
+node --input-type=module - "$VALIDATION_PATH" "$SUCCESS_STRATEGY" "$(basename "$MCWORLD")" "$WORLD_SHA" "$WORLD_BYTES" <<'NODE'
+import { writeFileSync } from 'node:fs';
+const [, , output, strategy, filename, sha256, bytes] = process.argv;
+writeFileSync(output, JSON.stringify({
+  schemaVersion: 4,
+  status: 'passed',
+  generatorVersion: '0.12.0',
+  strategy,
+  world: { filename, sha256, bytes: Number(bytes) }
+}, null, 2) + '\n');
+NODE
+
+capture_reports
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "mcworld=$MCWORLD" >> "$GITHUB_OUTPUT"
+  echo "strategy=$SUCCESS_STRATEGY" >> "$GITHUB_OUTPUT"
+  echo "safe_name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
+fi
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "MCWORLD=$MCWORLD" >> "$GITHUB_ENV"
+fi
+
+echo "Generated $(basename "$MCWORLD") using $SUCCESS_STRATEGY"

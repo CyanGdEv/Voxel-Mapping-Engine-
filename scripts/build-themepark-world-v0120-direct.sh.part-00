@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$(pwd)"
+DIAG="$ROOT/ci-diagnostics"
+GEN="$ROOT/generator"
+OUT_REL="out/github-actions"
+SOURCE_ZIP="$ROOT/ThemePark_Map_v0.11.6_Aerial_Acquisition_Phase2C_Source.zip"
+EXPECTED_SOURCE_SHA="ffa5d243762e1fb5eb8ee5ecf19cec8bc9169b02f1b9c264692f60044855dc12"
+PATCH_117_B64="$ROOT/patches/v0117-ea-wfs-namespace/v0117.patch.gz.b64"
+PATCH_118_B64="$ROOT/patches/v0118-ea-coverage-metadata/v0118.patch.gz.b64"
+PATCH_120_DIR="$ROOT/patches/v0120-supplemental-source-fusion"
+PATCH_120_B64="${RUNNER_TEMP:-/tmp}/v0120.patch.gz.b64"
+EXPECTED_117_B64_SHA="6317a7c50630da74eb196b6b025b30c20d18f79897a95d5d1a1d9607fba9c240"
+EXPECTED_117_PATCH_SHA="505f3d2bb50024f78cba5c6217ba6ee6c3b46aeec45d387385186c1e7c9824b8"
+EXPECTED_118_B64_SHA="df0f74cf212a15e6cea2acb24c19c632730d34235998852ed7c268a0d7823625"
+EXPECTED_118_PATCH_SHA="cab5f8f13f424a4c2adf628c1ca4019e430bcd9dce732183d24ae324d2b757de"
+EXPECTED_120_B64_SHA="90078c0def8ed69fdce78189f3524d3a0ab8d78972cd2142876db1f41b6af627"
+EXPECTED_120_PATCH_SHA="610c7b766ea3fc229b16d9d2e11651732af710e04be7b53d8a7b1e6301875318"
+mkdir -p "$DIAG"
+
+capture_reports() {
+  [[ -d "$GEN/$OUT_REL" ]] || return 0
+  find "$GEN/$OUT_REL" -maxdepth 1 -type f \
+    \( -name '*.json' -o -name '*.log' -o -name '*.html' -o -name '*.svg' \) \
+    -exec cp -f {} "$DIAG/" \; 2>/dev/null || true
+}
+
+on_error() {
+  local status=$?
+  capture_reports
+  {
+    echo "exit_status=$status"
+    echo "line=${BASH_LINENO[0]:-unknown}"
+    echo "command=${BASH_COMMAND:-unknown}"
+  } > "$DIAG/fatal-error.log"
+  exit "$status"
+}
+trap on_error ERR
+
+PRESET="${TPMAP_PRESET:-alton-towers}"
+ACCURACY="${TPMAP_ACCURACY:-benchmark}"
+WORLD_MARGIN="${TPMAP_WORLD_MARGIN:-32}"
+CONTACT="${TPMAP_CONTACT:-https://github.com/${GITHUB_REPOSITORY:-CyanGdEv/Voxel-Mapping-Engine-}}"
+
+case "$PRESET" in
+  alton-towers)
+    PARK_NAME="Alton Towers Resort"
+    BBOX="52.9810,-1.8970,52.9960,-1.8690"
+    ;;
+  chessington)
+    PARK_NAME="Chessington World of Adventures"
+    BBOX="51.3458,-0.3228,51.3535,-0.3133"
+    ;;
+  thorpe-park)
+    PARK_NAME="Thorpe Park Resort"
+    BBOX="51.4000,-0.5275,51.4108,-0.5060"
+    ;;
+  custom)
+    PARK_NAME="${TPMAP_PARK_NAME:-}"
+    BBOX="${TPMAP_BBOX:-}"
+    [[ -n "$PARK_NAME" && -n "$BBOX" ]] || {
+      echo "Custom builds require both park_name and bbox." >&2
+      exit 2
+    }
+    ;;
+  *)
+    echo "Unknown preset: $PRESET" >&2
+    exit 2
+    ;;
+esac
+
+case "$ACCURACY" in
+  benchmark)
+    ACCURACY_MODE="plausible"
+    TERRAIN_DETAIL_MODE="plausible"
+    PATH_GEOMETRY_MODE="repair"
+    PATH_TERRAIN_MODE="conform"
+    ;;
+  verified)
+    ACCURACY_MODE="verified"
+    TERRAIN_DETAIL_MODE="evidence"
+    PATH_GEOMETRY_MODE="qa"
+    PATH_TERRAIN_MODE="evidence"
+    ;;
