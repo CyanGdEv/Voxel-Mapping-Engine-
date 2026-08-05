@@ -1,0 +1,105 @@
+   for (const [key, minimum, maximum] of [
+     ["wikidataLimit", 1, 2000], ["wikimediaCommonsLimit", 1, 500],
+     ["maxSupplementalFeatures", 1, 500000], ["supplementalPageSize", 1, 10000],
+diff --git a/src/lib/lidar.mjs b/src/lib/lidar.mjs
+index aeea8a1..dffef9d 100644
+--- a/src/lib/lidar.mjs
++++ b/src/lib/lidar.mjs
+@@ -1,5 +1,5 @@
+ import path from "node:path";
+-import { readFile } from "node:fs/promises";
++import { readFile, writeFile } from "node:fs/promises";
+ import { fromFile } from "geotiff";
+ import proj4 from "proj4";
+ import { bboxCenter, createProjector, parseBbox } from "./geo.mjs";
+@@ -33,62 +33,64 @@ export async function acquireLidarElevation(options, provider) {
+   if (!isLive && provider !== "geotiff") throw new UserError(`Unsupported LiDAR provider: ${provider}`);
+   if (!isLive && !options.dtm) throw new UserError("--elevation geotiff requires --dtm FILE");
+ 
+-  const dtmSource = isLive
+-    ? await acquireCoverage({
++  const dtmBundle = isLive
++    ? await acquireCoverageBundle({
+       endpoint: options.eaDtmWcsUrl || EA_DTM_WCS,
+       coverageId: `${EA_DTM_DATASET}__Lidar_Composite_Elevation_DTM_1m`,
+       bounds: projectedBounds,
+       cacheDir,
+       userAgent: options.userAgent,
+       noCache: options.noCache,
+-      role: "dtm"
++      role: "dtm",
++      options
+     })
+-    : { filename: path.resolve(options.dtm), cacheHit: true, endpoint: null, queryHash: null };
++    : await acquireLocalRasterBundle(path.resolve(options.dtm), "DTM");
+ 
+   const wantsDsm = !options.noDsm && (isLive || options.dsm);
+-  const dsmSource = !wantsDsm ? null : isLive
+-    ? await acquireCoverage({
++  const dsmBundle = !wantsDsm ? null : isLive
++    ? await acquireCoverageBundle({
+       endpoint: options.eaDsmWcsUrl || EA_DSM_WCS,
+       coverageId: `${EA_DSM_DATASET}__Lidar_Composite_Elevation_LZ_DSM_1m`,
+       bounds: projectedBounds,
+       cacheDir,
+       userAgent: options.userAgent,
+       noCache: options.noCache,
+-      role: "dsm"
++      role: "dsm",
++      options
+     })
+-    : { filename: path.resolve(options.dsm), cacheHit: true, endpoint: null, queryHash: null };
++    : await acquireLocalRasterBundle(path.resolve(options.dsm), "DSM");
+ 
+-  let vomSource = null;
++  let vomBundle = null;
+   let vomFailure = null;
+   if (isLive && options.eaVom) {
+     try {
+       const vomBounds = options.eaVomBbox
+         ? projectBbox(parseBbox(options.eaVomBbox), transform.forward)
+         : projectedBounds;
+-      vomSource = await acquireDiscoveredCoverage({
++      const coverageId = options.eaVomCoverageId || await discoverCoverageId({
+         endpoint: options.eaVomWcsUrl || EA_VOM_WCS,
+-        coverageId: options.eaVomCoverageId || null,
+         preferred: /vegetation|object|vom/i,
+-        bounds: vomBounds,
+         cacheDir,
+         userAgent: options.userAgent,
+         noCache: options.noCache,
+         role: "vom"
+       });
++      vomBundle = await acquireCoverageBundle({
++        endpoint: options.eaVomWcsUrl || EA_VOM_WCS,
++        coverageId,
++        bounds: vomBounds,
++        cacheDir,
++        userAgent: options.userAgent,
++        noCache: options.noCache,
++        role: "vom",
++        options: { ...options, eaTileMinCoverage: 0 }
++      });
+     } catch (error) {
+       vomFailure = error?.message || String(error);
+     }
+   }
+ 
+-  const dtm = await readGeoTiffRaster(dtmSource.filename, "DTM");
+-  const dsm = dsmSource ? await readGeoTiffRaster(dsmSource.filename, "DSM") : null;
+-  const vom = vomSource ? await readGeoTiffRaster(vomSource.filename, "VOM") : null;
+-  if (dsm) validateAlignedRasters(dtm, dsm);
+-  const [dtmHash, dsmHash, vomHash] = await Promise.all([
+-    sha256File(dtmSource.filename),
+-    dsmSource ? sha256File(dsmSource.filename) : null,
+-    vomSource ? sha256File(vomSource.filename) : null
+-  ]);
++  if (dsmBundle) validateCompatibleRasterBundles(dtmBundle, dsmBundle);
+ 
+   const survey = isLive
+     ? await acquireSurveyMetadata({
+@@ -101,28 +103,26 @@ export async function acquireLidarElevation(options, provider) {
+     : null;
+ 
+   const localProjector = createProjector(bboxCenter(options.bbox));
+-  const terrainSampler = createProjectedRasterSampler(dtm);
