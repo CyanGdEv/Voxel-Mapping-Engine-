@@ -4,6 +4,7 @@
     test/lidar.test.mjs \
     test/accuracy-source-upgrades.test.mjs \
     test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
     2>&1 | tee "$DIAG/compatibility-tests.log"
   node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"
 )
@@ -16,9 +17,19 @@ SOURCE_ARGS=(
   --planning-override-min-confidence "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}"
   --planning-override-min-overlap "${TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP:-0.18}"
   --planning-override-max-offset-m "${TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M:-25}"
+  --planning-document-mode "${TPMAP_PLANNING_DOCUMENT_MODE:-extract}"
+  --planning-document-max-applications "${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS:-80}"
+  --planning-document-max-documents "${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS:-240}"
+  --planning-document-max-mb "${TPMAP_PLANNING_DOCUMENT_MAX_MB:-25}"
+  --planning-document-max-pages "${TPMAP_PLANNING_DOCUMENT_MAX_PAGES:-5}"
+  --planning-document-min-score "${TPMAP_PLANNING_DOCUMENT_MIN_SCORE:-35}"
 )
 
-[[ "${TPMAP_ENGLAND_OPEN_DATA:-true}" == "true" ]] && SOURCE_ARGS+=(--england-open-data)
+if [[ "${TPMAP_ENGLAND_OPEN_DATA:-true}" == "true" ]]; then
+  SOURCE_ARGS+=(--england-open-data)
+  [[ "${TPMAP_PLANNING_DOCUMENT_MODE:-extract}" == "off" ]] || SOURCE_ARGS+=(--planning-documents)
+fi
+[[ -n "${TPMAP_PLANNING_DOCUMENT_LICENSE:-}" ]] && SOURCE_ARGS+=(--planning-document-license "$TPMAP_PLANNING_DOCUMENT_LICENSE")
 if [[ "${TPMAP_MICROSOFT_BUILDINGS:-true}" == "true" ]]; then
   SOURCE_ARGS+=(
     --microsoft-buildings
@@ -52,6 +63,13 @@ printf 'mode=%s\nmin_confidence=%s\nmin_overlap=%s\nmax_offset_m=%s\ngeometry_pa
   "${TPMAP_PLANNING_OVERRIDE_MODE:-gated}" "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}" \
   "${TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP:-0.18}" "${TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M:-25}" \
   "${TPMAP_PLANNING_GEOMETRY_PATH:-}" > "$DIAG/planning-authority-config.txt"
+
+printf 'enabled=%s\nmode=%s\nmax_applications=%s\nmax_documents=%s\nmax_download_mb=%s\nmax_pdf_pages=%s\nmin_score=%s\nlicense=%s\n' \
+  "${TPMAP_ENGLAND_OPEN_DATA:-true}" "${TPMAP_PLANNING_DOCUMENT_MODE:-extract}" \
+  "${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS:-80}" "${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS:-240}" \
+  "${TPMAP_PLANNING_DOCUMENT_MAX_MB:-25}" "${TPMAP_PLANNING_DOCUMENT_MAX_PAGES:-5}" \
+  "${TPMAP_PLANNING_DOCUMENT_MIN_SCORE:-35}" "${TPMAP_PLANNING_DOCUMENT_LICENSE:-}" \
+  > "$DIAG/planning-document-config.txt"
 
 IMAGERY_ARGS=(
   --orthophoto-mode off
