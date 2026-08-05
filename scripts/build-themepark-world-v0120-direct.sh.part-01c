@@ -1,14 +1,32 @@
-  PHASE21_B64="$ROOT/patches/v0120-phase21/phase21-planning-georeference.patch.gz.b64"
+  PHASE21_B64="$ROOT/.phase21-planning-georeference.patch.gz.b64"
   PHASE21_PATCH="$ROOT/.phase21-planning-georeference.patch"
-  EXPECTED_PHASE21_BLOB="cfa6edb645615f69b61775edc2130b79335c4f8c"
-  ACTUAL_PHASE21_BLOB="$(git hash-object "$PHASE21_B64")"
-  printf 'phase21_bundle_expected_blob=%s\nphase21_bundle_actual_blob=%s\n' \
-    "$EXPECTED_PHASE21_BLOB" "$ACTUAL_PHASE21_BLOB" \
-    | tee "$DIAG/phase21-patch-checksum.txt"
-  [[ "$ACTUAL_PHASE21_BLOB" == "$EXPECTED_PHASE21_BLOB" ]] || {
-    echo "Phase 21 planning georeference bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
+  PHASE21_PARTS=("$ROOT"/patches/v0120-phase21/phase21-planning-georeference.patch.gz.b64.part-*)
+  PHASE21_EXPECTED_BLOBS=(
+    067179691fcf7b3faffcbca0c6682a5681fbd811
+    818d57643d8d0a1537c687c4eccc7b30a5c95e5f
+    2669a2001b9fa63ae11a8d0fd6e31837b414891a
+    19b97d21a421e9ab2f4c3570c7f5271c24730419
+    cd51fe7879beac90a1784a60c229089cc116096d
+  )
+  [[ ${#PHASE21_PARTS[@]} -eq ${#PHASE21_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 21 planning georeference bundle part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
+  : > "$PHASE21_B64"
+  : > "$DIAG/phase21-patch-checksum.txt"
+  for (( phase21_index=0; phase21_index<${#PHASE21_PARTS[@]}; phase21_index++ )); do
+    phase21_part="${PHASE21_PARTS[$phase21_index]}"
+    phase21_expected_blob="${PHASE21_EXPECTED_BLOBS[$phase21_index]}"
+    phase21_actual_blob="$(git hash-object "$phase21_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase21_part")" "$phase21_expected_blob" "$phase21_actual_blob" \
+      | tee -a "$DIAG/phase21-patch-checksum.txt"
+    [[ "$phase21_actual_blob" == "$phase21_expected_blob" ]] || {
+      echo "Phase 21 planning georeference bundle chunk mismatch: $(basename "$phase21_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase21_part" >> "$PHASE21_B64"
+  done
   base64 --decode "$PHASE21_B64" | gzip -dc > "$PHASE21_PATCH"
   ACTUAL_PHASE21_PATCH_SHA="$(sha256sum "$PHASE21_PATCH" | cut -d' ' -f1)"
   printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE21_PATCH_SHA" | tee -a "$DIAG/phase21-patch-checksum.txt"
