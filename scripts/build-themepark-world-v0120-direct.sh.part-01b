@@ -38,8 +38,92 @@
     echo "Phase 20 planning portal recovery patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
+
+  PHASE20_TARGET="$GEN/src/lib/planning-documents.mjs"
+  rm -f "$PHASE20_TARGET.rej"
+  set +e
   patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
     2>&1 | tee "$DIAG/phase20-patch-apply.log"
+  phase20_patch_status=${PIPESTATUS[0]}
+  set -e
+
+  if (( phase20_patch_status != 0 )); then
+    mapfile -t phase20_rejects < <(find "$GEN" -type f -name '*.rej' -print)
+    [[ ${#phase20_rejects[@]} -eq 1 && "${phase20_rejects[0]}" == "$PHASE20_TARGET.rej" ]] || {
+      printf 'Unexpected Phase 20 reject set: %s\n' "${phase20_rejects[*]:-none}" \
+        | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cp "$PHASE20_TARGET.rej" "$DIAG/phase20-planning-documents.rej"
+
+    python3 - "$PHASE20_TARGET" "$PHASE20_TARGET.rej" <<'PY' \
+      | tee "$DIAG/phase20-semantic-repair.log"
+from pathlib import Path
+import re
+import sys
+
+target = Path(sys.argv[1])
+reject_path = Path(sys.argv[2])
+text = target.read_text(encoding="utf-8")
+reject = reject_path.read_text(encoding="utf-8")
+
+headers = re.findall(r"^@@ .* @@", reject, flags=re.MULTILINE)
+required_reject_markers = [
+    '+  ]).map((url) => normalizePortalUrl(url)).filter((url) => safeHttpUrl(url));',
+    '+function normalizePortalUrl(value, baseUrl = null) {'
+]
+if len(headers) != 2 or any(marker not in reject for marker in required_reject_markers):
+    raise SystemExit(
+        "Phase 20 patch produced rejects other than the two expected portal URL normalization hunks"
+    )
+
+old_seed = '  ]).filter((url) => safeHttpUrl(url));'
+new_seed = '  ]).map((url) => normalizePortalUrl(url)).filter((url) => safeHttpUrl(url));'
+if new_seed not in text:
+    if text.count(old_seed) != 1:
+        raise SystemExit(f"Expected exactly one unnormalised planning-document seed expression, found {text.count(old_seed)}")
+    text = text.replace(old_seed, new_seed, 1)
+
+helper = '''function normalizePortalUrl(value, baseUrl = null) {
+  try {
+    const url = new URL(value, baseUrl || undefined);
+    if (url.protocol === "http:" && baseUrl) {
+      const base = new URL(baseUrl);
+      if (base.protocol === "https:" && base.hostname === url.hostname) url.protocol = "https:";
+    }
+    return url.toString();
+  } catch {
+    return String(value || "");
+  }
+}
+
+'''
+helper_signature = 'function normalizePortalUrl(value, baseUrl = null) {'
+if helper_signature not in text:
+    anchor = 'function safeHttpUrl(value) {'
+    if text.count(anchor) != 1:
+        raise SystemExit(f"Expected exactly one safeHttpUrl anchor, found {text.count(anchor)}")
+    text = text.replace(anchor, helper + anchor, 1)
+
+checks = {
+    "normalised document seeds": new_seed,
+    "portal URL helper": helper_signature,
+    "normalised extracted links": 'normalizePortalUrl(new URL(rawHref, baseUrl).toString(), baseUrl)',
+    "test export": 'normalizePortalUrl,'
+}
+missing = [name for name, marker in checks.items() if marker not in text]
+if missing:
+    raise SystemExit(f"Phase 20 semantic repair missing required markers: {', '.join(missing)}")
+if text.count(helper_signature) != 1:
+    raise SystemExit("Phase 20 semantic repair created duplicate normalizePortalUrl helpers")
+
+target.write_text(text, encoding="utf-8")
+print("repaired exactly two expected Phase 20 portal URL normalization rejects")
+PY
+    rm -f "$PHASE20_TARGET.rej"
+  fi
+
+  cp "$PHASE20_TARGET" "$DIAG/phase20-planning-documents-final.mjs"
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase20-syntax-check.log"
   node --test test/planning-documents.test.mjs \
