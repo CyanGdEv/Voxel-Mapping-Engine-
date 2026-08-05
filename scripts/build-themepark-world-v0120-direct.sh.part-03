@@ -1,11 +1,95 @@
   rm -rf "$GEN/$OUT_REL"
   mkdir -p "$GEN/$OUT_REL"
-  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm" | tee "$log"
+
+  local terrain_context_dir="$GEN/data/mobile-inputs"
+  local terrain_boundary_rel="data/mobile-inputs/terrain-context-boundary.geojson"
+  local terrain_boundary="$GEN/$terrain_boundary_rel"
+  mkdir -p "$terrain_context_dir"
+
+  local terrain_metadata
+  terrain_metadata="$(python3 - "$BBOX" "$WORLD_MARGIN" "$terrain_boundary" <<'PY'
+import json
+import math
+import sys
+from pathlib import Path
+
+raw_bbox, raw_margin, output = sys.argv[1:]
+try:
+    south, west, north, east = [float(value.strip()) for value in raw_bbox.split(',')]
+    margin = int(raw_margin)
+except Exception as error:
+    raise SystemExit(f"Invalid bbox/world margin: {error}")
+if not (south < north and west < east):
+    raise SystemExit("Bounding box must be south,west,north,east")
+if margin < 0 or margin > 2500:
+    raise SystemExit("world_margin must be between 0 and 2500 blocks")
+
+mid_lat = (south + north) / 2.0
+lat_pad = margin / 111_320.0
+lon_scale = max(1.0, 111_320.0 * math.cos(math.radians(mid_lat)))
+lon_pad = margin / lon_scale
+terrain = {
+    "south": south - lat_pad,
+    "west": west - lon_pad,
+    "north": north + lat_pad,
+    "east": east + lon_pad,
+}
+width_m = (terrain["east"] - terrain["west"]) * lon_scale
+height_m = (terrain["north"] - terrain["south"]) * 111_320.0
+area_km2 = width_m * height_m / 1_000_000.0
+cells = math.ceil(width_m + 5) * math.ceil(height_m + 5)
+chunks = math.ceil((width_m + 1) / 16.0) * math.ceil((height_m + 1) / 16.0)
+ring = [
+    [terrain["west"], terrain["south"]],
+    [terrain["east"], terrain["south"]],
+    [terrain["east"], terrain["north"]],
+    [terrain["west"], terrain["north"]],
+    [terrain["west"], terrain["south"]],
+]
+feature_collection = {
+    "type": "FeatureCollection",
+    "name": "Terrain context boundary",
+    "features": [{
+        "type": "Feature",
+        "properties": {
+            "id": "workflow:terrain-context-boundary",
+            "name": "Terrain context boundary",
+            "kind": "park_boundary",
+            "subtype": "terrain_context",
+            "verified": True,
+            "source_name": "GitHub Actions requested terrain context",
+            "license": "Derived build boundary; no external geometry rights",
+            "context_margin_m": margin,
+        },
+        "geometry": {"type": "Polygon", "coordinates": [ring]},
+    }],
+}
+Path(output).write_text(json.dumps(feature_collection, indent=2) + "\n", encoding="utf-8")
+terrain_bbox = ",".join(f"{terrain[key]:.8f}" for key in ("south", "west", "north", "east"))
+print("\t".join((terrain_bbox, f"{area_km2:.3f}", str(cells), str(chunks))))
+PY
+)"
+  IFS=$'\t' read -r TERRAIN_BBOX TERRAIN_AREA_KM2 TERRAIN_EXPECTED_CELLS TERRAIN_EXPECTED_CHUNKS <<< "$terrain_metadata"
+
+  # Planning Data currently caps page sizes at 500. Clamp the source argument
+  # even when an older workflow variable still asks for 5,000.
+  local source_index
+  for (( source_index=0; source_index<${#SOURCE_ARGS[@]}; source_index++ )); do
+    if [[ "${SOURCE_ARGS[$source_index]}" == "--supplemental-page-size" ]]; then
+      SOURCE_ARGS[$((source_index + 1))]="500"
+    fi
+  done
+
+  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm park_bbox=$BBOX terrain_bbox=$TERRAIN_BBOX terrain_context_blocks=$WORLD_MARGIN expected_cells=$TERRAIN_EXPECTED_CELLS expected_chunks=$TERRAIN_EXPECTED_CHUNKS max_world_chunks=250000" | tee "$log"
+  printf 'park_bbox=%s\nterrain_bbox=%s\nterrain_context_blocks=%s\nterrain_area_km2=%s\nexpected_cells=%s\nexpected_chunks=%s\n' \
+    "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" \
+    > "$DIAG/terrain-context.txt"
 
   local args=(
     build
     --park-name "$PARK_NAME"
-    --bbox "$BBOX"
+    --bbox "$TERRAIN_BBOX"
+    --override "$terrain_boundary_rel"
     --contact "$CONTACT"
     --accept-nominatim-policy
     --overpass-url "$overpass"
@@ -29,11 +113,11 @@
     --ride-terrain-mode inferred
     --accuracy-mode "$ACCURACY_MODE"
     --palette realistic
-    --world-margin "$WORLD_MARGIN"
+    --world-margin 0
     --allow-large-area
-    --max-area-km2 12
-    --max-cells 8000000
-    --max-world-chunks 20000
+    --max-area-km2 60
+    --max-cells 50000000
+    --max-world-chunks 250000
     --no-addon
     --out "$OUT_REL"
     "${SOURCE_ARGS[@]}"
@@ -56,9 +140,31 @@
     echo "No .mcworld was produced." | tee -a "$log"
     return 3
   }
+
+  node --input-type=module - "$GEN/$OUT_REL/evidence.json" "$WORLD_MARGIN" <<'NODE' 2>&1 | tee "$DIAG/terrain-evidence-validation.log"
+import { readFileSync } from 'node:fs';
+const evidence = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const requestedMargin = Number(process.argv[3]);
+const elevation = evidence?.source?.elevation || {};
+if (!elevation.provider || elevation.provider === 'none') {
+  throw new Error('Terrain validation failed: no elevation provider was retained.');
+}
+const coverage = Number(elevation?.dtm?.coverage);
+if (Number.isFinite(coverage) && coverage < 85) {
+  throw new Error(`Terrain validation failed: DTM coverage is only ${coverage}%.`);
+}
+const minM = Number(elevation?.dtm?.minM ?? elevation.minM);
+const maxM = Number(elevation?.dtm?.maxM ?? elevation.maxM);
+if (Number.isFinite(minM) && Number.isFinite(maxM) && maxM - minM < 3) {
+  throw new Error(`Terrain validation failed: elevation range is only ${(maxM - minM).toFixed(2)} m.`);
+}
+console.log(`terrain passed provider=${elevation.provider} coverage=${Number.isFinite(coverage) ? coverage : 'unknown'} rangeM=${Number.isFinite(minM) && Number.isFinite(maxM) ? (maxM - minM).toFixed(2) : 'unknown'} requestedContext=${requestedMargin}`);
+NODE
+
   cp "$log" "$GEN/$OUT_REL/build.log"
-  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0"}\n' \
-    "$label" "$elevation" "$overpass" "$dsm" > "$GEN/$OUT_REL/build-strategy.json"
+  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0","parkBbox":"%s","terrainBbox":"%s","terrainContextBlocks":%s,"terrainAreaKm2":%s,"expectedCells":%s,"expectedChunks":%s,"worldMargin":0,"maxWorldChunks":250000}\n' \
+    "$label" "$elevation" "$overpass" "$dsm" "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" \
+    > "$GEN/$OUT_REL/build-strategy.json"
   SUCCESS_STRATEGY="$label"
   return 0
 }
@@ -68,14 +174,14 @@ ALTERNATE="https://overpass.kumi.systems/api/interpreter"
 SUCCESS_STRATEGY=""
 MCWORLD=""
 
-if run_attempt 01-ea-lidar-primary ea-lidar "$PRIMARY" on; then :
-elif [[ "$ACCURACY" == "verified" ]]; then
-  echo "Verified mode refuses elevation/source fallback." >&2
-  exit 2
-elif run_attempt 02-ea-dtm-alternate ea-lidar "$ALTERNATE" off; then :
-elif run_attempt 03-flat-alternate none "$ALTERNATE" off; then :
+# Large terrain contexts use DTM-only acquisition to avoid downloading a
+# second full-area DSM. Small/default builds still try DSM first so measured
+# building and vegetation heights remain available where practical.
+if (( WORLD_MARGIN <= 512 )) && run_attempt 01-ea-lidar-primary ea-lidar "$PRIMARY" on; then :
+elif run_attempt 02-ea-dtm-primary ea-lidar "$PRIMARY" off; then :
+elif run_attempt 03-ea-dtm-alternate ea-lidar "$ALTERNATE" off; then :
 else
-  echo "All world-build strategies failed." >&2
+  echo "All evidence-backed terrain build strategies failed. Flat terrain fallback is disabled." >&2
   exit 2
 fi
 
