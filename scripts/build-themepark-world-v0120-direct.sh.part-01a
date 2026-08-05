@@ -30,8 +30,46 @@
     echo "Phase 17B resolution blending patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
+  LIDAR_FILE="$GEN/src/lib/lidar.mjs"
+  python3 - "$LIDAR_FILE" <<'PYLIDARBASE' | tee "$DIAG/phase17b-timeout-baseline.log"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+baseline = '{ timeoutMs: 240_000, retries: 2 }'
+large_context = '{ timeoutMs: 1_200_000, retries: 3 }'
+if large_context in text:
+    text = text.replace(large_context, baseline, 1)
+    path.write_text(text, encoding="utf-8")
+    print("restored Phase 17B patch baseline timeout")
+elif baseline in text:
+    print("Phase 17B patch baseline timeout already present")
+else:
+    raise SystemExit("Could not locate Environment Agency WCS timeout policy before Phase 17B")
+PYLIDARBASE
+
   patch --batch --forward -d "$GEN" -p1 < "$PHASE17B_PATCH" \
     2>&1 | tee "$DIAG/phase17b-patch-apply.log"
+
+  LIDAR_FILE="$GEN/src/lib/lidar.mjs"
+  python3 - "$LIDAR_FILE" <<'PYLIDAR' | tee "$DIAG/lidar-large-context-hotfix.log"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+old = '{ timeoutMs: 240_000, retries: 2 }'
+new = '{ timeoutMs: 1_200_000, retries: 3 }'
+if old in text:
+    text = text.replace(old, new, 1)
+    path.write_text(text, encoding="utf-8")
+    print("extended Environment Agency WCS timeout for large terrain contexts")
+elif new in text:
+    print("large-context WCS timeout already present")
+else:
+    raise SystemExit("Could not locate Environment Agency WCS timeout policy after Phase 17B")
+PYLIDAR
 
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase17b-syntax-check.log"
