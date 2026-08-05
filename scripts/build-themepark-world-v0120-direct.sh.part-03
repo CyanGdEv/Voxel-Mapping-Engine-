@@ -1,6 +1,6 @@
   rm -rf "$GEN/$OUT_REL"
   mkdir -p "$GEN/$OUT_REL"
-  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm" | tee "$log"
+  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm world_margin=$WORLD_MARGIN max_world_chunks=250000" | tee "$log"
 
   local args=(
     build
@@ -33,7 +33,7 @@
     --allow-large-area
     --max-area-km2 12
     --max-cells 8000000
-    --max-world-chunks 20000
+    --max-world-chunks 250000
     --no-addon
     --out "$OUT_REL"
     "${SOURCE_ARGS[@]}"
@@ -57,8 +57,8 @@
     return 3
   }
   cp "$log" "$GEN/$OUT_REL/build.log"
-  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0"}\n' \
-    "$label" "$elevation" "$overpass" "$dsm" > "$GEN/$OUT_REL/build-strategy.json"
+  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0","worldMargin":%s,"maxWorldChunks":250000}\n' \
+    "$label" "$elevation" "$overpass" "$dsm" "$WORLD_MARGIN" > "$GEN/$OUT_REL/build-strategy.json"
   SUCCESS_STRATEGY="$label"
   return 0
 }
