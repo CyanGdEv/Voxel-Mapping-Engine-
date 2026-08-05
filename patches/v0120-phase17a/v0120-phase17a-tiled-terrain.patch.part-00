@@ -1,0 +1,67 @@
+diff --git a/src/cli.mjs b/src/cli.mjs
+index 3f08639..7b5a09b 100644
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -81,6 +81,13 @@ Public service consent
+   --ea-vom-wcs-url URL              Replaceable Environment Agency VOM WCS
+   --ea-vom-coverage-id ID           Explicit VOM coverage ID; otherwise discover from capabilities
+   --ea-vom-bbox BBOX                Optional canopy-only bounds as south,west,north,east
++  --ea-tiled                         Split large EA WCS requests into cached validated tiles
++  --ea-tile-size-m 1000             Projected tile edge length
++  --ea-tile-concurrency 2           Maximum simultaneous EA tile requests
++  --ea-tile-min-coverage .85        Required valid-cell ratio for DTM/DSM tiles
++  --ea-tile-max-resolution-m 2      Reject unexpectedly coarse EA tile responses
++  --ea-tile-threshold-m 1500        Tile requests whose longest side exceeds this
++  --ea-tile-fallback-single         Controlled fallback to one WCS request if tiling fails
+   --ea-index-wfs-url URL            Replaceable LiDAR survey-index WFS
+   --cache DIRECTORY                 Response cache (default .tpmap-cache)
+   --no-cache                        Refresh bounded source requests
+diff --git a/src/lib/args.mjs b/src/lib/args.mjs
+index 35a2c20..ef96a15 100644
+--- a/src/lib/args.mjs
++++ b/src/lib/args.mjs
+@@ -4,7 +4,9 @@ const VALUE_FLAGS = new Set([
+   "park-name", "bbox", "osm", "out", "contact", "overpass-url",
+   "nominatim-url", "cache", "elevation", "open-meteo-url",
+   "open-meteo-api-key", "elevation-spacing", "dtm", "dsm", "ostn15-grid",
+-  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-vom-wcs-url", "ea-vom-coverage-id", "ea-vom-bbox", "ea-index-wfs-url", "override", "overture",
++  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-vom-wcs-url", "ea-vom-coverage-id", "ea-vom-bbox",
++  "ea-tile-size-m", "ea-tile-concurrency", "ea-tile-min-coverage",
++  "ea-tile-max-resolution-m", "ea-tile-threshold-m", "ea-index-wfs-url", "override", "overture",
+   "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
+   "planning-datasets", "planning-data-url", "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+@@ -45,7 +47,7 @@ const VALUE_FLAGS = new Set([
+ const BOOLEAN_FLAGS = new Set([
+   "help", "strict", "accept-nominatim-policy", "accept-open-meteo-terms",
+   "commercial", "allow-large-area", "no-cache", "no-addon", "no-world", "no-preview",
+-  "no-dsm", "ea-vom", "no-ride-info-signs", "quiet", "england-open-data",
++  "no-dsm", "ea-vom", "ea-tiled", "ea-tile-fallback-single", "no-ride-info-signs", "quiet", "england-open-data",
+   "trees-outside-woodland", "planning-data", "microsoft-buildings",
+   "wikidata-places", "wikimedia-commons", "open-aerial-map",
+   "strict-supplemental-sources"
+@@ -95,7 +97,8 @@ export function parseArgs(argv) {
+ 
+ function normalize(options) {
+   const numberKeys = [
+-    "elevationSpacing", "scale", "maxAreaKm2", "maxCells", "minConfidence",
++    "elevationSpacing", "eaTileSizeM", "eaTileConcurrency", "eaTileMinCoverage",
++    "eaTileMaxResolutionM", "eaTileThresholdM", "scale", "maxAreaKm2", "maxCells", "minConfidence",
+     "opsPerYield", "buildDepth", "baseY", "worldMargin", "maxWorldChunks",
+     "chunkVersion", "blockDataVersion", "seed", "rideCorridorM", "rideSampleM",
+     "rideInterpolationGapM", "pointCloudSkip", "maxPointCloudMb",
+@@ -164,6 +167,17 @@ function normalize(options) {
+     (options.microsoftBuildingsMinConfidence < 0 || options.microsoftBuildingsMinConfidence > 1)) {
+     throw new UserError("--microsoft-buildings-min-confidence must be between 0 and 1");
+   }
++  for (const [key, minimum, maximum] of [
++    ["eaTileSizeM", 100, 5000], ["eaTileConcurrency", 1, 8],
++    ["eaTileMinCoverage", 0, 1], ["eaTileMaxResolutionM", 0.25, 20],
++    ["eaTileThresholdM", 100, 20000]
++  ]) {
++    if (options[key] === undefined) continue;
++    if (options[key] < minimum || options[key] > maximum ||
++      (key === "eaTileConcurrency" && !Number.isInteger(options[key]))) {
++      throw new UserError(`--${toKebab(key)} must be ${key === "eaTileConcurrency" ? "an integer " : ""}between ${minimum} and ${maximum}`);
++    }
++  }

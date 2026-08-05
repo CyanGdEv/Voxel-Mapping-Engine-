@@ -1,0 +1,89 @@
+-  const surfaceSampler = dsm ? createProjectedRasterSampler(dsm) : null;
+-  const vegetationHeightSampler = vom ? createProjectedRasterSampler(vom) : null;
+   const projectLocal = (xOrPoint, zValue) => {
+     const [x, z] = Array.isArray(xOrPoint) ? xOrPoint : [xOrPoint, zValue];
+     return transform.forward(localProjector.inverse([x, z]));
+   };
+   const result = {
+     provider: isLive
+-      ? "Environment Agency National LIDAR Programme DTM/DSM"
++      ? `Environment Agency National LIDAR Programme DTM/DSM${dtmBundle.mode === "tiled" ? " (tiled)" : ""}`
+       : "Local GeoTIFF DTM/DSM",
+     sourceKind: isLive ? "ea-lidar" : "geotiff",
+-    resolutionM: Math.max(dtm.resolutionM, dsm?.resolutionM || 0),
++    acquisitionMode: dtmBundle.mode,
++    resolutionM: Math.max(dtmBundle.metadata.resolutionM, dsmBundle?.metadata.resolutionM || 0),
+     verticalAccuracyRmseM: isLive ? 0.15 : null,
+     datum: isLive ? "Ordnance Datum Newlyn" : "source GeoTIFF datum",
+     crs: "EPSG:27700",
+-    minM: dtm.min,
+-    maxM: dtm.max,
++    minM: dtmBundle.metadata.minM,
++    maxM: dtmBundle.metadata.maxM,
+     projectedBounds,
+-    dtm: publicRasterMetadata(dtm, dtmSource, dtmHash),
+-    dsm: dsm ? publicRasterMetadata(dsm, dsmSource, dsmHash) : null,
+-    vom: vom ? publicRasterMetadata(vom, vomSource, vomHash) : null,
++    dtm: dtmBundle.metadata,
++    dsm: dsmBundle?.metadata || null,
++    vom: vomBundle?.metadata || null,
+     survey,
+     transformation: {
+       name: "OSTN15",
+@@ -141,8 +141,10 @@ export async function acquireLidarElevation(options, provider) {
+       ? "https://environment.data.gov.uk/dataset/2e8d0733-4f43-48b4-9e51-631c25d1b0a9"
+       : null,
+     warning: [
+-      dsm ? null : "No DSM was selected; measured structure heights and roof surfaces are unavailable.",
+-      options.eaVom && !vom ? `EA Vegetation Object Model was requested but unavailable${vomFailure ? `: ${vomFailure}` : "."}` : null
++      dsmBundle ? null : "No DSM was selected; measured structure heights and roof surfaces are unavailable.",
++      dtmBundle.warning,
++      dsmBundle?.warning,
++      options.eaVom && !vomBundle ? `EA Vegetation Object Model was requested but unavailable${vomFailure ? `: ${vomFailure}` : "."}` : null
+     ].filter(Boolean).join(" ") || null
+   };
+ 
+@@ -155,29 +157,29 @@ export async function acquireLidarElevation(options, provider) {
+       enumerable: false,
+       value(x, z) {
+         const [easting, northing] = projectLocal(x, z);
+-        return terrainSampler(easting, northing);
++        return dtmBundle.sampler(easting, northing);
+       }
+     },
+     sampleSurfaceLocal: {
+       enumerable: false,
+-      value: surfaceSampler ? (x, z) => {
++      value: dsmBundle ? (x, z) => {
+         const [easting, northing] = projectLocal(x, z);
+-        return surfaceSampler(easting, northing);
++        return dsmBundle.sampler(easting, northing);
+       } : null
+     },
+     sampleVegetationHeightLocal: {
+       enumerable: false,
+-      value: vegetationHeightSampler ? (x, z) => {
++      value: vomBundle ? (x, z) => {
+         const [easting, northing] = projectLocal(x, z);
+-        const height = vegetationHeightSampler(easting, northing);
++        const height = vomBundle.sampler(easting, northing);
+         return Number.isFinite(height) && height >= 2.5 && height <= 70 ? height : null;
+       } : null
+     },
+     samplePairLocal: {
+       enumerable: false,
+-      value: surfaceSampler ? (x, z) => {
++      value: dsmBundle ? (x, z) => {
+         const [easting, northing] = projectLocal(x, z);
+-        return { terrain: terrainSampler(easting, northing), surface: surfaceSampler(easting, northing) };
++        return { terrain: dtmBundle.sampler(easting, northing), surface: dsmBundle.sampler(easting, northing) };
+       } : null
+     }
+   });
+@@ -345,6 +347,271 @@ async function acquireCoverage({ endpoint, coverageId, bounds, cacheDir, userAge
+   return { filename: cached.filename, cacheHit: cached.cacheHit, endpoint, queryHash: sha256(url.toString()), role };
+ }
+ 
++
++async function acquireLocalRasterBundle(filename, role) {
++  const raster = await readGeoTiffRaster(filename, role);

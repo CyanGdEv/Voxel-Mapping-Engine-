@@ -1,0 +1,80 @@
++      file: path.basename(tile.raster.filename),
++      sha256: tile.sha256,
++      queryHash: tile.source.queryHash,
++      cacheHit: tile.source.cacheHit,
++      coverage: tile.validation.coverage,
++      resolutionM: tile.validation.resolutionM,
++      minM: tile.validation.minM,
++      maxM: tile.validation.maxM
++    }))
++  };
++}
++
++async function writeCoverageArtifacts({ outputDir, role, metadata }) {
++  if (!outputDir) return { manifest: null, heatmap: null };
++  const directory = path.resolve(outputDir);
++  await ensureDir(directory);
++  const manifestPath = path.join(directory, `terrain-tile-coverage-${role}.json`);
++  const heatmapPath = path.join(directory, `terrain-tile-coverage-${role}.svg`);
++  await writeFile(manifestPath, JSON.stringify({ schemaVersion: 1, generatedAt: new Date().toISOString(), ...metadata }, null, 2) + "\n");
++  await writeFile(heatmapPath, coverageHeatmapSvg(metadata));
++  return { manifest: path.basename(manifestPath), heatmap: path.basename(heatmapPath) };
++}
++
++export function coverageHeatmapSvg(metadata) {
++  const cell = 36;
++  const padding = 42;
++  const width = padding * 2 + metadata.columns * cell;
++  const height = padding * 2 + metadata.rows * cell + 34;
++  const byCell = new Map(metadata.tiles.map((tile) => [`${tile.row},${tile.column}`, tile]));
++  const cells = [];
++  for (let row = metadata.rows - 1; row >= 0; row -= 1) {
++    for (let column = 0; column < metadata.columns; column += 1) {
++      const tile = byCell.get(`${row},${column}`);
++      const coverage = tile?.coverage ?? 0;
++      const opacity = Math.max(0.15, Math.min(1, coverage / 100));
++      const x = padding + column * cell;
++      const y = padding + (metadata.rows - 1 - row) * cell;
++      cells.push(`<rect x="${x}" y="${y}" width="${cell - 2}" height="${cell - 2}" fill="rgb(32,150,70)" fill-opacity="${opacity.toFixed(3)}"><title>${tile?.id || "missing"}: ${coverage}%</title></rect>`);
++    }
++  }
++  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n<rect width="100%" height="100%" fill="white"/>\n<text x="${padding}" y="24" font-family="sans-serif" font-size="16">${escapeXml(metadata.role.toUpperCase())} tiled coverage — ${metadata.coverage}%</text>\n${cells.join("\n")}\n<text x="${padding}" y="${height - 12}" font-family="sans-serif" font-size="12">${metadata.columns} × ${metadata.rows} tiles, ${metadata.tileSizeM} m grid</text>\n</svg>\n`;
++}
++
++function validateCompatibleRasterBundles(dtm, dsm) {
++  const sameBounds = dtm.metadata.bounds.every((value, index) => Math.abs(value - dsm.metadata.bounds[index]) < 2.5);
++  const sameResolution = Math.abs(dtm.metadata.resolutionM - dsm.metadata.resolutionM) < 0.001;
++  invariant(sameBounds && sameResolution, "DTM and DSM acquisitions must have matching bounds and resolution");
++  if (dtm.mode === "tiled" || dsm.mode === "tiled") {
++    invariant(dtm.mode === dsm.mode && dtm.metadata.rows === dsm.metadata.rows && dtm.metadata.columns === dsm.metadata.columns,
++      "DTM and DSM tiled acquisitions must use the same tile grid");
++  }
++}
++
++async function mapLimit(values, concurrency, worker) {
++  invariant(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 8,
++    "EA tile concurrency must be an integer between 1 and 8");
++  const results = new Array(values.length);
++  let cursor = 0;
++  const runners = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
++    while (true) {
++      const index = cursor;
++      cursor += 1;
++      if (index >= values.length) return;
++      results[index] = await worker(values[index], index);
++    }
++  });
++  await Promise.all(runners);
++  return results;
++}
++
++function coverageSpanM(bounds) {
++  return Math.max(bounds.maxE - bounds.minE, bounds.maxN - bounds.minN);
++}
++
++function escapeXml(value) {
++  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
++}
++
+ async function acquireSurveyMetadata({ endpoint, bounds, cacheDir, userAgent, noCache }) {
+   const url = new URL(endpoint);

@@ -1,0 +1,90 @@
++  const source = { filename, cacheHit: true, endpoint: null, queryHash: null, role: role.toLowerCase() };
++  return {
++    mode: "single",
++    sampler: createProjectedRasterSampler(raster),
++    metadata: publicRasterMetadata(raster, source, await sha256File(filename)),
++    warning: null,
++    raster
++  };
++}
++
++async function acquireCoverageBundle({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role, options }) {
++  const tileThresholdM = options.eaTileThresholdM ?? 1_500;
++  const tiled = options.eaTiled && coverageSpanM(bounds) > tileThresholdM;
++  if (!tiled) {
++    return acquireSingleCoverageBundle({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role });
++  }
++  try {
++    return await acquireTiledCoverageBundle({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role, options });
++  } catch (error) {
++    if (!options.eaTileFallbackSingle) throw error;
++    const single = await acquireSingleCoverageBundle({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role });
++    single.warning = `Tiled ${role.toUpperCase()} acquisition failed and used the controlled single-request fallback: ${error?.message || error}`;
++    return single;
++  }
++}
++
++async function acquireSingleCoverageBundle({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role }) {
++  const source = await acquireCoverage({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role });
++  const raster = await readGeoTiffRaster(source.filename, role.toUpperCase());
++  return {
++    mode: "single",
++    sampler: createProjectedRasterSampler(raster),
++    metadata: publicRasterMetadata(raster, source, await sha256File(source.filename)),
++    warning: null,
++    raster
++  };
++}
++
++async function acquireTiledCoverageBundle({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role, options }) {
++  const tileSizeM = options.eaTileSizeM ?? 1_000;
++  const concurrency = options.eaTileConcurrency ?? 2;
++  const minimumCoverage = role === "vom" ? 0 : (options.eaTileMinCoverage ?? 0.85);
++  const plan = planCoverageTiles(bounds, tileSizeM);
++  const settled = await mapLimit(plan.tiles, concurrency, async (tile) => {
++    try {
++      const source = await acquireCoverage({
++        endpoint, coverageId, bounds: tile.bounds, cacheDir, userAgent, noCache,
++        role: `${role}-tile-${tile.row}-${tile.column}`
++      });
++      const raster = await readGeoTiffRaster(source.filename, `${role.toUpperCase()} tile ${tile.id}`);
++      const validation = validateCoverageTile(raster, tile.bounds, {
++        role, minimumCoverage, maximumResolutionM: options.eaTileMaxResolutionM ?? 2
++      });
++      return {
++        ...tile, source, raster, sampler: createProjectedRasterSampler(raster), validation,
++        sha256: await sha256File(source.filename)
++      };
++    } catch (error) {
++      return { ...tile, error: error?.message || String(error) };
++    }
++  });
++  const failures = settled.filter((tile) => tile.error);
++  if (failures.length) {
++    const details = failures.slice(0, 6).map((tile) => `${tile.id}: ${tile.error}`).join("; ");
++    throw new UserError(
++      `${role.toUpperCase()} tiled acquisition failed for ${failures.length}/${settled.length} tiles`,
++      details
++    );
++  }
++  const tiles = settled;
++  const metadata = summarizeCoverageTiles({ role, endpoint, coverageId, plan, tiles });
++  const artifacts = await writeCoverageArtifacts({ outputDir: options.out, role, metadata });
++  metadata.manifest = artifacts.manifest;
++  metadata.heatmap = artifacts.heatmap;
++  return {
++    mode: "tiled",
++    sampler: createTiledRasterSampler({ ...plan, tiles }),
++    metadata,
++    warning: null,
++    raster: { ...plan, tiles }
++  };
++}
++
++export function planCoverageTiles(bounds, tileSizeM = 1_000) {
++  invariant(Number.isFinite(tileSizeM) && tileSizeM >= 100 && tileSizeM <= 5_000,
++    "EA tile size must be between 100 and 5000 metres");
++  const widthM = bounds.maxE - bounds.minE;
++  const heightM = bounds.maxN - bounds.minN;
++  invariant(widthM > 0 && heightM > 0, "Projected LiDAR bounds must have positive dimensions");
++  const columns = Math.ceil(widthM / tileSizeM);
