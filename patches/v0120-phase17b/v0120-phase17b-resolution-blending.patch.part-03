@@ -1,0 +1,123 @@
+tiled-resolution-blended" : "tiled",
+     role,
+     endpoint,
+     coverageId,
+@@ -527,17 +682,28 @@ export function summarizeCoverageTiles({ role, endpoint, coverageId, plan, tiles
+     minM,
+     maxM,
+     resolutionM,
++    resolutionProfile: plan.resolutionProfile ? {
++      ...plan.resolutionProfile,
++      tierCounts: Object.fromEntries(["core", "near", "outer"].map((tier) => [tier, tiles.filter((tile) => tile.tier === tier).length])),
++      nativeResolutionFallbackTiles: tiles.filter((tile) => tile.source.nativeResolutionFallback).length
++    } : null,
+     queryHash: sha256(tiles.map((tile) => tile.source.queryHash).join("\n")),
+     tiles: tiles.map((tile) => ({
+       id: tile.id,
+       row: tile.row,
+       column: tile.column,
++      tier: tile.tier || "native",
++      requestedResolutionM: tile.requestedResolutionM || 1,
++      distanceToCoreM: tile.distanceToCoreM ?? null,
+       bounds: tile.raster.boundingBox,
+       requestedBounds: tile.bounds,
+       file: path.basename(tile.raster.filename),
+       sha256: tile.sha256,
+       queryHash: tile.source.queryHash,
+       cacheHit: tile.source.cacheHit,
++      nativeResolutionFallback: Boolean(tile.source.nativeResolutionFallback),
++      resolutionFallbackReason: tile.resolutionFallbackReason || null,
++      scaleFactor: tile.source.scaleFactor,
+       coverage: tile.validation.coverage,
+       resolutionM: tile.validation.resolutionM,
+       minM: tile.validation.minM,
+@@ -571,22 +737,73 @@ export function coverageHeatmapSvg(metadata) {
+       const opacity = Math.max(0.15, Math.min(1, coverage / 100));
+       const x = padding + column * cell;
+       const y = padding + (metadata.rows - 1 - row) * cell;
+-      cells.push(`<rect x="${x}" y="${y}" width="${cell - 2}" height="${cell - 2}" fill="rgb(32,150,70)" fill-opacity="${opacity.toFixed(3)}"><title>${tile?.id || "missing"}: ${coverage}%</title></rect>`);
++      const fill = tile?.tier === "core" ? "rgb(35,105,190)" : tile?.tier === "near" ? "rgb(32,150,70)" : tile?.tier === "outer" ? "rgb(196,132,45)" : "rgb(90,130,90)";
++      const resolution = tile?.requestedResolutionM || tile?.resolutionM || "?";
++      cells.push(`<rect x="${x}" y="${y}" width="${cell - 2}" height="${cell - 2}" fill="${fill}" fill-opacity="${opacity.toFixed(3)}"><title>${tile?.id || "missing"}: ${coverage}% coverage, ${tile?.tier || "native"} ${resolution} m</title></rect>`);
+     }
+   }
+-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n<rect width="100%" height="100%" fill="white"/>\n<text x="${padding}" y="24" font-family="sans-serif" font-size="16">${escapeXml(metadata.role.toUpperCase())} tiled coverage — ${metadata.coverage}%</text>\n${cells.join("\n")}\n<text x="${padding}" y="${height - 12}" font-family="sans-serif" font-size="12">${metadata.columns} × ${metadata.rows} tiles, ${metadata.tileSizeM} m grid</text>\n</svg>\n`;
++  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n<rect width="100%" height="100%" fill="white"/>\n<text x="${padding}" y="24" font-family="sans-serif" font-size="16">${escapeXml(metadata.role.toUpperCase())} tiled coverage — ${metadata.coverage}%</text>\n${cells.join("\n")}\n<text x="${padding}" y="${height - 12}" font-family="sans-serif" font-size="12">${metadata.columns} × ${metadata.rows} tiles, ${metadata.tileSizeM} m grid${metadata.resolutionProfile ? `; core ${metadata.resolutionProfile.coreResolutionM} m / near ${metadata.resolutionProfile.nearResolutionM} m / outer ${metadata.resolutionProfile.outerResolutionM} m` : ""}</text>\n</svg>\n`;
+ }
+ 
+ function validateCompatibleRasterBundles(dtm, dsm) {
+   const sameBounds = dtm.metadata.bounds.every((value, index) => Math.abs(value - dsm.metadata.bounds[index]) < 2.5);
+-  const sameResolution = Math.abs(dtm.metadata.resolutionM - dsm.metadata.resolutionM) < 0.001;
+-  invariant(sameBounds && sameResolution, "DTM and DSM acquisitions must have matching bounds and resolution");
++  const hasResolutionProfile = Boolean(dtm.metadata.resolutionProfile || dsm.metadata.resolutionProfile);
++  const sameResolution = hasResolutionProfile || Math.abs(dtm.metadata.resolutionM - dsm.metadata.resolutionM) < 0.001;
++  invariant(sameBounds && sameResolution, "DTM and DSM acquisitions must have matching bounds and compatible resolution");
+   if (dtm.mode === "tiled" || dsm.mode === "tiled") {
+     invariant(dtm.mode === dsm.mode && dtm.metadata.rows === dsm.metadata.rows && dtm.metadata.columns === dsm.metadata.columns,
+       "DTM and DSM tiled acquisitions must use the same tile grid");
++    const staticProfile = (metadata) => {
++      const profile = metadata.resolutionProfile;
++      if (!profile) return null;
++      const { nativeResolutionFallbackTiles, ...stable } = profile;
++      return stable;
++    };
++    invariant(JSON.stringify(staticProfile(dtm.metadata)) === JSON.stringify(staticProfile(dsm.metadata)),
++      "DTM and DSM tiled acquisitions must use the same resolution profile");
+   }
+ }
+ 
++function sampleNearbyTile(tileAt, row, column, x, y) {
++  for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
++    for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
++      if (!rowOffset && !columnOffset) continue;
++      const nearby = tileAt(row + rowOffset, column + columnOffset)?.sampler(x, y);
++      if (Number.isFinite(nearby)) return nearby;
++    }
++  }
++  return null;
++}
++
++function boundsIntersect(a, b) {
++  return a.minE <= b.maxE && a.maxE >= b.minE && a.minN <= b.maxN && a.maxN >= b.minN;
++}
++
++function boundsOverlapArea(a, b) {
++  return a.minE < b.maxE && a.maxE > b.minE && a.minN < b.maxN && a.maxN > b.minN;
++}
++
++function boundsDistanceM(a, b) {
++  const dx = Math.max(b.minE - a.maxE, a.minE - b.maxE, 0);
++  const dy = Math.max(b.minN - a.maxN, a.minN - b.maxN, 0);
++  return Math.hypot(dx, dy);
++}
++
++function pointToBoundsDistanceM(x, y, bounds) {
++  const dx = Math.max(bounds.minE - x, x - bounds.maxE, 0);
++  const dy = Math.max(bounds.minN - y, y - bounds.maxN, 0);
++  return Math.hypot(dx, dy);
++}
++
++function smoothStep(value) {
++  const t = clamp(value, 0, 1);
++  return t * t * (3 - 2 * t);
++}
++
++function formatScaleFactor(value) {
++  return Number(value.toFixed(8)).toString();
++}
++
+ async function mapLimit(values, concurrency, worker) {
+   invariant(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 8,
+     "EA tile concurrency must be an integer between 1 and 8");
+diff --git a/test/resolution-blending.test.mjs b/test/resolution-blending.test.mjs
+new file mode 100644
+index 0000000..c627dfb
+--- /dev/null
++++ b/test/resolution-blending.test.mjs
+@@ -0,0 +1,145 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { parseArgs } from "../src/lib/args.mjs";
++import {
++  buildCoverageUrl,
++  createProjec
