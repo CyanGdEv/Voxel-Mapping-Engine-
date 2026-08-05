@@ -1,0 +1,129 @@
+diff --git a/src/cli.mjs b/src/cli.mjs
+index 7b5a09b..be46d09 100644
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -88,6 +88,13 @@ Public service consent
+   --ea-tile-max-resolution-m 2      Reject unexpectedly coarse EA tile responses
+   --ea-tile-threshold-m 1500        Tile requests whose longest side exceeds this
+   --ea-tile-fallback-single         Controlled fallback to one WCS request if tiling fails
++  --ea-resolution-blend             Use high detail at the park and coarser outer terrain
++  --ea-resolution-core-bbox BBOX    Original park bounds used for the highest-detail zone
++  --ea-core-resolution-m 1          Requested DTM/DSM resolution for tiles intersecting the park
++  --ea-near-resolution-m 2          Requested resolution in the near-context ring
++  --ea-outer-resolution-m 5         Requested resolution in the outer context
++  --ea-near-distance-m 750          Near-context distance from the park bounds
++  --ea-resolution-feather-m 64      Blend distance across resolution boundaries
+   --ea-index-wfs-url URL            Replaceable LiDAR survey-index WFS
+   --cache DIRECTORY                 Response cache (default .tpmap-cache)
+   --no-cache                        Refresh bounded source requests
+diff --git a/src/lib/args.mjs b/src/lib/args.mjs
+index ef96a15..5a5bd6e 100644
+--- a/src/lib/args.mjs
++++ b/src/lib/args.mjs
+@@ -6,7 +6,10 @@ const VALUE_FLAGS = new Set([
+   "open-meteo-api-key", "elevation-spacing", "dtm", "dsm", "ostn15-grid",
+   "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-vom-wcs-url", "ea-vom-coverage-id", "ea-vom-bbox",
+   "ea-tile-size-m", "ea-tile-concurrency", "ea-tile-min-coverage",
+-  "ea-tile-max-resolution-m", "ea-tile-threshold-m", "ea-index-wfs-url", "override", "overture",
++  "ea-tile-max-resolution-m", "ea-tile-threshold-m",
++  "ea-resolution-core-bbox", "ea-core-resolution-m", "ea-near-resolution-m",
++  "ea-outer-resolution-m", "ea-near-distance-m", "ea-resolution-feather-m",
++  "ea-index-wfs-url", "override", "overture",
+   "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
+   "planning-datasets", "planning-data-url", "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+@@ -47,7 +50,8 @@ const VALUE_FLAGS = new Set([
+ const BOOLEAN_FLAGS = new Set([
+   "help", "strict", "accept-nominatim-policy", "accept-open-meteo-terms",
+   "commercial", "allow-large-area", "no-cache", "no-addon", "no-world", "no-preview",
+-  "no-dsm", "ea-vom", "ea-tiled", "ea-tile-fallback-single", "no-ride-info-signs", "quiet", "england-open-data",
++  "no-dsm", "ea-vom", "ea-tiled", "ea-tile-fallback-single", "ea-resolution-blend",
++  "no-ride-info-signs", "quiet", "england-open-data",
+   "trees-outside-woodland", "planning-data", "microsoft-buildings",
+   "wikidata-places", "wikimedia-commons", "open-aerial-map",
+   "strict-supplemental-sources"
+@@ -98,7 +102,9 @@ export function parseArgs(argv) {
+ function normalize(options) {
+   const numberKeys = [
+     "elevationSpacing", "eaTileSizeM", "eaTileConcurrency", "eaTileMinCoverage",
+-    "eaTileMaxResolutionM", "eaTileThresholdM", "scale", "maxAreaKm2", "maxCells", "minConfidence",
++    "eaTileMaxResolutionM", "eaTileThresholdM", "eaCoreResolutionM", "eaNearResolutionM",
++    "eaOuterResolutionM", "eaNearDistanceM", "eaResolutionFeatherM",
++    "scale", "maxAreaKm2", "maxCells", "minConfidence",
+     "opsPerYield", "buildDepth", "baseY", "worldMargin", "maxWorldChunks",
+     "chunkVersion", "blockDataVersion", "seed", "rideCorridorM", "rideSampleM",
+     "rideInterpolationGapM", "pointCloudSkip", "maxPointCloudMb",
+@@ -170,7 +176,9 @@ function normalize(options) {
+   for (const [key, minimum, maximum] of [
+     ["eaTileSizeM", 100, 5000], ["eaTileConcurrency", 1, 8],
+     ["eaTileMinCoverage", 0, 1], ["eaTileMaxResolutionM", 0.25, 20],
+-    ["eaTileThresholdM", 100, 20000]
++    ["eaTileThresholdM", 100, 20000], ["eaCoreResolutionM", 0.5, 5],
++    ["eaNearResolutionM", 0.5, 10], ["eaOuterResolutionM", 0.5, 30],
++    ["eaNearDistanceM", 0, 10000], ["eaResolutionFeatherM", 0, 500]
+   ]) {
+     if (options[key] === undefined) continue;
+     if (options[key] < minimum || options[key] > maximum ||
+@@ -178,6 +186,20 @@ function normalize(options) {
+       throw new UserError(`--${toKebab(key)} must be ${key === "eaTileConcurrency" ? "an integer " : ""}between ${minimum} and ${maximum}`);
+     }
+   }
++  if (options.eaResolutionBlend) {
++    if (!options.eaTiled) {
++      throw new UserError("--ea-resolution-blend requires --ea-tiled");
++    }
++    if (!options.eaResolutionCoreBbox) {
++      throw new UserError("--ea-resolution-blend requires --ea-resolution-core-bbox");
++    }
++    const core = options.eaCoreResolutionM ?? 1;
++    const near = options.eaNearResolutionM ?? 2;
++    const outer = options.eaOuterResolutionM ?? 5;
++    if (!(core <= near && near <= outer)) {
++      throw new UserError("EA blended resolutions must satisfy core <= near <= outer");
++    }
++  }
+   for (const [key, minimum, maximum] of [
+     ["wikidataLimit", 1, 2000], ["wikimediaCommonsLimit", 1, 500],
+     ["maxSupplementalFeatures", 1, 500000], ["supplementalPageSize", 1, 10000],
+diff --git a/src/lib/lidar.mjs b/src/lib/lidar.mjs
+index dffef9d..cef1714 100644
+--- a/src/lib/lidar.mjs
++++ b/src/lib/lidar.mjs
+@@ -28,6 +28,18 @@ export async function acquireLidarElevation(options, provider) {
+   await ensureDir(cacheDir);
+   const transform = await createOstn15Transform({ ...options, cacheDir });
+   const projectedBounds = projectBbox(options.bbox, transform.forward);
++  const resolutionProfile = options.eaResolutionBlend
++    ? createTerrainResolutionProfile({
++      bounds: projectedBounds,
++      coreBounds: projectBbox(parseBbox(options.eaResolutionCoreBbox), transform.forward),
++      coreResolutionM: options.eaCoreResolutionM ?? 1,
++      nearResolutionM: options.eaNearResolutionM ?? 2,
++      outerResolutionM: options.eaOuterResolutionM ?? 5,
++      nearDistanceM: options.eaNearDistanceM ?? 750,
++      featherM: options.eaResolutionFeatherM ?? 64
++    })
++    : null;
++  const coverageOptions = resolutionProfile ? { ...options, eaResolutionProfile: resolutionProfile } : options;
+ 
+   const isLive = provider === "ea-lidar";
+   if (!isLive && provider !== "geotiff") throw new UserError(`Unsupported LiDAR provider: ${provider}`);
+@@ -42,7 +54,7 @@ export async function acquireLidarElevation(options, provider) {
+       userAgent: options.userAgent,
+       noCache: options.noCache,
+       role: "dtm",
+-      options
++      options: coverageOptions
+     })
+     : await acquireLocalRasterBundle(path.resolve(options.dtm), "DTM");
+ 
+@@ -56,7 +68,7 @@ export async function acquireLidarElevation(options, provider) {
+       userAgent: options.userAgent,
+       noCache: options.noCache,
+       role: "dsm",
+-      options
++      options: coverageOptions
+     })
+     : await acquireLocalRasterBundle(path.resolve(options.dsm), "DSM");
+ 
+@@ -83,7 +95,7 @@ export async function acqui
