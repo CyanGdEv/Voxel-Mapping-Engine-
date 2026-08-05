@@ -1,0 +1,22 @@
+    2>&1 | tee "$DIAG/core-pre-phase17a.log"
+
+  PHASE17A_PATCH="$ROOT/.phase17a-tiled-terrain.patch"
+  EXPECTED_PHASE17A_PATCH_SHA="ac452fee2d9adb2a2192b54b9b005fa6a241b4934bb74e62bc1d7001af352210"
+  cat "$ROOT"/patches/v0120-phase17a/v0120-phase17a-tiled-terrain.patch.part-* > "$PHASE17A_PATCH"
+  ACTUAL_PHASE17A_PATCH_SHA="$(sha256sum "$PHASE17A_PATCH" | cut -d' ' -f1)"
+  printf 'phase17a_patch_expected=%s\nphase17a_patch_actual=%s\n' \
+    "$EXPECTED_PHASE17A_PATCH_SHA" "$ACTUAL_PHASE17A_PATCH_SHA" \
+    | tee "$DIAG/phase17a-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE17A_PATCH_SHA" == "$EXPECTED_PHASE17A_PATCH_SHA" ]] || {
+    echo "Phase 17A tiled terrain patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward -d "$GEN" -p1 < "$PHASE17A_PATCH" \
+    2>&1 | tee "$DIAG/phase17a-patch-apply.log"
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase17a-syntax-check.log"
+  node --test test/tiled-lidar.test.mjs \
+    2>&1 | tee "$DIAG/phase17a-tiled-lidar-tests.log"
+
+  node --test \
