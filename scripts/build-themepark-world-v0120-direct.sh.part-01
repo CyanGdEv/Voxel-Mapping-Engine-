@@ -27,6 +27,48 @@ rm -rf "$GEN"
 mkdir -p "$GEN"
 unzip -q "$SOURCE_ZIP" -d "$GEN"
 
+FIDELITY_FILE="$GEN/src/lib/fidelity.mjs"
+python3 - "$FIDELITY_FILE" <<'PY' | tee "$DIAG/fidelity-polygon-area-hotfix.log"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+statement = 'import { polygonArea } from "./geo.mjs";'
+if statement not in text:
+    path.write_text(statement + "\n" + text, encoding="utf-8")
+    print("applied missing polygonArea import")
+else:
+    print("polygonArea import already present")
+PY
+
+node --input-type=module - "$FIDELITY_FILE" <<'NODE' 2>&1 | tee "$DIAG/fidelity-tree-polygon-smoke.log"
+import { pathToFileURL } from 'node:url';
+const { enrichUniversalFidelity } = await import(pathToFileURL(process.argv[2]).href);
+const map = {
+  features: [{
+    id: 'ci-tree-polygon-smoke',
+    kind: 'vegetation',
+    subtype: 'lone_tree_canopy',
+    tags: {},
+    localGeometry: {
+      type: 'Polygon',
+      coordinates: [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]]
+    }
+  }],
+  pathTopology: null,
+  pathGeometry: null,
+  orthophoto: null,
+  terrainDetails: null
+};
+enrichUniversalFidelity(map, {}, { accuracyMode: 'plausible' });
+const tree = map.features[0].fidelity?.tree;
+if (!tree || tree.modelClass !== 'tree' || tree.crownDiameterM !== 4.5) {
+  throw new Error(`Tree polygon fidelity smoke test failed: ${JSON.stringify(tree)}`);
+}
+console.log(`tree polygon fidelity passed crownDiameterM=${tree.crownDiameterM}`);
+NODE
+
 find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
   | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/source-syntax-check.log"
 
