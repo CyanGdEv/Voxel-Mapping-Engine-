@@ -1,0 +1,160 @@
+diff -ruN phase23_base/src/lib/report.mjs phase23_work/src/lib/report.mjs
+--- phase23_base/src/lib/report.mjs	2026-08-05 22:08:06.000000000 +0000
++++ phase23_work/src/lib/report.mjs	2026-08-05 22:24:37.993815358 +0000
+@@ -58,6 +58,7 @@
+ - Planning authority fusion: ${map.sourceFusion?.planningAuthority?.gapFilled ?? 0} missing feature(s) added, ${map.sourceFusion?.planningAuthority?.osmOverridden ?? 0} inaccurate OSM feature(s) replaced, ${map.sourceFusion?.planningAuthority?.corroborated ?? 0} OSM feature(s) corroborated, ${map.sourceFusion?.planningAuthority?.conflictsWithheld ?? 0} unsafe conflict(s) withheld
+ - Planning documents: ${sources.supplemental?.evidence?.["planning-documents"]?.applicationsConsidered ?? 0} application(s) inspected, ${sources.supplemental?.evidence?.["planning-documents"]?.candidatesFound ?? 0} candidate file(s) found, ${sources.supplemental?.evidence?.["planning-documents"]?.documentsDownloaded ?? 0} cache-only download(s), ${sources.supplemental?.evidence?.["planning-documents"]?.textExtracted ?? 0} embedded-text extraction(s)
+ - Planning vectors: ${sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction?.documentsExtracted ?? 0} drawing(s) vectorised, ${sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction?.featuresAccepted ?? 0} evidence-only feature candidate(s), ${sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction?.featuresWithheld ?? 0} unsafe/noise feature(s) withheld
++- Planning vector fusion: ${sources.supplemental?.evidence?.["planning-documents"]?.vectorFusion?.promoted ?? 0} candidate(s) promoted to authority gates; ${map.sourceFusion?.planningAuthority?.vector?.gapFilled ?? 0} gap fill(s), ${map.sourceFusion?.planningAuthority?.vector?.osmOverridden ?? 0} OSM repair(s), ${map.sourceFusion?.planningAuthority?.vector?.corroborated ?? 0} corroboration(s), ${map.sourceFusion?.planningAuthority?.vector?.withheld ?? 0} withheld
+ - OSM relation features assembled: ${map.topology?.relationFeatures ?? 0}
+ - Disjoint polygon parts retained: ${map.topology?.polygonParts ?? 0}
+ - Interior rings retained as holes: ${map.topology?.interiorRings ?? 0}
+@@ -207,5 +208,8 @@
+     fusion.planningAuthority?.considered
+       ? `- Planning authority decisions: ${fusion.planningAuthority.gapFilled} gap fill(s), ${fusion.planningAuthority.osmOverridden} OSM override(s), ${fusion.planningAuthority.corroborated} corroboration(s), ${fusion.planningAuthority.ambiguousWithheld} ambiguous conflict(s) withheld; full audit in planning-authority-decisions.json.`
+       : null,
++    fusion.planningAuthority?.vector?.considered
++      ? `- Planning vector repair: ${fusion.planningAuthority.vector.gapFilled} missing feature(s) added, ${fusion.planningAuthority.vector.osmOverridden} inaccurate OSM feature(s) replaced, ${fusion.planningAuthority.vector.corroborated} corroborated, ${fusion.planningAuthority.vector.withheld} withheld; full preparation and decision audit in planning-vector-fusion.json.`
++      : null,
+   ].filter(Boolean).join("\n") || "- Additional map-source fusion: inputs supplied, no features accepted.";
+ };
+diff -ruN phase23_base/src/lib/source-fusion.mjs phase23_work/src/lib/source-fusion.mjs
+--- phase23_base/src/lib/source-fusion.mjs	2026-08-05 22:08:00.000000000 +0000
++++ phase23_work/src/lib/source-fusion.mjs	2026-08-05 22:24:37.993543323 +0000
+@@ -210,6 +210,14 @@
+     rejectedStatus: 0,
+     conflictsWithheld: 0,
+     ambiguousWithheld: 0,
++    vector: {
++      considered: 0,
++      gapFilled: 0,
++      osmOverridden: 0,
++      corroborated: 0,
++      withheld: 0,
++      privateUseAccepted: 0
++    },
+     decisions: [],
+     decisionsTruncated: false
+   };
+@@ -282,16 +290,26 @@
+   const implemented = tags.planning_implemented === true || String(tags.planning_implemented).toLowerCase() === "true";
+   const dataset = String(feature.source?.dataset || tags.source_dataset || "").toLowerCase();
+   const currentAuthorityDataset = ["listed-building-outline", "tree"].includes(dataset);
++  const planningVectorDataset = dataset === "planning-drawing-vector";
+   const blocked = /(?:refused|withdrawn|invalid|expired|cancelled|canceled|superseded|draft|pending|submitted|undecided)/.test(status);
+-  const implementedStatus = /(?:implemented|built|complete|completed|operational|existing|current|extant)/.test(status);
++  const implementedStatus = /(?:implemented|built|complete|completed|operational|existing|current|extant|as[- ]?built)/.test(status);
+   const approvedStatus = /(?:approved|granted|consented|permitted)/.test(status);
++  const requiresExistingTarget = booleanTag(tags.planning_requires_existing_osm_target);
++  const explicitGapFill = tags.planning_allow_gap_fill === undefined
++    ? true
++    : booleanTag(tags.planning_allow_gap_fill);
++  const privateUseOnly = booleanTag(tags.planning_private_use_only);
+   const roleAllows = ["authoritative-feature", "as-built", "implemented-layout", "approved-layout"].includes(role);
+-  const statusAllowed = !blocked && (currentAuthorityDataset || implemented || implementedStatus ||
++  const approvedTargetRepair = planningVectorDataset && approvedStatus && requiresExistingTarget;
++  const statusAllowed = !blocked && (currentAuthorityDataset || implemented || implementedStatus || approvedTargetRepair ||
+     (config.mode === "authoritative" && approvedStatus));
+   const overrideEligible = roleAllows && statusAllowed &&
+-    (role !== "approved-layout" || implemented || implementedStatus || config.mode === "authoritative");
+-  const gapFillEligible = roleAllows && statusAllowed;
+-  return { role, status, confidence, implemented, dataset, statusAllowed, overrideEligible, gapFillEligible };
++    (role !== "approved-layout" || implemented || implementedStatus || requiresExistingTarget || config.mode === "authoritative");
++  const gapFillEligible = roleAllows && statusAllowed && explicitGapFill && !requiresExistingTarget;
++  return {
++    role, status, confidence, implemented, dataset, statusAllowed, overrideEligible, gapFillEligible,
++    requiresExistingTarget, privateUseOnly, planningVectorDataset
++  };
+ }
+ 
+ function planningGeometryMatch(planning, osm, config) {
+@@ -423,6 +441,10 @@
+ 
+ function inheritMissingFeatureEvidence(planning, replaced) {
+   planning.name ||= replaced.name;
++  if (planning.source?.dataset === "planning-drawing-vector" && replaced.subtype && /^planning-/.test(planning.subtype || "")) {
++    planning.source.planningVectorSubtype = planning.subtype;
++    planning.subtype = replaced.subtype;
++  }
+   planning.tags = { ...replaced.tags, ...planning.tags };
+   if (!Number.isFinite(planning.vertical?.heightM) && Number.isFinite(replaced.vertical?.heightM)) {
+     planning.vertical.heightM = replaced.vertical.heightM;
+@@ -466,6 +488,17 @@
+     "ambiguous-withheld": "ambiguousWithheld"
+   };
+   if (counters[decision.action]) stats[counters[decision.action]] += 1;
++  if (feature.source?.dataset === "planning-drawing-vector") {
++    stats.vector.considered += 1;
++    const vectorCounters = {
++      "gap-fill": "gapFilled",
++      "override-osm": "osmOverridden",
++      corroborated: "corroborated"
++    };
++    if (vectorCounters[decision.action]) stats.vector[vectorCounters[decision.action]] += 1;
++    else stats.vector.withheld += 1;
++    if (decision.accept && decision.policy?.privateUseOnly) stats.vector.privateUseAccepted += 1;
++  }
+   const entry = {
+     planningId: feature.id,
+     kind: feature.kind,
+@@ -476,12 +509,18 @@
+     status: decision.policy?.status || feature.tags?.planning_status || null,
+     confidence: decision.policy?.confidence ?? numberOrNull(feature.tags?.planning_confidence),
+     metrics: decision.metrics ? compactMatchMetrics(decision.metrics) : null,
+-    reference: feature.tags?.planning_reference || null
++    reference: feature.tags?.planning_reference || null,
++    dataset: feature.source?.dataset || null,
++    privateUseOnly: decision.policy?.privateUseOnly || false
+   };
+   if (stats.decisions.length < 5000) stats.decisions.push(entry);
+   else stats.decisionsTruncated = true;
+ }
+ 
++function booleanTag(value) {
++  return value === true || String(value).toLowerCase() === "true" || String(value) === "1" || String(value).toLowerCase() === "yes";
++}
++
+ function normalizedName(value) {
+   return value ? String(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() : "";
+ }
+diff -ruN phase23_base/src/lib/supplemental-sources.mjs phase23_work/src/lib/supplemental-sources.mjs
+--- phase23_base/src/lib/supplemental-sources.mjs	2026-08-05 22:08:00.000000000 +0000
++++ phase23_work/src/lib/supplemental-sources.mjs	2026-08-05 22:23:48.312330519 +0000
+@@ -7,6 +7,7 @@
+ import { UserError, invariant } from "./errors.mjs";
+ import { cachedBinary, cachedJson, ensureDir, fetchBinary, fetchJson, readJson, sha256 } from "./io.mjs";
+ import { acquirePlanningDocumentEvidence } from "./planning-documents.mjs";
++import { preparePlanningVectorFusion } from "./planning-vector-fusion.mjs";
+ 
+ const OGL_3 = "Open Government Licence v3.0";
+ const PLANNING_DATA_URL = "https://www.planning.data.gov.uk/entity.geojson";
+@@ -71,10 +72,25 @@
+     await run("planning-data", () => acquirePlanningData(runtime, options));
+   }
+   if (options.planningDocuments) {
+-    await run("planning-documents", async () => ({
+-      collections: [],
+-      evidence: await acquirePlanningDocumentEvidence(runtime, options, result.collections)
+-    }));
++    await run("planning-documents", async () => {
++      const evidence = await acquirePlanningDocumentEvidence(runtime, options, result.collections);
++      const vectorFusion = preparePlanningVectorFusion(options, evidence);
++      evidence.vectorFusion = vectorFusion.evidence;
++      const collections = vectorFusion.collection.features.length ? [collectionEntry({
++        id: "planning-drawing-vector",
++        adapter: "planning-vector-fusion",
++        provider: "Local planning authority drawing vector",
++        endpoint: null,
++        cacheHit: true,
++        collection: vectorFusion.collection,
++        request: {
++          mode: vectorFusion.evidence.mode,
++          considered: vectorFusion.evidence.considered,
++          promoted: vectorFusion.evidence.promoted
++        }
++      })] : [];
++      return { collections, evidence };
++    });
+   }
+   for (const filename of options.planningGeometry || []) {
+     await run(`planning-geometry:${path.basename(filename)}`, () => acquirePlanningGeometry(runtime, filename));

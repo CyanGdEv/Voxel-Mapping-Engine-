@@ -88,6 +88,53 @@
   node --test test/planning-vectorize.test.mjs \
     2>&1 | tee "$DIAG/phase22-planning-vector-tests.log"
 
+  PHASE23_PATCH="$ROOT/.phase23-planning-vector-fusion.patch"
+  PHASE23_PARTS=("$ROOT"/patches/v0120-phase23/v0120-phase23-planning-vector-fusion.patch.part-*)
+  PHASE23_EXPECTED_BLOBS=(
+    dffa56ff86c7c089a9cec6ca2101a7b7cf1b8fc5
+    d534321412fd48bbb53d18502c5d1dd97e8f7536
+    efc2d4308fe04145c66b380a956d579674706fd1
+    18545fa9395d8ebcc9e5a95fca39516fd6e7e7d8
+    80ee036281604e08c0a24e40da3a015cadd694fb
+  )
+  [[ ${#PHASE23_PARTS[@]} -eq ${#PHASE23_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 23 planning vector fusion patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE23_PATCH"
+  : > "$DIAG/phase23-patch-checksum.txt"
+  for (( phase23_index=0; phase23_index<${#PHASE23_PARTS[@]}; phase23_index++ )); do
+    phase23_part="${PHASE23_PARTS[$phase23_index]}"
+    phase23_expected_blob="${PHASE23_EXPECTED_BLOBS[$phase23_index]}"
+    phase23_actual_blob="$(git hash-object "$phase23_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase23_part")" "$phase23_expected_blob" "$phase23_actual_blob" \
+      | tee -a "$DIAG/phase23-patch-checksum.txt"
+    [[ "$phase23_actual_blob" == "$phase23_expected_blob" ]] || {
+      echo "Phase 23 planning vector fusion patch chunk mismatch: $(basename "$phase23_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase23_part" >> "$PHASE23_PATCH"
+  done
+  ACTUAL_PHASE23_PATCH_SHA="$(sha256sum "$PHASE23_PATCH" | cut -d' ' -f1)"
+  printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE23_PATCH_SHA" | tee -a "$DIAG/phase23-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE23_PATCH_SHA" == "f297a1a4362199211c72897b8b7a7c81657e9c4212a582f62615171cb005ada8" ]] || {
+    echo "Phase 23 planning vector fusion assembled patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE23_PATCH" \
+    2>&1 | tee "$DIAG/phase23-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 23 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase23-syntax-check.log"
+  node --test test/planning-vector-fusion.test.mjs \
+    2>&1 | tee "$DIAG/phase23-planning-vector-fusion-tests.log"
+
   node --test \
     test/planning-georeference.test.mjs \
     test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \

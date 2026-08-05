@@ -1,13 +1,17 @@
-name: Validate Phase 21 Planning Georeference
+name: Validate Planning Patch Chain
 
 on:
   push:
     branches:
       - agent/phase21-planning-drawing-georeference
+      - agent/phase22-planning-vector-extraction
+      - agent/phase23-gated-osm-repair
   pull_request:
     paths:
       - "patches/v0120-phase20/**"
       - "patches/v0120-phase21/**"
+      - "patches/v0120-phase22/**"
+      - "patches/v0120-phase23/**"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
       - ".github/workflows/validate-phase21-georeference.yml"
 
@@ -15,7 +19,7 @@ permissions:
   contents: read
 
 jobs:
-  validate-phase21:
+  validate-planning-chain:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -44,31 +48,31 @@ jobs:
       - name: Assemble validation runner
         shell: bash
         run: |
-          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/phase21-validation.sh"
-          python3 - "$RUNNER_TEMP/phase21-validation.sh" <<'PY'
+          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/planning-chain-validation.sh"
+          python3 - "$RUNNER_TEMP/planning-chain-validation.sh" <<'PY'
           from pathlib import Path
           import sys
 
           path = Path(sys.argv[1])
           text = path.read_text(encoding="utf-8")
           marker = '  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"\n)\n\nSOURCE_ARGS=('
-          replacement = '  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"\n)\n\necho "Phase 21 patch-chain validation complete; world generation intentionally skipped."\nexit 0\n\nSOURCE_ARGS=('
+          replacement = '  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"\n)\n\necho "Planning patch-chain validation complete; world generation intentionally skipped."\nexit 0\n\nSOURCE_ARGS=('
           if marker not in text:
               raise SystemExit("Could not locate the post-compatibility validation boundary")
           path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
           PY
-          chmod +x "$RUNNER_TEMP/phase21-validation.sh"
-          bash -n "$RUNNER_TEMP/phase21-validation.sh"
+          chmod +x "$RUNNER_TEMP/planning-chain-validation.sh"
+          bash -n "$RUNNER_TEMP/planning-chain-validation.sh"
 
       - name: Apply patch chain and run tests
         shell: bash
-        run: bash "$RUNNER_TEMP/phase21-validation.sh"
+        run: bash "$RUNNER_TEMP/planning-chain-validation.sh"
 
-      - name: Upload applied Phase 21 source
+      - name: Upload applied planning source
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase21-applied-source
+          name: planning-applied-source
           path: |
             generator/src/**
             generator/test/**
@@ -83,7 +87,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase21-georeference-validation
+          name: planning-patch-chain-validation
           path: ci-diagnostics/**
           if-no-files-found: warn
           retention-days: 14

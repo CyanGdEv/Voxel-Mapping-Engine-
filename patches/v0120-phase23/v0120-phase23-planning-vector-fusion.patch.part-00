@@ -1,0 +1,168 @@
+diff -ruN phase23_base/PLANNING_VECTOR_FUSION.md phase23_work/PLANNING_VECTOR_FUSION.md
+--- phase23_base/PLANNING_VECTOR_FUSION.md	1970-01-01 00:00:00.000000000 +0000
++++ phase23_work/PLANNING_VECTOR_FUSION.md	2026-08-05 22:26:17.291872431 +0000
+@@ -0,0 +1,48 @@
++# Planning vector fusion and gated OSM repair
++
++Phase 23 promotes selected Phase 22 planning-drawing vectors into the existing planning-authority conflict engine. Promotion is not automatic acceptance: every feature still passes status, confidence, geometry overlap, displacement and ambiguity checks before it can alter the normalized map.
++
++## Modes
++
++- `off`: do not evaluate or promote planning vectors.
++- `review`: run all preparation gates and write decisions, but do not expose candidates to map fusion.
++- `gated`: require a declared reusable/open document licence. Implemented/as-built geometry may fill gaps; approved-only geometry may repair a matching OSM feature but cannot create a missing feature.
++- `private`: permits unknown-licence portal evidence only for explicitly private-use-restricted builds. Every accepted feature is marked non-redistributable in the evidence and source metadata.
++- `authoritative`: permits approved layouts to fill gaps as an intentional future/approved-layout build policy. This should not be used for an as-built reconstruction.
++
++## Semantic promotion
++
++The first release automatically supports:
++
++- access path centrelines and access surfaces;
++- ride centrelines and ride footprints;
++- building footprints from floor plans;
++- landscape polygons and boundaries;
++- drainage lines;
++- lighting areas and layouts.
++
++Ambiguous site-plan linework, unknown polygons, terrain/drainage polygons and page/detail noise remain withheld because their meaning cannot be inferred safely from geometry alone.
++
++## Current-layout rules
++
++Implemented, existing and as-built records can add missing features or replace inaccurate OSM geometry.
++
++Approved-only records in `gated` mode are target-only: an OSM feature must already exist within the configured match distance. This allows an approved drawing to correct a known path or footprint without assuming that every approved proposal was built.
++
++Refused, withdrawn, pending, superseded, invalid, expired and draft evidence is never promoted.
++
++## Metadata preservation
++
++When a planning vector replaces OSM, the engine retains useful OSM evidence that the drawing does not provide, including names, tags, path surface/width semantics, subtype and measured height/elevation evidence. The planning document reference, hash, licence, georeferencing error and replacement metrics remain attached to the resulting feature.
++
++## Outputs
++
++`planning-vector-fusion.json` contains:
++
++- preparation gates and rejection reasons;
++- private-use restrictions;
++- promoted candidate counts by map kind;
++- planning-authority outcomes;
++- every vector addition, replacement, corroboration and withheld conflict.
++
++The existing `planning-authority-decisions.json` remains the complete authority-level audit.
+diff -ruN phase23_base/src/cli.mjs phase23_work/src/cli.mjs
+--- phase23_base/src/cli.mjs	2026-08-05 22:08:06.000000000 +0000
++++ phase23_work/src/cli.mjs	2026-08-05 22:23:32.215077603 +0000
+@@ -72,6 +72,18 @@
+                                     Maximum drawing alignment RMSE for vectorization
+   --planning-vectorize-curve-tolerance 1.5
+                                     PDF curve flattening tolerance in page points
++  --planning-vector-fusion-mode gated
++                                    off, review, gated, private, or authoritative map promotion
++  --planning-vector-fusion-min-confidence .78
++                                    Minimum Phase 22 candidate confidence before fusion
++  --planning-vector-fusion-max-rmse-m 2.5
++                                    Maximum georeference error before fusion
++  --planning-vector-fusion-min-length-m 4
++                                    Minimum path/line candidate length
++  --planning-vector-fusion-min-area-m2 8
++                                    Minimum polygon candidate area
++  --planning-vector-fusion-max-features 5000
++                                    Maximum candidates promoted to planning-authority gates
+   --planning-override-mode gated   off, gated, or authoritative OSM replacement policy
+   --planning-override-min-confidence .86
+                                     Minimum planning evidence score for automatic replacement
+diff -ruN phase23_base/src/lib/args.mjs phase23_work/src/lib/args.mjs
+--- phase23_base/src/lib/args.mjs	2026-08-05 22:08:06.000000000 +0000
++++ phase23_work/src/lib/args.mjs	2026-08-05 22:23:32.214883344 +0000
+@@ -17,7 +17,9 @@
+   "planning-document-license", "planning-vectorize-mode", "planning-vectorize-max-documents",
+   "planning-vectorize-max-features", "planning-vectorize-max-features-per-document",
+   "planning-vectorize-min-length-m", "planning-vectorize-min-area-m2", "planning-vectorize-max-rmse-m",
+-  "planning-vectorize-curve-tolerance", "planning-override-mode", "planning-override-min-confidence",
++  "planning-vectorize-curve-tolerance", "planning-vector-fusion-mode", "planning-vector-fusion-min-confidence",
++  "planning-vector-fusion-max-rmse-m", "planning-vector-fusion-min-length-m", "planning-vector-fusion-min-area-m2",
++  "planning-vector-fusion-max-features", "planning-override-mode", "planning-override-min-confidence",
+   "planning-override-min-overlap", "planning-override-max-offset-m",
+   "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+@@ -138,7 +140,9 @@
+     "planningDocumentMaxDocuments", "planningDocumentMaxMb", "planningDocumentMaxPages",
+     "planningDocumentMinScore", "planningVectorizeMaxDocuments", "planningVectorizeMaxFeatures",
+     "planningVectorizeMaxFeaturesPerDocument", "planningVectorizeMinLengthM", "planningVectorizeMinAreaM2",
+-    "planningVectorizeMaxRmseM", "planningVectorizeCurveTolerance", "planningOverrideMinConfidence",
++    "planningVectorizeMaxRmseM", "planningVectorizeCurveTolerance", "planningVectorFusionMinConfidence",
++    "planningVectorFusionMaxRmseM", "planningVectorFusionMinLengthM", "planningVectorFusionMinAreaM2",
++    "planningVectorFusionMaxFeatures", "planningOverrideMinConfidence",
+     "planningOverrideMinOverlap", "planningOverrideMaxOffsetM", "wikidataLimit",
+     "wikimediaCommonsLimit", "maxSupplementalFeatures", "supplementalPageSize",
+     "maxSupplementalDownloadMb"
+@@ -216,6 +220,21 @@
+   ]) {
+     if (options[key] === undefined) continue;
+     if (options[key] < minimum || options[key] > maximum || (integerOnly && !Number.isInteger(options[key]))) {
++      throw new UserError(`--${toKebab(key)} must be ${integerOnly ? "an integer " : ""}between ${minimum} and ${maximum}`);
++    }
++  }
++  if (options.planningVectorFusionMode && !["off", "review", "gated", "private", "authoritative"].includes(options.planningVectorFusionMode)) {
++    throw new UserError("--planning-vector-fusion-mode must be off, review, gated, private, or authoritative");
++  }
++  for (const [key, minimum, maximum, integerOnly] of [
++    ["planningVectorFusionMinConfidence", 0, 1, false],
++    ["planningVectorFusionMaxRmseM", 0.1, 25, false],
++    ["planningVectorFusionMinLengthM", 0.1, 200, false],
++    ["planningVectorFusionMinAreaM2", 0.1, 100000, false],
++    ["planningVectorFusionMaxFeatures", 1, 100000, true]
++  ]) {
++    if (options[key] === undefined) continue;
++    if (options[key] < minimum || options[key] > maximum || (integerOnly && !Number.isInteger(options[key]))) {
+       throw new UserError(`--${toKebab(key)} must be ${integerOnly ? "an integer " : ""}between ${minimum} and ${maximum}`);
+     }
+   }
+diff -ruN phase23_base/src/lib/pipeline.mjs phase23_work/src/lib/pipeline.mjs
+--- phase23_base/src/lib/pipeline.mjs	2026-08-05 22:08:06.000000000 +0000
++++ phase23_work/src/lib/pipeline.mjs	2026-08-05 22:24:37.993694718 +0000
+@@ -115,6 +115,22 @@
+     path.join(outputDir, "planning-vector-candidates.geojson"),
+     planningVectorEvidence.candidates || { type: "FeatureCollection", features: [] }
+   );
++  const planningVectorFusionPreparation = sources.supplemental?.evidence?.["planning-documents"]?.vectorFusion || {
++    schemaVersion: 1, status: "not-configured", decisions: []
++  };
++  const planningVectorFusionDecisions = (map.sourceFusion?.planningAuthority?.decisions || [])
++    .filter((decision) => decision.dataset === "planning-drawing-vector");
++  const planningVectorFusionPath = await writeJson(
++    path.join(outputDir, "planning-vector-fusion.json"),
++    {
++      schemaVersion: 1,
++      preparation: planningVectorFusionPreparation,
++      outcome: map.sourceFusion?.planningAuthority?.vector || {
++        considered: 0, gapFilled: 0, osmOverridden: 0, corroborated: 0, withheld: 0, privateUseAccepted: 0
++      },
++      decisions: planningVectorFusionDecisions
++    }
++  );
+   const buildingSigns = compilation.signs.filter((sign) => !sign.role || sign.role === "building");
+   const buildingLabelsPath = await writeJson(path.join(outputDir, "building-labels.json"), {
+     schemaVersion: 1,
+@@ -190,6 +206,7 @@
+       planningDocuments: planningDocumentsPath,
+       planningVectorExtraction: planningVectorExtractionPath,
+       planningVectorCandidates: planningVectorCandidatesPath,
++      planningVectorFusion: planningVectorFusionPath,
+       supplementalSources: supplementalSourcesPath,
+       buildingLabels: buildingLabelsPath,
+       rideProfiles: rideProfilesPath,
+diff -ruN phase23_base/src/lib/planning-vector-fusion.mjs phase23_work/src/lib/planning-vector-fusion.mjs
+--- phase23_base/src/lib/planning-vector-fusion.mjs	1970-01-01 00:00:00.000000000 +0000
++++ phase23_work/src/lib/planning-vector-fusion.mjs	2026-08-05 22:23:15.648522852 +0000
+@@ -0,0 +1,287 @@
++const SUPPORTED_VECTOR_ROLES = new Map([
++  ["access-path-centerline-candidate", { kind: "path", subtype: "planning-access-path", geometry: "line", priority: 100 }],
++  ["access-surface-candidate", { kind: "surface", subtype: "planning-access-surface", geometry: "area", priority: 95 }],
++  ["ride-centerline-candidate", { kind: "ride_track", subtype: "planning-ride-centerline", geometry: "line", priority: 92 }],
++  ["ride-footprint-candidate", { kind: "attraction", subtype: "planning-ride-footprint", geometry: "area", priority: 86 }],
++  ["building-footprint-candidate", { kind: "building", subtype: "planning-building-footprint", geometry: "area", priority: 90 }],
++  ["landscape-polygon-candidate", { kind: "vegetation", subtype: "planning-landscape-area", geometry: "area", priority: 72 }],
++  ["landscape-boundary-candidate", { kind: "barrier", subtype: "planning-landscape-boundary", geometry: "line", priority: 48 }],
++  ["drainage-or-contour-line-candidate", { kind: "water", subtype: "planning-drainage-line", geometry: "line", priority: 62 }],
