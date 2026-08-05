@@ -55,97 +55,96 @@ diff -ruN v012_documents_base/PLANNING_DOCUMENT_ACQUISITION.md v012_documents_wo
 +```
 +
 +The output includes `planning-document-catalogue.json` with the application reference, source pages, discovered candidates, classification, selection decision, download hash, byte size, cache status, embedded-text hash and reuse status.
-+diff -ruN v012_documents_base/src/cli.mjs v012_documents_work/src/cli.mjs
-+--- v012_documents_base/src/cli.mjs	2026-08-05 18:04:26.917690315 +0000
-++++ v012_documents_work/src/cli.mjs	2026-08-05 18:34:45.156817049 +0000
-+@@ -46,6 +46,16 @@
-+   --planning-data                  Bounded Planning Data constraints, outlines and applications
-+   --planning-datasets CSV          Override the Planning Data dataset list
-+   --planning-geometry FILE         Extracted planning-plan GeoJSON; repeatable
-++  --planning-documents             Discover and catalogue application documents automatically
-++  --planning-document-mode extract off, discover, download, or embedded-text extraction
-++  --planning-document-max-applications 80
-++                                    Maximum planning applications inspected per build
-++  --planning-document-max-documents 240
-++                                    Maximum geometry-relevant files selected per build
-++  --planning-document-max-mb 25    Aggregate cache-only document download limit
-++  --planning-document-max-pages 5  PDF pages inspected with pdftotext when available
-++  --planning-document-min-score 35 Minimum filename/link classification score
-++  --planning-document-license TEXT Optional explicit reuse licence for downloaded documents
-+   --planning-override-mode gated   off, gated, or authoritative OSM replacement policy
-+   --planning-override-min-confidence .86
-+                                     Minimum planning evidence score for automatic replacement
-+diff -ruN v012_documents_base/src/lib/args.mjs v012_documents_work/src/lib/args.mjs
-+--- v012_documents_base/src/lib/args.mjs	2026-08-05 18:04:26.916837463 +0000
-++++ v012_documents_work/src/lib/args.mjs	2026-08-05 18:34:45.156672655 +0000
-+@@ -12,7 +12,9 @@
-+   "ea-index-wfs-url", "override", "overture",
-+   "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
-+   "planning-datasets", "planning-data-url", "planning-geometry",
-+-  "planning-override-mode", "planning-override-min-confidence",
-++  "planning-document-mode", "planning-document-max-applications", "planning-document-max-documents",
-++  "planning-document-max-mb", "planning-document-max-pages", "planning-document-min-score",
-++  "planning-document-license", "planning-override-mode", "planning-override-min-confidence",
-+   "planning-override-min-overlap", "planning-override-max-offset-m",
-+   "trees-outside-woodland-url",
-+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
-+@@ -55,7 +57,7 @@
-+   "commercial", "allow-large-area", "no-cache", "no-addon", "no-world", "no-preview",
-+   "no-dsm", "ea-vom", "ea-tiled", "ea-tile-fallback-single", "ea-resolution-blend",
-+   "no-ride-info-signs", "quiet", "england-open-data",
-+-  "trees-outside-woodland", "planning-data", "microsoft-buildings",
-++  "trees-outside-woodland", "planning-data", "planning-documents", "microsoft-buildings",
-+   "wikidata-places", "wikimedia-commons", "open-aerial-map",
-+   "strict-supplemental-sources"
-+ ]);
-+@@ -129,7 +131,9 @@
-+     "terrainRockMinSpacingM", "terrainCliffMarkerSpacingM", "maxTerrainRocks",
-+     "aerialTerrainGridM", "aerialTerrainMinConfidence", "treeDensityPer100m2",
-+     "shrubDensityPer100m2", "treeLineSpacingM", "vegetationMinSpacingM",
-+-    "maxVegetationModels", "microsoftBuildingsMinConfidence", "planningOverrideMinConfidence",
-++    "maxVegetationModels", "microsoftBuildingsMinConfidence", "planningDocumentMaxApplications",
-++    "planningDocumentMaxDocuments", "planningDocumentMaxMb", "planningDocumentMaxPages",
-++    "planningDocumentMinScore", "planningOverrideMinConfidence",
-+     "planningOverrideMinOverlap", "planningOverrideMaxOffsetM", "wikidataLimit",
-+     "wikimediaCommonsLimit", "maxSupplementalFeatures", "supplementalPageSize",
-+     "maxSupplementalDownloadMb"
-+@@ -178,6 +182,21 @@
-+     (options.microsoftBuildingsMinConfidence < 0 || options.microsoftBuildingsMinConfidence > 1)) {
-+     throw new UserError("--microsoft-buildings-min-confidence must be between 0 and 1");
-+   }
-++  if (options.planningDocumentMode && !["off", "discover", "download", "extract"].includes(options.planningDocumentMode)) {
-++    throw new UserError("--planning-document-mode must be off, discover, download, or extract");
-++  }
-++  for (const [key, minimum, maximum, integerOnly] of [
-++    ["planningDocumentMaxApplications", 1, 500, true],
-++    ["planningDocumentMaxDocuments", 1, 2000, true],
-++    ["planningDocumentMaxMb", 1, 250, false],
-++    ["planningDocumentMaxPages", 1, 50, true],
-++    ["planningDocumentMinScore", 0, 200, false]
-++  ]) {
-++    if (options[key] === undefined) continue;
-++    if (options[key] < minimum || options[key] > maximum || (integerOnly && !Number.isInteger(options[key]))) {
-++      throw new UserError(`--${toKebab(key)} must be ${integerOnly ? "an integer " : ""}between ${minimum} and ${maximum}`);
-++    }
-++  }
-+   if (options.planningOverrideMode && !["off", "gated", "authoritative"].includes(options.planningOverrideMode)) {
-+     throw new UserError("--planning-override-mode must be off, gated, or authoritative");
-+   }
-+diff -ruN v012_documents_base/src/lib/pipeline.mjs v012_documents_work/src/lib/pipeline.mjs
-+--- v012_documents_base/src/lib/pipeline.mjs	2026-08-05 18:08:37.275799464 +0000
-++++ v012_documents_work/src/lib/pipeline.mjs	2026-08-05 18:34:45.156908907 +0000
-+@@ -100,6 +100,10 @@
-+   const supplementalSourcesPath = await writeJson(
-+     path.join(outputDir, "supplemental-sources.json"), compactSupplementalSources(sources.supplemental)
-+   );
-++  const planningDocumentsPath = await writeJson(
-++    path.join(outputDir, "planning-document-catalogue.json"),
-++    sources.supplemental?.evidence?.["planning-documents"] || { schemaVersion: 1, status: "not-configured", applications: [] }
-++  );
-+   const buildingSigns = compilation.signs.filter((sign) => !sign.role || sign.role === "building");
-+   const buildingLabelsPath = await writeJson(path.join(outputDir, "building-labels.json"), {
-+     schemaVersion: 1,
-+@@ -172,6 +176,7 @@
-+       terrainDetails: terrainDetailsPath,
-+       sourceFusion: sourceFusionPath,
-+
+diff -ruN v012_documents_base/src/cli.mjs v012_documents_work/src/cli.mjs
+--- v012_documents_base/src/cli.mjs	2026-08-05 18:04:26.917690315 +0000
++++ v012_documents_work/src/cli.mjs	2026-08-05 18:34:45.156817049 +0000
+@@ -46,6 +46,16 @@
+   --planning-data                  Bounded Planning Data constraints, outlines and applications
+   --planning-datasets CSV          Override the Planning Data dataset list
+   --planning-geometry FILE         Extracted planning-plan GeoJSON; repeatable
++  --planning-documents             Discover and catalogue application documents automatically
++  --planning-document-mode extract off, discover, download, or embedded-text extraction
++  --planning-document-max-applications 80
++                                    Maximum planning applications inspected per build
++  --planning-document-max-documents 240
++                                    Maximum geometry-relevant files selected per build
++  --planning-document-max-mb 25    Aggregate cache-only document download limit
++  --planning-document-max-pages 5  PDF pages inspected with pdftotext when available
++  --planning-document-min-score 35 Minimum filename/link classification score
++  --planning-document-license TEXT Optional explicit reuse licence for downloaded documents
+   --planning-override-mode gated   off, gated, or authoritative OSM replacement policy
+   --planning-override-min-confidence .86
+                                     Minimum planning evidence score for automatic replacement
+diff -ruN v012_documents_base/src/lib/args.mjs v012_documents_work/src/lib/args.mjs
+--- v012_documents_base/src/lib/args.mjs	2026-08-05 18:04:26.916837463 +0000
++++ v012_documents_work/src/lib/args.mjs	2026-08-05 18:34:45.156672655 +0000
+@@ -12,7 +12,9 @@
+   "ea-index-wfs-url", "override", "overture",
+   "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
+   "planning-datasets", "planning-data-url", "planning-geometry",
+-  "planning-override-mode", "planning-override-min-confidence",
++  "planning-document-mode", "planning-document-max-applications", "planning-document-max-documents",
++  "planning-document-max-mb", "planning-document-max-pages", "planning-document-min-score",
++  "planning-document-license", "planning-override-mode", "planning-override-min-confidence",
+   "planning-override-min-overlap", "planning-override-max-offset-m",
+   "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+@@ -55,7 +57,7 @@
+   "commercial", "allow-large-area", "no-cache", "no-addon", "no-world", "no-preview",
+   "no-dsm", "ea-vom", "ea-tiled", "ea-tile-fallback-single", "ea-resolution-blend",
+   "no-ride-info-signs", "quiet", "england-open-data",
+-  "trees-outside-woodland", "planning-data", "microsoft-buildings",
++  "trees-outside-woodland", "planning-data", "planning-documents", "microsoft-buildings",
+   "wikidata-places", "wikimedia-commons", "open-aerial-map",
+   "strict-supplemental-sources"
+ ]);
+@@ -129,7 +131,9 @@
+     "terrainRockMinSpacingM", "terrainCliffMarkerSpacingM", "maxTerrainRocks",
+     "aerialTerrainGridM", "aerialTerrainMinConfidence", "treeDensityPer100m2",
+     "shrubDensityPer100m2", "treeLineSpacingM", "vegetationMinSpacingM",
+-    "maxVegetationModels", "microsoftBuildingsMinConfidence", "planningOverrideMinConfidence",
++    "maxVegetationModels", "microsoftBuildingsMinConfidence", "planningDocumentMaxApplications",
++    "planningDocumentMaxDocuments", "planningDocumentMaxMb", "planningDocumentMaxPages",
++    "planningDocumentMinScore", "planningOverrideMinConfidence",
+     "planningOverrideMinOverlap", "planningOverrideMaxOffsetM", "wikidataLimit",
+     "wikimediaCommonsLimit", "maxSupplementalFeatures", "supplementalPageSize",
+     "maxSupplementalDownloadMb"
+@@ -178,6 +182,21 @@
+     (options.microsoftBuildingsMinConfidence < 0 || options.microsoftBuildingsMinConfidence > 1)) {
+     throw new UserError("--microsoft-buildings-min-confidence must be between 0 and 1");
+   }
++  if (options.planningDocumentMode && !["off", "discover", "download", "extract"].includes(options.planningDocumentMode)) {
++    throw new UserError("--planning-document-mode must be off, discover, download, or extract");
++  }
++  for (const [key, minimum, maximum, integerOnly] of [
++    ["planningDocumentMaxApplications", 1, 500, true],
++    ["planningDocumentMaxDocuments", 1, 2000, true],
++    ["planningDocumentMaxMb", 1, 250, false],
++    ["planningDocumentMaxPages", 1, 50, true],
++    ["planningDocumentMinScore", 0, 200, false]
++  ]) {
++    if (options[key] === undefined) continue;
++    if (options[key] < minimum || options[key] > maximum || (integerOnly && !Number.isInteger(options[key]))) {
++      throw new UserError(`--${toKebab(key)} must be ${integerOnly ? "an integer " : ""}between ${minimum} and ${maximum}`);
++    }
++  }
+   if (options.planningOverrideMode && !["off", "gated", "authoritative"].includes(options.planningOverrideMode)) {
+     throw new UserError("--planning-override-mode must be off, gated, or authoritative");
+   }
+diff -ruN v012_documents_base/src/lib/pipeline.mjs v012_documents_work/src/lib/pipeline.mjs
+--- v012_documents_base/src/lib/pipeline.mjs	2026-08-05 18:08:37.275799464 +0000
++++ v012_documents_work/src/lib/pipeline.mjs	2026-08-05 18:34:45.156908907 +0000
+@@ -100,6 +100,10 @@
+   const supplementalSourcesPath = await writeJson(
+     path.join(outputDir, "supplemental-sources.json"), compactSupplementalSources(sources.supplemental)
+   );
++  const planningDocumentsPath = await writeJson(
++    path.join(outputDir, "planning-document-catalogue.json"),
++    sources.supplemental?.evidence?.["planning-documents"] || { schemaVersion: 1, status: "not-configured", applications: [] }
++  );
+   const buildingSigns = compilation.signs.filter((sign) => !sign.role || sign.role === "building");
+   const buildingLabelsPath = await writeJson(path.join(outputDir, "building-labels.json"), {
+     schemaVersion: 1,
+@@ -172,6 +176,7 @@
+       terrainDetails: terrainDetailsPath,
+       sourceFusion: sourceFusionPath,
