@@ -1,16 +1,22 @@
     test/planning-documents.test.mjs \
     2>&1 | tee "$DIAG/phase20-runner-boundary-regression.log"
 
-  PHASE20_PATCH="$ROOT/.phase20-planning-authority-discovery.patch"
-  PHASE20_PARTS=(
-    "$ROOT/patches/v0120-phase20/phase20.patch.b64.part-00"
-    "$ROOT/patches/v0120-phase20/phase20.bundle.b64.part-01"
-  )
+  # The merged Phase 20 authority-discovery bundle is incomplete: its middle
+  # source segment was never committed. Apply the complete, bounded portal
+  # recovery implementation instead so planning drawings can actually reach
+  # the georeferencing stage.
+  PHASE20_B64="$ROOT/.phase20-planning-portal-recovery.patch.gz.b64"
+  PHASE20_PATCH="$ROOT/.phase20-planning-portal-recovery.patch"
+  PHASE20_PARTS=("$ROOT"/patches/v0120-phase20-recovery/phase20-recovery.patch.gz.b64.part-*)
   PHASE20_EXPECTED_BLOBS=(
-    1e3dc46458eb8ba5223be16b593d136c5403e32b
-    0faa5bd9de0036891b619a67ad6c5807afc429be
+    66e63cd80dede5f4d881320949dedbce039f859e
+    2f14ece243d0a3bbe0011c79f40af81a7f7d47de
   )
-  : > "$PHASE20_PATCH"
+  [[ ${#PHASE20_PARTS[@]} -eq ${#PHASE20_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 20 planning portal recovery part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE20_B64"
   : > "$DIAG/phase20-patch-checksum.txt"
   for (( phase20_index=0; phase20_index<${#PHASE20_PARTS[@]}; phase20_index++ )); do
     phase20_part="${PHASE20_PARTS[$phase20_index]}"
@@ -20,16 +26,21 @@
       "$(basename "$phase20_part")" "$phase20_expected_blob" "$phase20_actual_blob" \
       | tee -a "$DIAG/phase20-patch-checksum.txt"
     [[ "$phase20_actual_blob" == "$phase20_expected_blob" ]] || {
-      echo "Phase 20 planning authority discovery bundle chunk mismatch: $(basename "$phase20_part")" | tee -a "$DIAG/source-error.txt" >&2
+      echo "Phase 20 planning portal recovery chunk mismatch: $(basename "$phase20_part")" | tee -a "$DIAG/source-error.txt" >&2
       exit 2
     }
-    base64 --decode "$phase20_part" >> "$PHASE20_PATCH"
+    cat "$phase20_part" >> "$PHASE20_B64"
   done
+  base64 --decode "$PHASE20_B64" | gzip -dc > "$PHASE20_PATCH"
   ACTUAL_PHASE20_PATCH_SHA="$(sha256sum "$PHASE20_PATCH" | cut -d' ' -f1)"
   printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE20_PATCH_SHA" | tee -a "$DIAG/phase20-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE20_PATCH_SHA" == "9ab6ded92c977f54d53e4305debae719e987455c7f12aa529994fa93ec479704" ]] || {
+    echo "Phase 20 planning portal recovery patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
   patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
     2>&1 | tee "$DIAG/phase20-patch-apply.log"
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase20-syntax-check.log"
-  node --test test/planning-authority-discovery.test.mjs \
-    2>&1 | tee "$DIAG/phase20-planning-authority-discovery-tests.log"
+  node --test test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase20-planning-portal-tests.log"
