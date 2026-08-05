@@ -4,7 +4,7 @@
   PHASE20_PATCH="$ROOT/.phase20-planning-portal-fallback.patch"
   PHASE20_PARTS=("$ROOT"/patches/v0120-phase20/v0120-phase20-planning-portal-fallback.patch.part-*)
   PHASE20_EXPECTED_BLOBS=(
-    915c07c7518e0172b57df9fb435e1bb4be86dbf6
+    3038372b7bfb5af6633189fe921bf039b8ed3164
     580cc7402e67ecd7183be5d28d8bc3414c0c7778
     4a10be04281d6c32d7ae2bd6970bb264d7efa602
     ab5ab80e9ca7ad7c5f4cffe996786d0c6a2ea4d0
@@ -31,7 +31,7 @@
   done
   ACTUAL_PHASE20_PATCH_SHA="$(sha256sum "$PHASE20_PATCH" | cut -d' ' -f1)"
   printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE20_PATCH_SHA" | tee -a "$DIAG/phase20-patch-checksum.txt"
-  [[ "$ACTUAL_PHASE20_PATCH_SHA" == "c04c04cd395c55e4e4c97024f97231911f61838e2f856b86f5c4e38af9760285" ]] || {
+  [[ "$ACTUAL_PHASE20_PATCH_SHA" == "9ab6ded92c977f54d53e4305debae719e987455c7f12aa529994fa93ec479704" ]] || {
     echo "Phase 20 assembled patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
