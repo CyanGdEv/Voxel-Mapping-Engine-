@@ -69,6 +69,67 @@ if (!tree || tree.modelClass !== 'tree' || tree.crownDiameterM !== 4.5) {
 console.log(`tree polygon fidelity passed crownDiameterM=${tree.crownDiameterM}`);
 NODE
 
+MCWORLD_FILE="$GEN/src/lib/mcworld.mjs"
+python3 - "$MCWORLD_FILE" <<'PY' | tee "$DIAG/mcworld-bounds-hotfix.log"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+
+old_bounds = '''function worldChunkBounds(compilation, margin) {
+  const bounds = compilation.meta.bounds;
+  const operationX = compilation.chunks.map((chunk) => chunk.x);
+  const operationZ = compilation.chunks.map((chunk) => chunk.z);
+  return {
+    minChunkX: Math.min(floorDiv(bounds.minX - margin, 16), ...operationX),
+    minChunkZ: Math.min(floorDiv(bounds.minZ - margin, 16), ...operationZ),
+    maxChunkX: Math.max(floorDiv(bounds.maxX + margin, 16), ...operationX),
+    maxChunkZ: Math.max(floorDiv(bounds.maxZ + margin, 16), ...operationZ)
+  };
+}'''
+
+new_bounds = '''function worldChunkBounds(compilation, margin) {
+  const bounds = compilation.meta.bounds;
+  return {
+    minChunkX: floorDiv(bounds.minX - margin, 16),
+    minChunkZ: floorDiv(bounds.minZ - margin, 16),
+    maxChunkX: floorDiv(bounds.maxX + margin, 16),
+    maxChunkZ: floorDiv(bounds.maxZ + margin, 16)
+  };
+}'''
+
+old_operations = '  const operationChunks = new Map(compilation.chunks.map((chunk) => [`${chunk.x},${chunk.z}`, chunk]));'
+
+new_operations = '''  const inBoundsOperationChunks = compilation.chunks.filter((chunk) =>
+    chunk.x >= bounds.minChunkX && chunk.x <= bounds.maxChunkX &&
+    chunk.z >= bounds.minChunkZ && chunk.z <= bounds.maxChunkZ
+  );
+  const ignoredOperationChunks = compilation.chunks.length - inBoundsOperationChunks.length;
+  if (ignoredOperationChunks) {
+    progress(`Ignoring ${ignoredOperationChunks.toLocaleString()} operation chunks outside the verified raster bounds`);
+  }
+  const operationChunks = new Map(
+    inBoundsOperationChunks.map((chunk) => [`${chunk.x},${chunk.z}`, chunk])
+  );'''
+
+changed = False
+if new_bounds not in text:
+    if old_bounds not in text:
+        raise SystemExit("Could not locate worldChunkBounds implementation")
+    text = text.replace(old_bounds, new_bounds, 1)
+    changed = True
+
+if new_operations not in text:
+    if old_operations not in text:
+        raise SystemExit("Could not locate operation chunk map")
+    text = text.replace(old_operations, new_operations, 1)
+    changed = True
+
+path.write_text(text, encoding="utf-8")
+print("applied authoritative raster chunk bounds" if changed else "authoritative raster chunk bounds already present")
+PY
+
 find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
   | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/source-syntax-check.log"
 
@@ -83,5 +144,48 @@ NODE
 (
   cd "$GEN"
   npm ci --no-audit --no-fund 2>&1 | tee "$DIAG/npm-ci.log"
+  node --input-type=module - <<'NODE' 2>&1 | tee "$DIAG/mcworld-bounds-smoke.log"
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { buildBedrockWorld } from './src/lib/mcworld.mjs';
+
+const outputDir = await mkdtemp(path.join(tmpdir(), 'tpmap-mcworld-bounds-'));
+try {
+  const compilation = {
+    meta: {
+      bounds: { minX: 0, minZ: 0, maxX: 15, maxZ: 15 },
+      spawnLocal: { x: 0, y: 0, z: 0 },
+      buildingMode: 'markers'
+    },
+    palette: ['minecraft:grass_block'],
+    signs: [],
+    stats: {},
+    chunks: [
+      { x: 0, z: 0, o: [[1, 0, 0, 0, 0, 0, 0, 0]] },
+      { x: 1000, z: 1000, o: [[4, 16000, 1, 16000, 16000, 1, 16000, 0]] }
+    ]
+  };
+  const result = await buildBedrockWorld({
+    parkName: 'CI bounds smoke',
+    slug: 'ci-bounds-smoke',
+    compilation,
+    outputDir,
+    options: {
+      palette: 'clean',
+      worldMargin: 0,
+      maxWorldChunks: 4,
+      baseY: 64,
+      seed: 1
+    }
+  });
+  if (result.chunkCount !== 1) {
+    throw new Error(`Expected one authoritative raster chunk, got ${result.chunkCount}`);
+  }
+  console.log(`mcworld bounds passed chunkCount=${result.chunkCount}`);
+} finally {
+  await rm(outputDir, { recursive: true, force: true });
+}
+NODE
   node --test \
     test/core.test.mjs \
