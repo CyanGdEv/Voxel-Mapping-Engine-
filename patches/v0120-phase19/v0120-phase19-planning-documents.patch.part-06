@@ -1,0 +1,18 @@
++    assert.equal(evidence.applications[0].documents[0].role, "block-plan");
++  } finally {
++    await new Promise((resolve) => server.close(resolve));
++  }
++});
++
++test("document catalogue never becomes planning geometry automatically", async () => {
++  const evidence = await acquirePlanningDocumentEvidence({
++    cacheDir: path.join(await mkdtemp(path.join(tmpdir(), "tpmap-planning-evidence-")), "cache"), userAgent: "test"
++  }, {
++    planningDocuments: true, planningDocumentMode: "discover"
++  }, planningCollection({
++    planning_document_urls: ["https://authority.example/approved-site-plan.pdf"]
++  }));
++  assert.equal(evidence.documentsDownloaded, 0);
++  assert.match(evidence.policy.authority, /No document automatically overrides OSM/);
++  assert.equal("collections" in evidence, false);
++});
