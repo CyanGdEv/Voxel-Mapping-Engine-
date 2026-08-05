@@ -4,7 +4,7 @@ A phone-controlled cloud generator that converts public geospatial evidence into
 
 ## GitHub Actions mobile generator
 
-The repository workflow now runs **ThemePark Map v0.12.0 Supplemental Source Fusion**. It can be launched from the GitHub app or a mobile browser without a local computer.
+The repository workflow runs **ThemePark Map v0.12.0 Supplemental Source Fusion**. It can be launched from the GitHub app or a mobile browser without a local computer.
 
 The build combines bounded evidence from:
 
@@ -20,7 +20,21 @@ The build combines bounded evidence from:
 - generic OGC API Features, ArcGIS Feature Layer, and GeoJSON source configs;
 - optional rights-cleared georeferenced orthophotos.
 
-The source archive is stored as checksum-locked base64 text so GitHub Actions can reconstruct the exact v0.12.0 source without requiring a manual ZIP upload.
+## Required source archive
+
+Keep this exact file in the repository root:
+
+```text
+ThemePark_Map_v0.12.0_Supplemental_Source_Fusion_Source.zip
+```
+
+The workflow verifies its SHA-256 before extraction:
+
+```text
+2b8fe8692802b0bfca587a20821a86eacb091a63a4554153d4b3dd665dc240ec
+```
+
+Do not rename, recompress, or edit the archive without updating the checksum in the build runner.
 
 ## Generate a world from a phone
 
@@ -50,7 +64,7 @@ Buildings remain in marker mode by default so uncertain heights are not converte
 
 The GitHub Actions build applies:
 
-- SHA-256 verification of the encoded source and decoded archive;
+- SHA-256 verification of the v0.12.0 source archive;
 - bounded supplemental feature counts and pagination;
 - compressed-download ceilings;
 - confidence-gated Microsoft footprints;
