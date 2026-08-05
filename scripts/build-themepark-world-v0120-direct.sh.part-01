@@ -27,6 +27,20 @@ rm -rf "$GEN"
 mkdir -p "$GEN"
 unzip -q "$SOURCE_ZIP" -d "$GEN"
 
+ACCURACY_PATCH="$ROOT/patches/v0120-terrain-accuracy/v0120-terrain-accuracy.patch"
+EXPECTED_ACCURACY_PATCH_SHA="c8b4e18487f4f9acf1be4334190d152d17e83f5020ed739a26df8c95db8cf649"
+[[ -f "$ACCURACY_PATCH" ]] || {
+  echo "Missing v0.12 terrain accuracy source patch." | tee "$DIAG/source-error.txt" >&2
+  exit 2
+}
+ACTUAL_ACCURACY_PATCH_SHA="$(sha256sum "$ACCURACY_PATCH" | cut -d' ' -f1)"
+printf 'terrain_accuracy_patch_expected=%s\nterrain_accuracy_patch_actual=%s\n' "$EXPECTED_ACCURACY_PATCH_SHA" "$ACTUAL_ACCURACY_PATCH_SHA" | tee "$DIAG/terrain-accuracy-patch-checksum.txt"
+[[ "$ACTUAL_ACCURACY_PATCH_SHA" == "$EXPECTED_ACCURACY_PATCH_SHA" ]] || {
+  echo "v0.12 terrain accuracy patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+  exit 2
+}
+patch --batch --forward -d "$GEN" -p1 < "$ACCURACY_PATCH" 2>&1 | tee "$DIAG/terrain-accuracy-patch-apply.log"
+
 FIDELITY_FILE="$GEN/src/lib/fidelity.mjs"
 python3 - "$FIDELITY_FILE" <<'PY' | tee "$DIAG/fidelity-polygon-area-hotfix.log"
 from pathlib import Path
