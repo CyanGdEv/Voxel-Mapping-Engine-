@@ -1,0 +1,150 @@
+       planningAuthority: planningAuthorityPath,
++      planningDocuments: planningDocumentsPath,
+       supplementalSources: supplementalSourcesPath,
+       buildingLabels: buildingLabelsPath,
+       rideProfiles: rideProfilesPath,
+diff -ruN v012_documents_base/src/lib/planning-documents.mjs v012_documents_work/src/lib/planning-documents.mjs
+--- v012_documents_base/src/lib/planning-documents.mjs	1970-01-01 00:00:00.000000000 +0000
++++ v012_documents_work/src/lib/planning-documents.mjs	2026-08-05 18:36:02.494253811 +0000
+@@ -0,0 +1,500 @@
++import path from "node:path";
++import { execFile } from "node:child_process";
++import { promisify } from "node:util";
++import { readFile } from "node:fs/promises";
++import { cachedBinary, ensureDir, fetchBinary, sha256, sha256File } from "./io.mjs";
++
++const execFileAsync = promisify(execFile);
++const DOWNLOADABLE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"]);
++const PAGE_LINK_WORDS = /\b(documents?|plans?|drawings?|attachments?|application files?|view files?)\b/i;
++const REJECT_WORDS = /\b(comment|representation|neighbour|consultation|application form|ownership certificate|fee|validation checklist|covering letter|email|correspondence|public notice|press notice|privacy|redact)\b/i;
++const CANDIDATE_WORDS = /\b(site plan|block plan|location plan|masterplan|layout|general arrangement|ga plan|landscape|landscaping|planting|floor plan|roof plan|elevation|section|drainage|lighting|access plan|ride layout|track layout|as built|as-built|approved plan|proposed plan|existing plan|drawing)\b/i;
++
++export async function acquirePlanningDocumentEvidence(runtime, options, collections = []) {
++  const mode = normalizeMode(options.planningDocumentMode || (options.planningDocuments ? "extract" : "off"));
++  const config = {
++    mode,
++    maxApplications: integer(options.planningDocumentMaxApplications, 80, 1, 500),
++    maxDocuments: integer(options.planningDocumentMaxDocuments, 240, 1, 2_000),
++    maxBytes: number(options.planningDocumentMaxMb, 25, 1, 250) * 1024 * 1024,
++    maxPages: integer(options.planningDocumentMaxPages, 5, 1, 50),
++    minScore: number(options.planningDocumentMinScore, 35, 0, 200),
++    reuseLicense: options.planningDocumentLicense || null,
++    noCache: runtime.noCache === true
++  };
++  const applications = collectPlanningApplications(collections).slice(0, config.maxApplications);
++  const evidence = {
++    schemaVersion: 1,
++    status: mode === "off" ? "disabled" : applications.length ? "active" : "no-applications",
++    mode,
++    policy: {
++      discovery: "Follow only record-supplied documentation/document URLs and one explicitly linked documents page.",
++      downloads: "Download only geometry-relevant PDF/image candidates within configured count and byte caps.",
++      redistribution: config.reuseLicense
++        ? `Explicit reuse licence supplied: ${config.reuseLicense}`
++        : "No reuse licence is assumed for portal documents; raw files remain cache-only and are not packaged.",
++      authority: "Document discovery and text classification are evidence-only. No document automatically overrides OSM without extracted georeferenced geometry passing planning-authority gates."
++    },
++    configuration: {
++      maxApplications: config.maxApplications,
++      maxDocuments: config.maxDocuments,
++      maxDownloadMb: config.maxBytes / (1024 * 1024),
++      maxTextPages: config.maxPages,
++      minimumCandidateScore: config.minScore
++    },
++    applicationsConsidered: applications.length,
++    pagesFetched: 0,
++    candidatesFound: 0,
++    documentsSelected: 0,
++    documentsDownloaded: 0,
++    textExtracted: 0,
++    totalDownloadedBytes: 0,
++    applications: [],
++    warnings: []
++  };
++  if (mode === "off" || !applications.length) return evidence;
++
++  await ensureDir(path.join(runtime.cacheDir, "supplemental", "planning-documents"));
++  let remainingDocuments = config.maxDocuments;
++  let remainingBytes = config.maxBytes;
++  for (const application of applications) {
++    if (remainingDocuments <= 0 || remainingBytes <= 0) break;
++    const result = await discoverApplicationDocuments(runtime, config, application, {
++      remainingDocuments,
++      remainingBytes
++    });
++    evidence.pagesFetched += result.pagesFetched;
++    evidence.candidatesFound += result.candidates.length;
++    evidence.documentsSelected += result.documents.filter((item) => item.selected).length;
++    evidence.documentsDownloaded += result.documents.filter((item) => item.downloaded).length;
++    evidence.textExtracted += result.documents.filter((item) => item.text?.method).length;
++    const downloadedBytes = result.documents.reduce((sum, item) => sum + (item.bytes || 0), 0);
++    evidence.totalDownloadedBytes += downloadedBytes;
++    remainingDocuments -= result.documents.filter((item) => item.selected).length;
++    remainingBytes -= downloadedBytes;
++    evidence.applications.push(result);
++    evidence.warnings.push(...result.warnings.map((warning) => `${application.reference || application.id}: ${warning}`));
++  }
++  if (applications.length >= config.maxApplications) {
++    evidence.warnings.push(`Application discovery capped at ${config.maxApplications} records.`);
++  }
++  if (remainingDocuments <= 0) evidence.warnings.push(`Document selection capped at ${config.maxDocuments} files.`);
++  if (remainingBytes <= 0) evidence.warnings.push(`Document downloads reached the ${config.maxBytes / (1024 * 1024)} MB safety cap.`);
++  return evidence;
++}
++
++async function discoverApplicationDocuments(runtime, config, application, budget) {
++  const warnings = [];
++  const seeds = uniqueUrls([
++    ...(application.documentUrls || []),
++    application.documentationUrl,
++    application.applicationUrl
++  ]).filter((url) => safeHttpUrl(url));
++  const candidateMap = new Map();
++  let pagesFetched = 0;
++
++  for (const seed of seeds) {
++    if (looksDownloadable(seed)) {
++      addCandidate(candidateMap, classifyDocumentCandidate({ url: seed, linkText: "", sourcePageUrl: application.documentationUrl }));
++      continue;
++    }
++    if (config.mode === "off") continue;
++    try {
++      const page = await fetchHtmlPage(runtime, seed);
++      pagesFetched += 1;
++      for (const link of extractLinks(page.html, page.finalUrl || seed)) {
++        const classified = classifyDocumentCandidate({ ...link, sourcePageUrl: seed });
++        if (classified.downloadable || classified.score >= config.minScore) addCandidate(candidateMap, classified);
++      }
++      const documentsPages = extractLinks(page.html, page.finalUrl || seed)
++        .filter((link) => !looksDownloadable(link.url) && PAGE_LINK_WORDS.test(`${link.text} ${link.url}`))
++        .filter((link) => sameOriginOrHost(seed, link.url))
++        .slice(0, 1);
++      for (const documentsPage of documentsPages) {
++        try {
++          const nested = await fetchHtmlPage(runtime, documentsPage.url);
++          pagesFetched += 1;
++          for (const link of extractLinks(nested.html, nested.finalUrl || documentsPage.url)) {
++            const classified = classifyDocumentCandidate({ ...link, sourcePageUrl: documentsPage.url });
++            if (classified.downloadable || classified.score >= config.minScore) addCandidate(candidateMap, classified);
++          }
++        } catch (error) {
++          warnings.push(`Could not open documents page ${documentsPage.url}: ${error?.message || error}`);
++        }
++      }
++    } catch (error) {
++      warnings.push(`Could not inspect ${seed}: ${error?.message || error}`);
++    }
++  }
++
++  const candidates = [...candidateMap.values()]
++    .sort((a, b) => b.score - a.score || a.url.localeCompare(b.url));
++  const selected = candidates
++    .filter((candidate) => candidate.downloadable && candidate.score >= config.minScore && !candidate.rejected)
++    .slice(0, budget.remainingDocuments);
++  const documents = [];
++  let remainingBytes = budget.remainingBytes;
++  for (const candidate of candidates) {
++    const shouldSelect = selected.some((entry) => entry.url === candidate.url);
++    if (!shouldSelect || !["download", "extract"].includes(config.mode)) {
++      documents.push({ ...candidate, selected: shouldSelect, downloaded: false });
++      continue;
