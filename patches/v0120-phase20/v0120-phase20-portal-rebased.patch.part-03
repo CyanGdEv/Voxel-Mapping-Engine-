@@ -1,0 +1,142 @@
++      if (["unknown", "pending"].includes(existing.status) && !["unknown", "pending"].includes(application.status)) {
++        existing.status = application.status;
++      }
++    }
++  }
++  return [...unique.values()];
++}
++
++function emptyPortalFallback(status) {
++  return {
++    schemaVersion: 1, status, providersConsidered: 0, pagesFetched: 0, rowsConsidered: 0,
++    rowsMatched: 0, applications: [], providerResults: [], warnings: []
++  };
++}
++
++function compactPortalFallback(result) {
++  return {
++    schemaVersion: result.schemaVersion,
++    status: result.status,
++    providersConsidered: result.providersConsidered,
++    pagesFetched: result.pagesFetched,
++    rowsConsidered: result.rowsConsidered,
++    rowsMatched: result.rowsMatched,
++    applicationsFound: result.applications.length,
++    providerResults: result.providerResults,
++    warnings: result.warnings
++  };
++}
++
+ export function extractLinks(html, baseUrl) {
+   const links = [];
+   const anchor = /<a\b[^>]*?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+@@ -286,7 +506,7 @@
+     const rawHref = decodeHtml(match[1] || match[2] || match[3] || "").trim();
+     if (!rawHref || rawHref.startsWith("#") || /^(mailto|tel|javascript|data):/i.test(rawHref)) continue;
+     try {
+-      const url = new URL(rawHref, baseUrl).toString();
++      const url = normalizePortalUrl(new URL(rawHref, baseUrl).toString(), baseUrl);
+       if (!safeHttpUrl(url)) continue;
+       links.push({ url, text: stripHtml(decodeHtml(match[4] || "")) });
+     } catch {
+@@ -383,6 +603,19 @@
+   if (!existing || candidate.score > existing.score) map.set(candidate.url, candidate);
+ }
+ 
++function normalizePortalUrl(value, baseUrl = null) {
++  try {
++    const url = new URL(value, baseUrl || undefined);
++    if (url.protocol === "http:" && baseUrl) {
++      const base = new URL(baseUrl);
++      if (base.protocol === "https:" && base.hostname === url.hostname) url.protocol = "https:";
++    }
++    return url.toString();
++  } catch {
++    return String(value || "");
++  }
++}
++
+ function safeHttpUrl(value) {
+   try {
+     const url = new URL(value);
+@@ -395,8 +628,12 @@
+ 
+ function looksDownloadable(value) {
+   try {
+-    const extension = path.extname(new URL(value).pathname).toLowerCase();
+-    return DOWNLOADABLE_EXTENSIONS.has(extension) || /(?:download|document|file|attachment)[=/]/i.test(value);
++    const url = new URL(value);
++    const extension = path.extname(url.pathname).toLowerCase();
++    const legacyAttachment = /\/AttachmentShowServlet$/i.test(url.pathname) &&
++      (url.searchParams.has("ImageName") || url.searchParams.has("imageName"));
++    return DOWNLOADABLE_EXTENSIONS.has(extension) || legacyAttachment ||
++      /(?:download|document|file|attachment)[=/]/i.test(value);
+   } catch {
+     return false;
+   }
+@@ -474,6 +711,61 @@
+   return [...new Set(values.flatMap(asUrlList))];
+ }
+ 
++function isGeometryDocumentCandidate(document, application) {
++  const applicationStatus = String(application?.status || "unknown").toLowerCase();
++  return document.downloaded === true && document.rejected !== true &&
++    !["refused", "withdrawn", "invalid"].includes(applicationStatus) &&
++    GEOMETRY_DOCUMENT_ROLES.has(document.role);
++}
++
++function geometryConfidenceHint(document, application) {
++  let confidence = 0.62;
++  if (["approved", "as-built"].includes(document.state)) confidence += 0.12;
++  if (["approved", "implemented", "granted"].includes(String(application.status || "").toLowerCase())) confidence += 0.08;
++  if (["site-plan", "block-plan", "ride-layout", "landscape-plan", "access-plan"].includes(document.role)) confidence += 0.08;
++  if (document.text?.method) confidence += 0.03;
++  return Math.min(0.93, Math.round(confidence * 100) / 100);
++}
++
++function normalizeBbox(value) {
++  if (Array.isArray(value) && value.length >= 4) {
++    const [south, west, north, east] = value.map(Number);
++    return [south, west, north, east].every(Number.isFinite) ? { south, west, north, east } : null;
++  }
++  if (typeof value === "string") return normalizeBbox(value.split(",").map((item) => item.trim()));
++  if (value && typeof value === "object") {
++    const south = Number(value.south ?? value.minLat ?? value.minY);
++    const west = Number(value.west ?? value.minLon ?? value.minX);
++    const north = Number(value.north ?? value.maxLat ?? value.maxY);
++    const east = Number(value.east ?? value.maxLon ?? value.maxX);
++    return [south, west, north, east].every(Number.isFinite) ? { south, west, north, east } : null;
++  }
++  return null;
++}
++
++function bboxIntersects(first, second) {
++  return first.west <= second.east && first.east >= second.west &&
++    first.south <= second.north && first.north >= second.south;
++}
++
++function asRegex(value) {
++  if (value instanceof RegExp) return value;
++  if (!value) return null;
++  try { return new RegExp(String(value), "i"); } catch { return null; }
++}
++
++function regexTest(regex, value) {
++  if (!regex) return false;
++  regex.lastIndex = 0;
++  return regex.test(String(value || ""));
++}
++
++function firstMatch(value, regex) {
++  if (!regex) return null;
++  regex.lastIndex = 0;
++  return String(value || "").match(regex)?.[0] || null;
++}
++
+ function normalizeMode(value) {
+   const mode = String(value || "off").trim().toLowerCase();
+   return ["off", "discover", "download", "extract"].includes(mode) ? mode : "off";
+@@ -491,10 +783,16 @@
+ 
+ export const __test = {
+   collectPlanningApplications,
