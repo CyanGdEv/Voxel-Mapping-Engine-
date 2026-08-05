@@ -1,0 +1,114 @@
++      try {
++        const page = await fetchHtmlPage(runtime, normalizePortalUrl(seedPage));
++        const parsed = extractPortalApplications(page.html, page.finalUrl || seedPage, provider);
++        providerResult.pagesFetched += 1;
++        providerResult.rowsConsidered += parsed.rowsConsidered;
++        providerResult.rowsMatched += parsed.rowsMatched;
++        providerResult.applications += parsed.applications.length;
++        result.pagesFetched += 1;
++        result.rowsConsidered += parsed.rowsConsidered;
++        result.rowsMatched += parsed.rowsMatched;
++        result.applications.push(...parsed.applications);
++      } catch (error) {
++        const warning = `Could not inspect portal seed ${seedPage}: ${error?.message || error}`;
++        providerResult.failures.push(warning);
++        result.warnings.push(`${provider.id}: ${warning}`);
++      }
++    }
++    result.providerResults.push(providerResult);
++  }
++  result.applications = mergePlanningApplications(result.applications)
++    .sort((a, b) => (b.portalPriority || 0) - (a.portalPriority || 0))
++    .slice(0, config.maxApplications);
++  if (providers.length && !result.applications.length && result.status === "active") result.status = "no-matches";
++  return result;
++}
++
++function portalProvidersFor(runtime, options) {
++  const configured = Array.isArray(options.planningPortalProviders)
++    ? options.planningPortalProviders
++    : DEFAULT_PLANNING_PORTALS;
++  const parkName = String(options.parkName || runtime.parkName || "");
++  const bbox = normalizeBbox(runtime.bbox || options.bbox);
++  return configured
++    .map(normalizePortalProvider)
++    .filter((provider) => provider.force === true ||
++      regexTest(provider.parkNamePattern, parkName) ||
++      (provider.bbox && bbox && bboxIntersects(provider.bbox, bbox)));
++}
++
++function normalizePortalProvider(provider) {
++  return {
++    ...provider,
++    id: String(provider.id || "planning-portal"),
++    name: String(provider.name || provider.id || "Planning portal"),
++    seedPages: uniqueUrls(provider.seedPages || []),
++    parkNamePattern: asRegex(provider.parkNamePattern),
++    rowPattern: asRegex(provider.rowPattern),
++    applicationUrlPattern: asRegex(provider.applicationUrlPattern || /ApplicationSearchServlet\?PKID=/i),
++    referencePattern: asRegex(provider.referencePattern || /\b[A-Z]{2,5}\/\d{4}\/\d{3,6}\b/i)
++  };
++}
++
++export function extractPortalApplications(html, baseUrl, providerInput = {}) {
++  const provider = normalizePortalProvider(providerInput);
++  const applications = [];
++  let rowsConsidered = 0;
++  let rowsMatched = 0;
++  const rows = [...String(html || "").matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((match) => match[1]);
++  for (const row of rows) {
++    rowsConsidered += 1;
++    const rowText = stripHtml(decodeHtml(row));
++    if (provider.rowPattern && !regexTest(provider.rowPattern, rowText)) continue;
++    const link = extractLinks(row, baseUrl)
++      .find((candidate) => regexTest(provider.applicationUrlPattern, candidate.url));
++    if (!link) continue;
++    rowsMatched += 1;
++    const reference = firstMatch(rowText, provider.referencePattern);
++    applications.push({
++      id: `${provider.id}:${reference || sha256(link.url).slice(0, 16)}`,
++      reference,
++      status: inferPortalApplicationStatus(rowText),
++      documentationUrl: link.url,
++      applicationUrl: link.url,
++      documentUrls: [],
++      portalProvider: provider.id,
++      portalPriority: portalApplicationPriority(rowText),
++      portalRowText: rowText.slice(0, 1_000)
++    });
++  }
++  return { rowsConsidered, rowsMatched, applications: mergePlanningApplications(applications) };
++}
++
++function inferPortalApplicationStatus(text) {
++  const value = String(text || "").toLowerCase();
++  if (/withdrawn|invalid|returned/.test(value)) return "withdrawn";
++  if (/refused|dismissed/.test(value)) return "refused";
++  if (/approved|permission granted|consent granted/.test(value)) return "approved";
++  if (/under assessment|consultation|pending|awaiting/.test(value)) return "pending";
++  return "unknown";
++}
++
++function portalApplicationPriority(text) {
++  const value = String(text || "").toLowerCase();
++  let score = inferPortalApplicationStatus(value) === "approved" ? 40 : 0;
++  if (/roller\s*coaster|ride layout|track layout|new ride/.test(value)) score += 100;
++  if (/path|access|circulation|queue line/.test(value)) score += 80;
++  if (/landscap|ground ?work|drainage|level|parking/.test(value)) score += 45;
++  if (/indoor attraction|building|hotel|lodge|accommodation/.test(value)) score += 25;
++  const year = Number(value.match(/\b(?:smd\/)?(20\d{2})\//)?.[1]);
++  if (Number.isFinite(year)) score += Math.max(0, year - 2000) / 10;
++  return Math.round(score * 10) / 10;
++}
++
++function mergePlanningApplications(applications) {
++  const unique = new Map();
++  for (const application of applications || []) {
++    const key = application.reference || application.applicationUrl || application.documentationUrl || application.id;
++    if (!key) continue;
++    if (!unique.has(key)) unique.set(key, { ...application, documentUrls: uniqueUrls(application.documentUrls || []) });
++    else {
++      const existing = unique.get(key);
++      existing.documentUrls = uniqueUrls([...(existing.documentUrls || []), ...(application.documentUrls || [])]);
++      existing.documentationUrl ||= application.documentationUrl;
++      existing.applicationUrl ||= application.applicationUrl;
