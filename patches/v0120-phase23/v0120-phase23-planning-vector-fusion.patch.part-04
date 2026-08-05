@@ -1,0 +1,196 @@
+diff -ruN phase23_base/test/planning-vector-fusion.test.mjs phase23_work/test/planning-vector-fusion.test.mjs
+--- phase23_base/test/planning-vector-fusion.test.mjs	1970-01-01 00:00:00.000000000 +0000
++++ phase23_work/test/planning-vector-fusion.test.mjs	2026-08-05 22:25:52.076323429 +0000
+@@ -0,0 +1,192 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { parseArgs } from "../src/lib/args.mjs";
++import { preparePlanningVectorFusion, __test } from "../src/lib/planning-vector-fusion.mjs";
++import { fuseAdditionalMapSources } from "../src/lib/source-fusion.mjs";
++import { createProjector, geometryMapCoordinates } from "../src/lib/geo.mjs";
++
++const projector = createProjector({ lat: 52.98, lon: -1.9 });
++
++function line(y = 52.98) {
++  return { type: "LineString", coordinates: [[-1.9002, y], [-1.8998, y + 0.00004]] };
++}
++
++function candidate(overrides = {}) {
++  return {
++    type: "Feature",
++    id: overrides.id || "planning-vector:path:1",
++    geometry: overrides.geometry || line(),
++    properties: {
++      source_type: "planning-drawing-vector",
++      planning_reference: "SMD/2020/0123",
++      application_status: "approved",
++      document_id: "planning-document:1",
++      document_role: "access-plan",
++      document_state: "approved",
++      document_sha256: "abc123",
++      source_url: "https://planning.example/APP-1/document/1",
++      extraction_method: "pdf-svg-vector",
++      geometry_role: "access-path-centerline-candidate",
++      confidence: 0.94,
++      georeference_method: "explicit-control-points",
++      georeference_rmse_m: 0.5,
++      length_m: 30,
++      area_m2: 0,
++      reuse_status: "declared",
++      world_eligible: false,
++      fusion_status: "awaiting-planning-authority-gates",
++      ...overrides.properties
++    }
++  };
++}
++
++function catalogue(feature = candidate(), document = {}) {
++  return {
++    applications: [{
++      reference: "SMD/2020/0123",
++      status: feature.properties.application_status,
++      documents: [{
++        id: "planning-document:1",
++        role: feature.properties.document_role,
++        state: feature.properties.document_state,
++        sha256: feature.properties.document_sha256,
++        url: feature.properties.source_url,
++        reuseStatus: feature.properties.reuse_status,
++        reuseLicense: "Open Government Licence v3.0",
++        ...document
++      }]
++    }],
++    vectorExtraction: {
++      candidates: { type: "FeatureCollection", features: [feature] }
++    }
++  };
++}
++
++function acquired(collection) {
++  return [{
++    id: "planning-drawing-vector",
++    adapter: "planning-vector-fusion",
++    collection
++  }];
++}
++
++function osmPath(id = "osm:way:1", geometry = line(52.97990)) {
++  return {
++    id,
++    name: "Existing footpath",
++    kind: "path",
++    subtype: "footway",
++    tags: { highway: "footway", surface: "asphalt", width: "3" },
++    geometry,
++    localGeometry: geometryMapCoordinates(geometry, projector.forward),
++    vertical: { heightM: null, elevationM: null, explicit: false },
++    source: { provider: "OpenStreetMap", elementType: "way", elementId: 1, version: 4, timestamp: "2025-01-01T00:00:00Z" },
++    verification: { plan: "public-map", vertical: "unknown" }
++  };
++}
++
++test("planning vector fusion CLI controls validate", () => {
++  const { options } = parseArgs([
++    "build", "--planning-vector-fusion-mode", "gated",
++    "--planning-vector-fusion-min-confidence", "0.82",
++    "--planning-vector-fusion-max-rmse-m", "2",
++    "--planning-vector-fusion-min-length-m", "5",
++    "--planning-vector-fusion-min-area-m2", "10",
++    "--planning-vector-fusion-max-features", "3000"
++  ]);
++  assert.equal(options.planningVectorFusionMode, "gated");
++  assert.equal(options.planningVectorFusionMinConfidence, 0.82);
++  assert.throws(() => parseArgs(["build", "--planning-vector-fusion-mode", "unsafe"]), /off, review, gated, private, or authoritative/);
++  assert.throws(() => parseArgs(["build", "--planning-vector-fusion-max-features", "0"]), /between 1 and 100000/);
++});
++
++test("gated mode rejects portal geometry without a reusable licence", () => {
++  const result = preparePlanningVectorFusion({ planningVectorFusionMode: "gated" }, catalogue(candidate({
++    properties: { reuse_status: "unknown-not-for-redistribution" }
++  }), { reuseLicense: null, reuseStatus: "unknown-not-for-redistribution" }));
++  assert.equal(result.collection.features.length, 0);
++  assert.equal(result.evidence.rejectedLicense, 1);
++  assert.equal(result.evidence.decisions[0].action, "withheld-license");
++});
++
++test("private mode promotes unknown-licence geometry with an explicit restriction", () => {
++  const result = preparePlanningVectorFusion({ planningVectorFusionMode: "private" }, catalogue(candidate({
++    properties: { reuse_status: "unknown-not-for-redistribution", document_state: "as-built", application_status: "implemented" }
++  }), { reuseLicense: null, reuseStatus: "unknown-not-for-redistribution", state: "as-built" }));
++  assert.equal(result.collection.features.length, 1);
++  assert.equal(result.evidence.privateUsePromoted, 1);
++  assert.equal(result.collection.features[0].properties.planning_private_use_only, true);
++  assert.match(result.collection.features[0].properties.source_license, /Private-use restricted/);
++});
++
++test("implemented access geometry becomes a gap-fill eligible planning path", () => {
++  const feature = candidate({ properties: { application_status: "implemented", document_state: "as-built" } });
++  const result = preparePlanningVectorFusion({ planningVectorFusionMode: "gated" }, catalogue(feature, { state: "as-built" }));
++  const promoted = result.collection.features[0];
++  assert.equal(promoted.properties.kind, "path");
++  assert.equal(promoted.properties.merge_policy, "planning-authority");
++  assert.equal(promoted.properties.planning_geometry_role, "as-built");
++  assert.equal(promoted.properties.planning_allow_gap_fill, true);
++  assert.equal(promoted.properties.planning_requires_existing_osm_target, false);
++});
++
++test("approved-only geometry requires a matching OSM target in gated mode", async () => {
++  const prepared = preparePlanningVectorFusion({ planningVectorFusionMode: "gated" }, catalogue());
++  const promoted = prepared.collection.features[0];
++  assert.equal(promoted.properties.planning_geometry_role, "approved-layout");
++  assert.equal(promoted.properties.planning_requires_existing_osm_target, true);
++  assert.equal(promoted.properties.planning_allow_gap_fill, false);
++
++  const missing = [];
++  const missingSummary = await fuseAdditionalMapSources(missing, projector, {
++    acquiredPublicData: acquired(prepared.collection),
++    planningOverrideMode: "gated",
++    planningOverrideMinConfidence: 0.86,
++    planningOverrideMaxOffsetM: 15
++  });
++  assert.equal(missing.length, 0);
++  assert.equal(missingSummary.planningAuthority.vector.withheld, 1);
++
++  const existing = [osmPath()];
++  const summary = await fuseAdditionalMapSources(existing, projector, {
++    acquiredPublicData: acquired(prepared.collection),
++    planningOverrideMode: "gated",
++    planningOverrideMinConfidence: 0.86,
++    planningOverrideMinOverlap: 0.18,
++    planningOverrideMaxOffsetM: 15
++  });
++  assert.equal(existing.length, 1);
++  assert.equal(existing[0].id, "planning-vector:path:1");
++  assert.equal(existing[0].source.replaces, "osm:way:1");
++  assert.equal(existing[0].name, "Existing footpath");
++  assert.equal(existing[0].tags.surface, "asphalt");
++  assert.equal(existing[0].subtype, "footway");
++  assert.equal(summary.planningAuthority.vector.osmOverridden, 1);
++});
++
++test("implemented missing path is added, while unsupported ambiguous site lines stay withheld", async () => {
++  const implemented = candidate({ properties: { application_status: "implemented", document_state: "as-built" } });
++  const prepared = preparePlanningVectorFusion({ planningVectorFusionMode: "gated" }, catalogue(implemented, { state: "as-built" }));
++  const features = [];
++  const summary = await fuseAdditionalMapSources(features, projector, {
++    acquiredPublicData: acquired(prepared.collection),
++    planningOverrideMode: "gated",
++    planningOverrideMinConfidence: 0.86
++  });
++  assert.equal(features.length, 1);
++  assert.equal(features[0].verification.plan, "planning-authority-gap-fill");
++  assert.equal(summary.planningAuthority.vector.gapFilled, 1);
++
++  const ambiguous = candidate({ properties: { geometry_role: "site-plan-linear-candidate", application_status: "implemented", document_state: "as-built" } });
++  const withheld = preparePlanningVectorFusion({ planningVectorFusionMode: "gated" }, catalogue(ambiguous, { state: "as-built" }));
++  assert.equal(withheld.collection.features.length, 0);
++  assert.equal(withheld.evidence.rejectedRole, 1);
++});
++
++test("planning state keeps approved layouts target-only unless authoritative mode is explicit", () => {
++  assert.deepEqual(__test.planningState("approved", "approved", "gated"), {
++    allowed: true, role: "approved-layout", status: "approved", implemented: false,
++    requiresExistingTarget: true, gapFillAllowed: false
++  });
++  assert.equal(__test.planningState("approved", "approved", "authoritative").gapFillAllowed, true);
++});
