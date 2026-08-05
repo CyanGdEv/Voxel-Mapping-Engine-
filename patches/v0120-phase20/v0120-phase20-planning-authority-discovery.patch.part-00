@@ -1,0 +1,97 @@
+diff -ruN v012_authority_discovery_base/PLANNING_AUTHORITY_DISCOVERY.md v012_authority_discovery_work/PLANNING_AUTHORITY_DISCOVERY.md
+--- v012_authority_discovery_base/PLANNING_AUTHORITY_DISCOVERY.md	1970-01-01 00:00:00.000000000 +0000
++++ v012_authority_discovery_work/PLANNING_AUTHORITY_DISCOVERY.md	2026-08-05 19:59:53.315867848 +0000
+@@ -0,0 +1,54 @@
++# Planning authority and application discovery
++
++The national Planning Data API does not currently contain planning applications for every English local planning authority. ThemePark Map therefore performs a second, bounded discovery stage when England open data or planning documents are enabled.
++
++## Discovery sequence
++
++1. Query Planning Data at the park centre for the responsible `local-planning-authority` boundary.
++2. Match that authority against the built-in or user-supplied portal registry.
++3. Open only the configured authority search form and configured listing pages.
++4. Search a bounded list of park, address and postcode aliases.
++5. Follow only Public Access application-detail links returned by those searches.
++6. Extract application metadata and direct plan/document attachment links.
++7. Feed the resulting applications into the planning-document catalogue.
++
++The first verified built-in portal is Staffordshire Moorlands District Council, including Alton Towers aliases. Additional authorities can be supplied through `--planning-portal-config` without modifying the compiler.
++
++## Geometry safety
++
++Portal search results usually provide an application address and documents but not a reusable georeferenced site polygon. Portal application features are therefore marked:
++
++- `render_in_world: false`
++- `merge_policy: semantic-only`
++- `planning_geometry_role: site-boundary-unlocated`
++- `geometry_is_approximate: true`
++
++They cannot replace OSM. A site, landscape, path or ride plan must first be vectorised and georeferenced, then pass the existing planning-authority status, confidence, overlap, offset and ambiguity gates.
++
++## Portal registry
++
++```json
++{
++  "portals": [
++    {
++      "id": "example-public-access",
++      "type": "idox-public-access",
++      "authorityName": "Example District Council",
++      "lpaReferences": ["E60000000"],
++      "searchUrl": "https://planning.example.gov.uk/portal/servlets/ApplicationSearchServlet",
++      "listingUrls": [],
++      "siteAliasMatch": "example park",
++      "siteAliases": ["Example Park", "Park Lane", "AB1 2CD"]
++    }
++  ]
++}
++```
++
++## Evidence output
++
++`planning-authority-discovery.json` records the resolved authority, portal, aliases, queries, application links, relevant applications, attachment counts, cache use and warnings. A zero-application result is now explicit as one of:
++
++- `authority-not-found`
++- `portal-not-configured`
++- `no-site-aliases`
++- `no-application-links`
++- `no-relevant-applications`
++diff -ruN v012_authority_discovery_base/src/cli.mjs v012_authority_discovery_work/src/cli.mjs
++--- v012_authority_discovery_base/src/cli.mjs	2026-08-05 18:34:45.156817049 +0000
+++++ v012_authority_discovery_work/src/cli.mjs	2026-08-05 19:56:40.557517503 +0000
++@@ -46,6 +46,12 @@
++   --planning-data                  Bounded Planning Data constraints, outlines and applications
++   --planning-datasets CSV          Override the Planning Data dataset list
++   --planning-geometry FILE         Extracted planning-plan GeoJSON; repeatable
+++  --planning-authority-discovery   Resolve the local authority and search its bounded public portal
+++  --planning-site-alias TEXT       Additional park/site/address alias; repeatable
+++  --planning-portal-config FILE    Additional authority portal registry JSON; repeatable
+++  --planning-portal-max-queries 8  Maximum bounded site-alias searches per authority
+++  --planning-portal-max-applications 120
+++                                    Maximum authority portal applications inspected
++   --planning-documents             Discover and catalogue application documents automatically
++   --planning-document-mode extract off, discover, download, or embedded-text extraction
++   --planning-document-max-applications 80
++diff -ruN v012_authority_discovery_base/src/lib/args.mjs v012_authority_discovery_work/src/lib/args.mjs
++--- v012_authority_discovery_base/src/lib/args.mjs	2026-08-05 18:34:45.156672655 +0000
+++++ v012_authority_discovery_work/src/lib/args.mjs	2026-08-05 19:56:40.557296041 +0000
++@@ -14,6 +14,9 @@
++   "planning-document-mode", "planning-document-max-applications", "planning-document-max-documents",
++   "planning-document-max-mb", "planning-document-max-pages", "planning-document-min-score",
++   "planning-document-license", "planning-override-mode", "planning-override-min-confidence",
+++  "planning-portal-config", "planning-site-alias",
+++  "planning-portal-max-queries", "planning-portal-max-applications", "planning-portal-timeout-ms",
+++  "planning-override-mode", "planning-override-min-confidence",
++   "planning-override-min-overlap", "planning-override-max-offset-m",
++   "trees-outside-woodland-url",
++   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
++@@ -58,7 +61,7 @@
++   "commercial", "allow-large-area", "no-cache", "no-addon", "no-world", "no-preview",
++   "no-dsm", "ea-vom", "ea-tiled", "ea-tile-fallback-single", "ea-resolution-blend",
++   "no-ride-info-signs", "quiet", "england-open-data",
++-  "trees-outside-woodland", "planning-data", "planning-documents", "microsoft-buildings",
+++  "trees-outside-woodland", "planning-data", "planning-documents", "planning-authority-discovery", "microsoft-buildings",
++   "wikidata-places", "wikimedia-commons", "open-aerial-map",
++   "strict-supplemental-sources"
++ ]);
