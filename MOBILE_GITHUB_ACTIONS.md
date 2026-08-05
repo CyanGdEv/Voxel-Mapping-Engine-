@@ -4,6 +4,22 @@ The repository includes a manually triggered GitHub Actions workflow that runs T
 
 No local terminal, desktop computer, or Minecraft server is required.
 
+## Required repository file
+
+Keep the following archive in the repository root with this exact name:
+
+```text
+ThemePark_Map_v0.12.0_Supplemental_Source_Fusion_Source.zip
+```
+
+The workflow verifies this SHA-256 before extracting it:
+
+```text
+2b8fe8692802b0bfca587a20821a86eacb091a63a4554153d4b3dd665dc240ec
+```
+
+A missing, renamed, recompressed, or modified archive will stop the run before dependencies are installed.
+
 ## First run on iPhone or iPad
 
 1. Open this repository in the GitHub app or Safari.
@@ -19,7 +35,7 @@ No local terminal, desktop computer, or Minecraft server is required.
 7. Leave the default public-source switches enabled for the first build.
 8. Tap the green **Run workflow** button.
 
-The workflow verifies the embedded v0.12.0 source checksum, installs dependencies, runs compatibility tests, fetches bounded public data, compiles the world, validates the Bedrock archive, and uploads the world plus evidence reports.
+The workflow verifies the direct v0.12.0 source archive, installs dependencies, runs compatibility tests, fetches bounded public data, compiles the world, validates the Bedrock archive, and uploads the world plus evidence reports.
 
 ## Custom park
 
