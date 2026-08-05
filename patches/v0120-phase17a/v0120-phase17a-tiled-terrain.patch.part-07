@@ -1,0 +1,15 @@
++    filename: "/tmp/tile.tif",
++    width,
++    height,
++    boundingBox,
++    resolution: [1, 1],
++    resolutionM: 1,
++    noData: null,
++    values: Float32Array.from(values),
++    min: Math.min(...values),
++    max: Math.max(...values),
++    validCells: values.length,
++    totalCells: width * height,
++    epsg: 27700
++  };
++}
