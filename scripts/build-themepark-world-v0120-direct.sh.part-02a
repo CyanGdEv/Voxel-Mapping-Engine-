@@ -1,0 +1,17 @@
+  if [[ "${TPMAP_EA_TILED:-true}" == "true" && " ${SOURCE_ARGS[*]} " != *" --ea-tiled "* ]]; then
+    SOURCE_ARGS+=(
+      --ea-tiled
+      --ea-tile-size-m "${TPMAP_EA_TILE_SIZE_M:-1000}"
+      --ea-tile-concurrency "${TPMAP_EA_TILE_CONCURRENCY:-2}"
+      --ea-tile-min-coverage "${TPMAP_EA_TILE_MIN_COVERAGE:-0.85}"
+      --ea-tile-max-resolution-m "${TPMAP_EA_TILE_MAX_RESOLUTION_M:-2}"
+      --ea-tile-threshold-m "${TPMAP_EA_TILE_THRESHOLD_M:-1500}"
+    )
+    [[ "${TPMAP_EA_TILE_FALLBACK_SINGLE:-true}" == "true" ]] && SOURCE_ARGS+=(--ea-tile-fallback-single)
+  fi
+
+  printf 'enabled=%s\ntile_size_m=%s\nconcurrency=%s\nminimum_coverage=%s\nmaximum_resolution_m=%s\nthreshold_m=%s\nfallback_single=%s\n' \
+    "${TPMAP_EA_TILED:-true}" "${TPMAP_EA_TILE_SIZE_M:-1000}" "${TPMAP_EA_TILE_CONCURRENCY:-2}" \
+    "${TPMAP_EA_TILE_MIN_COVERAGE:-0.85}" "${TPMAP_EA_TILE_MAX_RESOLUTION_M:-2}" \
+    "${TPMAP_EA_TILE_THRESHOLD_M:-1500}" "${TPMAP_EA_TILE_FALLBACK_SINGLE:-true}" \
+    > "$DIAG/terrain-tiling.txt"
