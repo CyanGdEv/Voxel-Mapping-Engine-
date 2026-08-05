@@ -38,4 +38,23 @@
   node --test test/tiled-lidar.test.mjs test/resolution-blending.test.mjs \
     2>&1 | tee "$DIAG/phase17b-resolution-tests.log"
 
+  PHASE18_PATCH="$ROOT/.phase18-planning-authority.patch"
+  EXPECTED_PHASE18_PATCH_SHA="5d4b38e82d33953493e85139e62dad9019615791b4cae695c36aa8ec98ab8689"
+  cat "$ROOT"/patches/v0120-phase18/v0120-phase18-planning-authority.patch.part-* > "$PHASE18_PATCH"
+  ACTUAL_PHASE18_PATCH_SHA="$(sha256sum "$PHASE18_PATCH" | cut -d' ' -f1)"
+  printf 'phase18_patch_expected=%s\nphase18_patch_actual=%s\n' \
+    "$EXPECTED_PHASE18_PATCH_SHA" "$ACTUAL_PHASE18_PATCH_SHA" \
+    | tee "$DIAG/phase18-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE18_PATCH_SHA" == "$EXPECTED_PHASE18_PATCH_SHA" ]] || {
+    echo "Phase 18 planning authority patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward -d "$GEN" -p1 < "$PHASE18_PATCH" \
+    2>&1 | tee "$DIAG/phase18-patch-apply.log"
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase18-syntax-check.log"
+  node --test test/planning-authority.test.mjs \
+    2>&1 | tee "$DIAG/phase18-planning-authority-tests.log"
+
   node --test \
