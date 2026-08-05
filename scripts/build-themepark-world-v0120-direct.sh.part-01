@@ -5,67 +5,27 @@
 esac
 
 SAFE_NAME="$(printf '%s' "$PARK_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')"
-printf 'park=%s\nbbox=%s\naccuracy=%s\nsource=v0.12.0-supplemental-source-fusion\n' \
+printf 'park=%s\nbbox=%s\naccuracy=%s\nsource=v0.12.0-direct-archive\n' \
   "$PARK_NAME" "$BBOX" "$ACCURACY_MODE" | tee "$DIAG/parameters.txt"
 
 [[ -f "$SOURCE_ZIP" ]] || {
-  echo "Missing checksum-locked ThemePark Map v0.11.6 source archive." | tee "$DIAG/source-error.txt" >&2
+  echo "Missing checksum-locked ThemePark Map v0.12.0 source archive." | tee "$DIAG/source-error.txt" >&2
   exit 2
 }
-for required in "$PATCH_117_B64" "$PATCH_118_B64"; do
-  [[ -f "$required" ]] || {
-    echo "Missing source transformation: $required" | tee -a "$DIAG/source-error.txt" >&2
-    exit 2
-  }
-done
-mapfile -t PATCH_120_PARTS < <(find "$PATCH_120_DIR" -maxdepth 1 -type f -name 'v0120.patch.gz.b64.part-*' | sort)
-[[ ${#PATCH_120_PARTS[@]} -gt 0 ]] || {
-  echo "Missing v0.12.0 source transformation parts." | tee -a "$DIAG/source-error.txt" >&2
-  exit 2
-}
-cat "${PATCH_120_PARTS[@]}" > "$PATCH_120_B64"
 
 ACTUAL_SOURCE_SHA="$(sha256sum "$SOURCE_ZIP" | cut -d' ' -f1)"
-printf 'archive_expected=%s\narchive_actual=%s\n' "$EXPECTED_SOURCE_SHA" "$ACTUAL_SOURCE_SHA" \
+printf 'archive_expected=%s\narchive_actual=%s\narchive=%s\n' \
+  "$EXPECTED_SOURCE_SHA" "$ACTUAL_SOURCE_SHA" "$(basename "$SOURCE_ZIP")" \
   | tee "$DIAG/source-checksum.txt"
 [[ "$ACTUAL_SOURCE_SHA" == "$EXPECTED_SOURCE_SHA" ]] || {
-  echo "v0.11.6 source archive checksum mismatch." >&2
+  echo "v0.12.0 source archive checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
   exit 2
 }
-
-PATCH_117_FILE="${RUNNER_TEMP:-/tmp}/v0117.patch"
-PATCH_118_FILE="${RUNNER_TEMP:-/tmp}/v0118.patch"
-PATCH_120_FILE="${RUNNER_TEMP:-/tmp}/v0120.patch"
-verify_patch() {
-  local encoded="$1" expected_encoded="$2" expected_decoded="$3" decoded="$4" label="$5"
-  local actual_encoded actual_decoded
-  actual_encoded="$(sha256sum "$encoded" | cut -d' ' -f1)"
-  printf '%s_encoded_expected=%s\n%s_encoded_actual=%s\n' "$label" "$expected_encoded" "$label" "$actual_encoded" \
-    | tee -a "$DIAG/source-checksum.txt"
-  [[ "$actual_encoded" == "$expected_encoded" ]] || {
-    echo "$label encoded patch checksum mismatch." >&2
-    exit 2
-  }
-  base64 --decode "$encoded" | gzip -dc > "$decoded"
-  actual_decoded="$(sha256sum "$decoded" | cut -d' ' -f1)"
-  printf '%s_decoded_expected=%s\n%s_decoded_actual=%s\n' "$label" "$expected_decoded" "$label" "$actual_decoded" \
-    | tee -a "$DIAG/source-checksum.txt"
-  [[ "$actual_decoded" == "$expected_decoded" ]] || {
-    echo "$label decoded patch checksum mismatch." >&2
-    exit 2
-  }
-}
-verify_patch "$PATCH_117_B64" "$EXPECTED_117_B64_SHA" "$EXPECTED_117_PATCH_SHA" "$PATCH_117_FILE" v0117
-verify_patch "$PATCH_118_B64" "$EXPECTED_118_B64_SHA" "$EXPECTED_118_PATCH_SHA" "$PATCH_118_FILE" v0118
-verify_patch "$PATCH_120_B64" "$EXPECTED_120_B64_SHA" "$EXPECTED_120_PATCH_SHA" "$PATCH_120_FILE" v0120
 
 unzip -t "$SOURCE_ZIP" | tee "$DIAG/source-archive-validation.log"
 rm -rf "$GEN"
 mkdir -p "$GEN"
 unzip -q "$SOURCE_ZIP" -d "$GEN"
-patch -d "$GEN" -p1 --batch --forward < "$PATCH_117_FILE" 2>&1 | tee "$DIAG/v0117-source-patch.log"
-patch -d "$GEN" -p1 --batch --forward < "$PATCH_118_FILE" 2>&1 | tee "$DIAG/v0118-source-patch.log"
-patch -d "$GEN" -p1 --batch --forward < "$PATCH_120_FILE" 2>&1 | tee "$DIAG/v0120-source-patch.log"
 
 find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
   | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/source-syntax-check.log"
