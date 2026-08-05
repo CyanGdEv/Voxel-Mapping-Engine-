@@ -1,0 +1,195 @@
+diff -ruN phase21_green/PLANNING_VECTOR_EXTRACTION.md phase22_work/PLANNING_VECTOR_EXTRACTION.md
+--- phase21_green/PLANNING_VECTOR_EXTRACTION.md	1970-01-01 00:00:00.000000000 +0000
++++ phase22_work/PLANNING_VECTOR_EXTRACTION.md	2026-08-05 21:58:37.261987068 +0000
+@@ -0,0 +1,14 @@
++# Planning drawing vector extraction
++
++Phase 22 converts accepted georeferenced **vector PDF** drawings into evidence-only GeoJSON candidates. It does not modify the world directly.
++
++## Inputs
++
++Only drawings accepted by Phase 21 with an affine page-to-EPSG:27700 transform and RMSE within the configured limit are processed. Raster scans, unlocated plans, refused applications, page frames and sub-threshold geometry remain withheld.
++
++## Outputs
++
++- `planning-vector-extraction.json`: counts, policy, per-document decisions and warnings.
++- `planning-vector-candidates.geojson`: paths, ride centrelines, footprints, landscape polygons, drainage lines and other candidates.
++
++Each feature records application/document provenance, extraction method, georeference RMSE, geometry role, confidence and `world_eligible: false`. Phase 23 must pass these candidates through planning-authority status, licence, confidence, overlap, offset and ambiguity gates before any OSM repair.
+diff -ruN phase21_green/src/cli.mjs phase22_work/src/cli.mjs
+--- phase21_green/src/cli.mjs	2026-08-05 21:52:54.000000000 +0000
++++ phase22_work/src/cli.mjs	2026-08-05 21:58:37.261700702 +0000
+@@ -56,6 +56,22 @@
+   --planning-document-max-pages 5  PDF pages inspected with pdftotext when available
+   --planning-document-min-score 35 Minimum filename/link classification score
+   --planning-document-license TEXT Optional explicit reuse licence for downloaded documents
++  --planning-vectorize-mode extract
++                                    off, qa, extract, or strict PDF vector extraction
++  --planning-vectorize-max-documents 30
++                                    Maximum accepted georeferenced drawings processed
++  --planning-vectorize-max-features 12000
++                                    Maximum evidence-only vector candidates per build
++  --planning-vectorize-max-features-per-document 2000
++                                    Per-drawing vector candidate ceiling
++  --planning-vectorize-min-length-m 2
++                                    Minimum extracted line length
++  --planning-vectorize-min-area-m2 4
++                                    Minimum extracted polygon area
++  --planning-vectorize-max-rmse-m 3
++                                    Maximum drawing alignment RMSE for vectorization
++  --planning-vectorize-curve-tolerance 1.5
++                                    PDF curve flattening tolerance in page points
+   --planning-override-mode gated   off, gated, or authoritative OSM replacement policy
+   --planning-override-min-confidence .86
+                                     Minimum planning evidence score for automatic replacement
+diff -ruN phase21_green/src/lib/args.mjs phase22_work/src/lib/args.mjs
+--- phase21_green/src/lib/args.mjs	2026-08-05 21:52:54.000000000 +0000
++++ phase22_work/src/lib/args.mjs	2026-08-05 21:58:37.261557840 +0000
+@@ -14,7 +14,10 @@
+   "planning-datasets", "planning-data-url", "planning-geometry",
+   "planning-document-mode", "planning-document-max-applications", "planning-document-max-documents",
+   "planning-document-max-mb", "planning-document-max-pages", "planning-document-min-score",
+-  "planning-document-license", "planning-override-mode", "planning-override-min-confidence",
++  "planning-document-license", "planning-vectorize-mode", "planning-vectorize-max-documents",
++  "planning-vectorize-max-features", "planning-vectorize-max-features-per-document",
++  "planning-vectorize-min-length-m", "planning-vectorize-min-area-m2", "planning-vectorize-max-rmse-m",
++  "planning-vectorize-curve-tolerance", "planning-override-mode", "planning-override-min-confidence",
+   "planning-override-min-overlap", "planning-override-max-offset-m",
+   "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+@@ -133,7 +136,9 @@
+     "shrubDensityPer100m2", "treeLineSpacingM", "vegetationMinSpacingM",
+     "maxVegetationModels", "microsoftBuildingsMinConfidence", "planningDocumentMaxApplications",
+     "planningDocumentMaxDocuments", "planningDocumentMaxMb", "planningDocumentMaxPages",
+-    "planningDocumentMinScore", "planningOverrideMinConfidence",
++    "planningDocumentMinScore", "planningVectorizeMaxDocuments", "planningVectorizeMaxFeatures",
++    "planningVectorizeMaxFeaturesPerDocument", "planningVectorizeMinLengthM", "planningVectorizeMinAreaM2",
++    "planningVectorizeMaxRmseM", "planningVectorizeCurveTolerance", "planningOverrideMinConfidence",
+     "planningOverrideMinOverlap", "planningOverrideMaxOffsetM", "wikidataLimit",
+     "wikimediaCommonsLimit", "maxSupplementalFeatures", "supplementalPageSize",
+     "maxSupplementalDownloadMb"
+@@ -194,6 +199,23 @@
+   ]) {
+     if (options[key] === undefined) continue;
+     if (options[key] < minimum || options[key] > maximum || (integerOnly && !Number.isInteger(options[key]))) {
++      throw new UserError(`--${toKebab(key)} must be ${integerOnly ? "an integer " : ""}between ${minimum} and ${maximum}`);
++    }
++  }
++  if (options.planningVectorizeMode && !["off", "qa", "extract", "strict"].includes(options.planningVectorizeMode)) {
++    throw new UserError("--planning-vectorize-mode must be off, qa, extract, or strict");
++  }
++  for (const [key, minimum, maximum, integerOnly] of [
++    ["planningVectorizeMaxDocuments", 1, 200, true],
++    ["planningVectorizeMaxFeatures", 1, 100000, true],
++    ["planningVectorizeMaxFeaturesPerDocument", 1, 20000, true],
++    ["planningVectorizeMinLengthM", 0.1, 100, false],
++    ["planningVectorizeMinAreaM2", 0.1, 10000, false],
++    ["planningVectorizeMaxRmseM", 0.1, 25, false],
++    ["planningVectorizeCurveTolerance", 0.1, 20, false]
++  ]) {
++    if (options[key] === undefined) continue;
++    if (options[key] < minimum || options[key] > maximum || (integerOnly && !Number.isInteger(options[key]))) {
+       throw new UserError(`--${toKebab(key)} must be ${integerOnly ? "an integer " : ""}between ${minimum} and ${maximum}`);
+     }
+   }
+diff -ruN phase21_green/src/lib/pipeline.mjs phase22_work/src/lib/pipeline.mjs
+--- phase21_green/src/lib/pipeline.mjs	2026-08-05 21:52:54.000000000 +0000
++++ phase22_work/src/lib/pipeline.mjs	2026-08-05 21:58:37.261785759 +0000
+@@ -104,6 +104,17 @@
+     path.join(outputDir, "planning-document-catalogue.json"),
+     sources.supplemental?.evidence?.["planning-documents"] || { schemaVersion: 1, status: "not-configured", applications: [] }
+   );
++  const planningVectorEvidence = sources.supplemental?.evidence?.["planning-documents"]?.vectorExtraction || {
++    schemaVersion: 1, status: "not-configured", candidates: { type: "FeatureCollection", features: [] }
++  };
++  const planningVectorExtractionPath = await writeJson(
++    path.join(outputDir, "planning-vector-extraction.json"),
++    { ...planningVectorEvidence, candidates: undefined }
++  );
++  const planningVectorCandidatesPath = await writeJson(
++    path.join(outputDir, "planning-vector-candidates.geojson"),
++    planningVectorEvidence.candidates || { type: "FeatureCollection", features: [] }
++  );
+   const buildingSigns = compilation.signs.filter((sign) => !sign.role || sign.role === "building");
+   const buildingLabelsPath = await writeJson(path.join(outputDir, "building-labels.json"), {
+     schemaVersion: 1,
+@@ -177,6 +188,8 @@
+       sourceFusion: sourceFusionPath,
+       planningAuthority: planningAuthorityPath,
+       planningDocuments: planningDocumentsPath,
++      planningVectorExtraction: planningVectorExtractionPath,
++      planningVectorCandidates: planningVectorCandidatesPath,
+       supplementalSources: supplementalSourcesPath,
+       buildingLabels: buildingLabelsPath,
+       rideProfiles: rideProfilesPath,
+diff -ruN phase21_green/src/lib/planning-documents.mjs phase22_work/src/lib/planning-documents.mjs
+--- phase21_green/src/lib/planning-documents.mjs	2026-08-05 21:52:58.000000000 +0000
++++ phase22_work/src/lib/planning-documents.mjs	2026-08-05 21:58:37.261413164 +0000
+@@ -4,6 +4,7 @@
+ import { readFile } from "node:fs/promises";
+ import { cachedBinary, ensureDir, fetchBinary, sha256, sha256File } from "./io.mjs";
+ import { georeferencePlanningDocuments } from "./planning-georeference.mjs";
++import { vectorizePlanningDrawings } from "./planning-vectorize.mjs";
+ 
+ const execFileAsync = promisify(execFile);
+ const DOWNLOADABLE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"]);
+@@ -129,6 +130,8 @@
+   if (remainingBytes <= 0) evidence.warnings.push(`Document downloads reached the ${config.maxBytes / (1024 * 1024)} MB safety cap.`);
+   evidence.georeference = await georeferencePlanningDocuments(runtime, options, evidence);
+   evidence.warnings.push(...(evidence.georeference.warnings || []).map((warning) => `georeference: ${warning}`));
++  evidence.vectorExtraction = await vectorizePlanningDrawings(runtime, options, evidence);
++  evidence.warnings.push(...(evidence.vectorExtraction.warnings || []).map((warning) => `vectorize: ${warning}`));
+   return evidence;
+ }
+ 
+diff -ruN phase21_green/src/lib/planning-georeference.mjs phase22_work/src/lib/planning-georeference.mjs
+--- phase21_green/src/lib/planning-georeference.mjs	2026-08-05 21:52:58.000000000 +0000
++++ phase22_work/src/lib/planning-georeference.mjs	2026-08-05 21:58:37.261201870 +0000
+@@ -191,6 +191,12 @@
+     page: candidate.page,
+     crs: candidate.crs,
+     controlPointCount: candidate.points.length,
++    pageWidthPoints: candidate.width,
++    pageHeightPoints: candidate.height,
++    affine: {
++      a: validation.fit.a, b: validation.fit.b, c: validation.fit.c,
++      d: validation.fit.d, e: validation.fit.e, f: validation.fit.f
++    },
+     rmseM: validation.rmseM,
+     scaleMPerPoint: validation.scaleMPerPoint,
+     skewCosine: validation.skewCosine,
+diff -ruN phase21_green/src/lib/planning-vectorize.mjs phase22_work/src/lib/planning-vectorize.mjs
+--- phase21_green/src/lib/planning-vectorize.mjs	1970-01-01 00:00:00.000000000 +0000
++++ phase22_work/src/lib/planning-vectorize.mjs	2026-08-05 22:00:01.924990125 +0000
+@@ -0,0 +1,382 @@
++import path from "node:path";
++import { createHash } from "node:crypto";
++import { createReadStream } from "node:fs";
++import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
++import { execFile, spawn } from "node:child_process";
++import { promisify } from "node:util";
++
++const execFileAsync = promisify(execFile);
++const DEFAULT_CURVE_TOLERANCE = 1.5;
++const LINE_ROLES = new Set(["ride-layout", "access-plan", "terrain-or-drainage", "lighting-plan", "site-plan", "block-plan", "landscape-plan"]);
++const POLYGON_ROLES = new Set(["site-plan", "block-plan", "landscape-plan", "ride-layout", "floor-plan", "terrain-or-drainage", "access-plan", "lighting-plan"]);
++
++export async function vectorizePlanningDrawings(runtime, options = {}, catalogue = {}) {
++  const mode = normalizeMode(options.planningVectorizeMode ||
++    (catalogue?.georeference?.accepted > 0 ? "extract" : "off"));
++  const config = {
++    mode,
++    maxDocuments: integer(options.planningVectorizeMaxDocuments, 30, 1, 200),
++    maxFeatures: integer(options.planningVectorizeMaxFeatures, 12_000, 1, 100_000),
++    maxFeaturesPerDocument: integer(options.planningVectorizeMaxFeaturesPerDocument, 2_000, 1, 20_000),
++    minLengthM: number(options.planningVectorizeMinLengthM, 2, 0.1, 100),
++    minAreaM2: number(options.planningVectorizeMinAreaM2, 4, 0.1, 10_000),
++    maxRmseM: number(options.planningVectorizeMaxRmseM, 3, 0.1, 25),
++    curveTolerance: number(options.planningVectorizeCurveTolerance, DEFAULT_CURVE_TOLERANCE, 0.1, 20),
++    failClosed: mode === "strict"
++  };
++  const report = {
++    schemaVersion: 1,
++    status: mode === "off" ? "disabled" : "active",
++    mode,
++    policy: {
