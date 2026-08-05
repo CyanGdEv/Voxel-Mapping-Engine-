@@ -51,36 +51,8 @@ on:
           - discover
           - download
           - extract
-      planning_document_max_applications:
-        description: Maximum planning applications inspected
-        required: true
-        default: "80"
-        type: string
-      planning_document_max_documents:
-        description: Maximum geometry-relevant planning documents selected
-        required: true
-        default: "240"
-        type: string
-      planning_document_max_mb:
-        description: Aggregate cache-only planning document download limit in MB
-        required: true
-        default: "25"
-        type: string
-      planning_document_max_pages:
-        description: Maximum PDF pages inspected for embedded text
-        required: true
-        default: "5"
-        type: string
-      planning_document_min_score:
-        description: Minimum filename and link classification score
-        required: true
-        default: "35"
-        type: string
-      planning_document_license:
-        description: Optional explicit reuse licence for downloaded planning documents
-        required: false
-        default: ""
-        type: string
+      # Advanced planning-document limits are repository variables rather than
+      # workflow_dispatch inputs. GitHub accepts at most 25 dispatch inputs.
       planning_override_mode:
         description: Planning geometry policy for OSM conflicts
         required: true
@@ -192,12 +164,12 @@ jobs:
       TPMAP_WORLD_MARGIN: ${{ inputs.world_margin }}
       TPMAP_ENGLAND_OPEN_DATA: ${{ inputs.england_open_data }}
       TPMAP_PLANNING_DOCUMENT_MODE: ${{ inputs.planning_document_mode }}
-      TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS: ${{ inputs.planning_document_max_applications }}
-      TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS: ${{ inputs.planning_document_max_documents }}
-      TPMAP_PLANNING_DOCUMENT_MAX_MB: ${{ inputs.planning_document_max_mb }}
-      TPMAP_PLANNING_DOCUMENT_MAX_PAGES: ${{ inputs.planning_document_max_pages }}
-      TPMAP_PLANNING_DOCUMENT_MIN_SCORE: ${{ inputs.planning_document_min_score }}
-      TPMAP_PLANNING_DOCUMENT_LICENSE: ${{ inputs.planning_document_license }}
+      TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}
+      TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}
+      TPMAP_PLANNING_DOCUMENT_MAX_MB: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}
+      TPMAP_PLANNING_DOCUMENT_MAX_PAGES: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_PAGES || '5' }}
+      TPMAP_PLANNING_DOCUMENT_MIN_SCORE: ${{ vars.TPMAP_PLANNING_DOCUMENT_MIN_SCORE || '35' }}
+      TPMAP_PLANNING_DOCUMENT_LICENSE: ${{ vars.TPMAP_PLANNING_DOCUMENT_LICENSE }}
       TPMAP_PLANNING_OVERRIDE_MODE: ${{ inputs.planning_override_mode }}
       TPMAP_PLANNING_GEOMETRY_PATH: ${{ inputs.planning_geometry_path }}
       TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE: ${{ inputs.planning_override_min_confidence }}
