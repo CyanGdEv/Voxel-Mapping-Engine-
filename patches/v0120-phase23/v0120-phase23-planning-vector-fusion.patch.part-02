@@ -1,0 +1,53 @@
++  return expected === "line"
++    ? ["LineString", "MultiLineString"].includes(geometry.type)
++    : ["Polygon", "MultiPolygon"].includes(geometry.type);
++}
++
++function candidatePriority(candidate) {
++  const role = String(candidate.properties?.geometry_role || "");
++  const mapping = SUPPORTED_VECTOR_ROLES.get(role);
++  return (mapping?.priority || 0) + (Number(candidate.properties?.confidence) || 0) * 100 - (Number(candidate.properties?.georeference_rmse_m) || 99) * 4;
++}
++
++function indexDocuments(catalogue) {
++  const index = new Map();
++  for (const application of catalogue.applications || []) {
++    for (const document of application.documents || []) {
++      index.set(document.id, {
++        ...document,
++        applicationReference: application.reference || application.id || null,
++        applicationStatus: application.status || "unknown"
++      });
++    }
++  }
++  return index;
++}
++
++function recordDecision(evidence, candidate, decision) {
++  if (evidence.decisions.length >= 5_000) {
++    evidence.decisionsTruncated = true;
++    return;
++  }
++  evidence.decisions.push({
++    vectorId: candidate.id || null,
++    documentId: candidate.properties?.document_id || null,
++    planningReference: candidate.properties?.planning_reference || null,
++    geometryRole: candidate.properties?.geometry_role || null,
++    ...decision
++  });
++}
++
++function emptyCollection() {
++  return { type: "FeatureCollection", name: "Planning drawing vectors", features: [] };
++}
++
++function normalizeMode(value) {
++  const mode = String(value || "gated").trim().toLowerCase();
++  return ["off", "review", "gated", "private", "authoritative"].includes(mode) ? mode : "gated";
++}
++function clamp01(value) { return Math.max(0, Math.min(1, Number(value) || 0)); }
++function number(value, fallback, minimum, maximum) { const n = value === undefined ? fallback : Number(value); return Number.isFinite(n) && n >= minimum && n <= maximum ? n : fallback; }
++function integer(value, fallback, minimum, maximum) { const n = value === undefined ? fallback : Number(value); return Number.isInteger(n) && n >= minimum && n <= maximum ? n : fallback; }
++function numberOrNull(value) { const n = Number(value); return Number.isFinite(n) ? n : null; }
++
++export const __test = { planningState, geometryMatches, candidatePriority, SUPPORTED_VECTOR_ROLES };
