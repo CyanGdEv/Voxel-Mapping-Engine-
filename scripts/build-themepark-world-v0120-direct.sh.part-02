@@ -3,6 +3,7 @@
     test/appearance-vegetation.test.mjs \
     test/lidar.test.mjs \
     test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
     2>&1 | tee "$DIAG/compatibility-tests.log"
   node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"
 )
@@ -11,6 +12,10 @@ SOURCE_ARGS=(
   --max-supplemental-features "${TPMAP_MAX_SUPPLEMENTAL_FEATURES:-50000}"
   --supplemental-page-size "${TPMAP_SUPPLEMENTAL_PAGE_SIZE:-5000}"
   --max-supplemental-download-mb "${TPMAP_MAX_SUPPLEMENTAL_DOWNLOAD_MB:-250}"
+  --planning-override-mode "${TPMAP_PLANNING_OVERRIDE_MODE:-gated}"
+  --planning-override-min-confidence "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}"
+  --planning-override-min-overlap "${TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP:-0.18}"
+  --planning-override-max-offset-m "${TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M:-25}"
 )
 
 [[ "${TPMAP_ENGLAND_OPEN_DATA:-true}" == "true" ]] && SOURCE_ARGS+=(--england-open-data)
@@ -41,6 +46,12 @@ add_optional_repo_file() {
 
 add_optional_repo_file "${TPMAP_SOURCE_CONFIG_PATH:-}" --source-config "Supplemental source config"
 add_optional_repo_file "${TPMAP_OS_OPENMAP_LOCAL_PATH:-}" --os-openmap-local "OS OpenMap Local"
+add_optional_repo_file "${TPMAP_PLANNING_GEOMETRY_PATH:-}" --planning-geometry "Planning authority geometry"
+
+printf 'mode=%s\nmin_confidence=%s\nmin_overlap=%s\nmax_offset_m=%s\ngeometry_path=%s\n' \
+  "${TPMAP_PLANNING_OVERRIDE_MODE:-gated}" "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}" \
+  "${TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP:-0.18}" "${TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M:-25}" \
+  "${TPMAP_PLANNING_GEOMETRY_PATH:-}" > "$DIAG/planning-authority-config.txt"
 
 IMAGERY_ARGS=(
   --orthophoto-mode off
