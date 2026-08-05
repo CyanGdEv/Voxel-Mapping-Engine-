@@ -1,0 +1,160 @@
++
+ function sourceStats() {
+   return {
+     files: [], considered: 0, accepted: 0, unsupported: 0,
+diff --git a/src/lib/supplemental-sources.mjs b/src/lib/supplemental-sources.mjs
+index ff000b2..bbf3112 100644
+--- a/src/lib/supplemental-sources.mjs
++++ b/src/lib/supplemental-sources.mjs
+@@ -19,13 +19,15 @@ const DEFAULT_PLANNING_DATASETS = [
+   "tree",
+   "tree-preservation-zone",
+   "ancient-woodland",
+-  "listed-building"
++  "listed-building",
++  "listed-building-outline",
++  "planning-application"
+ ];
+ 
+ export async function acquireSupplementalSources(options, context) {
+   const requested = Boolean(
+     options.englandOpenData || options.treesOutsideWoodland || options.planningData ||
+-    options.microsoftBuildings || options.wikidataPlaces || options.wikimediaCommons ||
++    options.planningGeometry?.length || options.microsoftBuildings || options.wikidataPlaces || options.wikimediaCommons ||
+     options.openAerialMap || options.osOpenMapLocal?.length || options.sourceConfig?.length
+   );
+   const result = {
+@@ -67,6 +69,9 @@ export async function acquireSupplementalSources(options, context) {
+   if (options.englandOpenData || options.planningData) {
+     await run("planning-data", () => acquirePlanningData(runtime, options));
+   }
++  for (const filename of options.planningGeometry || []) {
++    await run(`planning-geometry:${path.basename(filename)}`, () => acquirePlanningGeometry(runtime, filename));
++  }
+   if (options.englandOpenData || options.treesOutsideWoodland) {
+     await run("trees-outside-woodland", () => acquireTreesOutsideWoodland(runtime, options));
+   }
+@@ -257,20 +262,46 @@ async function acquirePlanningData(runtime, options) {
+ function standardizePlanningFeature(feature, index, endpoint) {
+   if (!feature?.geometry) return null;
+   const properties = feature.properties || {};
+-  const dataset = String(properties.dataset || properties.typology || "planning-entity");
++  const dataset = normalizePlanningDataset(properties.dataset || properties.typology || "planning-entity");
++  const polygon = ["Polygon", "MultiPolygon"].includes(feature.geometry.type);
++  const point = feature.geometry.type === "Point";
+   const mapping = {
+     tree: ["vegetation", "protected-or-recorded-tree"],
+     "tree-preservation-zone": ["detail", "tree-preservation-zone"],
+     "tree-preservation-order": ["detail", "tree-preservation-order"],
+     "ancient-woodland": ["vegetation", "ancient-woodland"],
+     "listed-building": ["building", "listed-building"],
++    "listed-building-outline": ["building", "listed-building-outline"],
++    "planning-application": ["detail", "planning-application-site"],
+     "scheduled-monument": ["structure", "scheduled-monument"],
+     "conservation-area": ["detail", "conservation-area"]
+   };
+   let [kind, subtype] = mapping[dataset] || ["detail", dataset];
+-  if (dataset === "listed-building" && !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) {
++  let geometryRole = "constraint-only";
++  let mergePolicy = "independent-detail";
++  let confidence = 0.68;
++
++  if (dataset === "listed-building-outline" && polygon) {
++    geometryRole = "authoritative-feature";
++    mergePolicy = "planning-authority";
++    confidence = 0.92;
++  } else if (dataset === "tree" && point) {
++    geometryRole = "authoritative-feature";
++    mergePolicy = "planning-authority";
++    confidence = 0.88;
++  } else if (dataset === "planning-application") {
++    kind = "detail";
++    subtype = "planning-application-site";
++    geometryRole = "site-boundary";
++    mergePolicy = "planning-site";
++    confidence = 0.62;
++  } else if (dataset === "listed-building" && !polygon) {
+     kind = "detail";
++    geometryRole = "constraint-only";
+   }
++
++  const status = planningStatus(properties, dataset);
++  const implemented = planningImplemented(properties, geometryRole);
+   return standardizeFeature(feature, {
+     idPrefix: `planning:${dataset}`,
+     index,
+@@ -283,10 +314,144 @@ function standardizePlanningFeature(feature, index, endpoint) {
+     kind,
+     subtype,
+     checkedAt: new Date().toISOString(),
+-    mergePolicy: "independent-detail"
++    mergePolicy,
++    extra: {
++      planning_authority: geometryRole === "authoritative-feature",
++      planning_geometry_role: geometryRole,
++      planning_confidence: confidence,
++      planning_status: status,
++      planning_implemented: implemented,
++      planning_reference: firstString(properties, ["reference", "application-reference", "application_reference", "entity"]),
++      planning_start_date: firstString(properties, ["start-date", "start_date", "valid-from", "valid_from"]),
++      planning_decision_date: firstString(properties, ["decision-date", "decision_date", "end-date", "end_date"]),
++      planning_document_url: firstString(properties, ["documentation-url", "documentation_url", "application-url", "application_url", "website"]),
++      render_in_world: dataset !== "planning-application"
++    }
+   });
+ }
+ 
++async function acquirePlanningGeometry(runtime, filename) {
++  const resolved = path.resolve(filename);
++  const collection = await readJson(resolved);
++  invariant(collection?.type === "FeatureCollection" && Array.isArray(collection.features),
++    `--planning-geometry ${filename} must be a GeoJSON FeatureCollection`);
++  const defaults = planningCollectionSourceDefaults(collection);
++  invariant(defaults.sourceUrl, `--planning-geometry ${filename} requires collection source.url or feature source_url`);
++  invariant(defaults.license, `--planning-geometry ${filename} requires an explicit reuse licence`);
++  const provider = defaults.provider || "Planning application evidence";
++  const standardized = [];
++  for (const [index, feature] of collection.features.entries()) {
++    if (!feature?.geometry || !geometryIntersectsBbox(feature.geometry, runtime.bbox)) continue;
++    const properties = feature.properties || {};
++    const kind = properties.kind || inferGenericKind(properties, feature.geometry);
++    const role = normalizePlanningRole(properties.planning_geometry_role || properties.geometry_role);
++    invariant(role, `--planning-geometry ${filename} feature ${index} requires a supported planning_geometry_role`);
++    invariant(SUPPORTED_PLANNING_GEOMETRY_KINDS.has(kind),
++      `--planning-geometry ${filename} feature ${index} kind ${kind} cannot participate in planning authority fusion`);
++    const status = planningStatus(properties, "planning-geometry");
++    const implemented = planningImplemented(properties, role);
++    const confidence = firstNumber(properties, ["planning_confidence", "confidence"]) ??
++      (properties.verified === true ? 0.92 : 0.76);
++    const sourceUrl = properties.source_url || defaults.sourceUrl;
++    const license = properties.license || properties.source_license || defaults.license;
++    invariant(sourceUrl && license,
++      `--planning-geometry ${filename} feature ${index} requires source_url and license`);
++    standardized.push(standardizeFeature(feature, {
++      idPrefix: `planning-geometry:${path.basename(filename)}`,
++      index,
++      explicitId: properties.id || properties.planning_reference || null,
++      provider: properties.source_name || provider,
++      sourceUrl,
++      license,
++      dataset: properties.source_dataset || defaults.dataset || "planning-derived-geometry",
++      adapter: "planning-geometry",
++      kind,
++      subtype: properties.subtype || "planning-derived",
++      checkedAt: properties.checked_at || defaults.timestamp || new Date().toISOString(),
++      mergePolicy: ["authoritative-feature", "as-built", "implemented-layout", "approved-layout"].includes(role)
++        ? "planning-authority" : "planning-site",
++      heightM: firstNumber(properties, ["height_m", "height"]),
++      accuracyM: firstNumber(properties, ["accuracy_m"]),
++      extra: {
++        planning_authority: true,
++        planning_geometry_role: role,
++        planning_confidence: confidence,
++        planning_status: status,
++        planning_implemented: implemented,
++        planning_reference: firstString(properties, ["planning_reference", "reference", "application_reference"]),
++        planning_decision_date: firstString(properties, ["planning_decision_date", "decision_date", "decision-date"]),
++        planning_document_url: firstString(properties, ["planning_document_url", "document_url", "source_url"]),
++        verified: properties.verified === true
++      }
++    }));
