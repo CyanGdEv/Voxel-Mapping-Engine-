@@ -1,0 +1,119 @@
+   url.searchParams.set("service", "WFS");
+diff --git a/test/tiled-lidar.test.mjs b/test/tiled-lidar.test.mjs
+new file mode 100644
+index 0000000..a3fafc0
+--- /dev/null
++++ b/test/tiled-lidar.test.mjs
+@@ -0,0 +1,127 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { parseArgs } from "../src/lib/args.mjs";
++import {
++  coverageHeatmapSvg,
++  createTiledRasterSampler,
++  planCoverageTiles,
++  summarizeCoverageTiles,
++  validateCoverageTile
++} from "../src/lib/lidar.mjs";
++
++test("plans deterministic bounded EA WCS tiles with clipped outer edges", () => {
++  const plan = planCoverageTiles({ minE: 100, minN: 200, maxE: 2_250, maxN: 1_850 }, 1_000);
++  assert.equal(plan.columns, 3);
++  assert.equal(plan.rows, 2);
++  assert.equal(plan.tiles.length, 6);
++  assert.deepEqual(plan.tiles[0], {
++    id: "r00-c00",
++    row: 0,
++    column: 0,
++    bounds: { minE: 100, minN: 200, maxE: 1_100, maxN: 1_200 }
++  });
++  assert.deepEqual(plan.tiles.at(-1), {
++    id: "r01-c02",
++    row: 1,
++    column: 2,
++    bounds: { minE: 2_100, minN: 1_200, maxE: 2_250, maxN: 1_850 }
++  });
++});
++
++test("validates projected tile coverage and rejects sparse DTM tiles", () => {
++  const raster = fakeRaster([0, 0, 2, 2], [10, 11, 12, 13]);
++  const accepted = validateCoverageTile(raster, { minE: 0, minN: 0, maxE: 2, maxN: 2 }, {
++    role: "dtm",
++    minimumCoverage: 0.85,
++    maximumResolutionM: 2
++  });
++  assert.equal(accepted.coverage, 100);
++
++  assert.throws(() => validateCoverageTile({ ...raster, validCells: 2 }, {
++    minE: 0, minN: 0, maxE: 2, maxN: 2
++  }, { role: "dtm", minimumCoverage: 0.85 }), /coverage 50\.00%/);
++});
++
++test("samples tiled rasters in constant-time grid cells including tile seams", () => {
++  const plan = planCoverageTiles({ minE: 0, minN: 0, maxE: 400, maxN: 200 }, 200);
++  const tiles = plan.tiles.map((tile) => {
++    const value = tile.column === 0 ? 10 : 20;
++    const raster = fakeRaster([
++      tile.bounds.minE, tile.bounds.minN, tile.bounds.maxE, tile.bounds.maxN
++    ], [value, value, value, value]);
++    return { ...tile, raster };
++  });
++  const sample = createTiledRasterSampler({ ...plan, tiles });
++  assert.equal(sample(50, 50), 10);
++  assert.equal(sample(350, 50), 20);
++  assert.equal(sample(200, 50), 20);
++  assert.equal(sample(-1, 50), null);
++});
++
++test("summarizes tile provenance and emits an SVG coverage heatmap", () => {
++  const plan = planCoverageTiles({ minE: 0, minN: 0, maxE: 400, maxN: 200 }, 200);
++  const tiles = plan.tiles.map((tile, index) => {
++    const raster = fakeRaster([
++      tile.bounds.minE, tile.bounds.minN, tile.bounds.maxE, tile.bounds.maxN
++    ], [index + 1, index + 2, index + 3, index + 4]);
++    return {
++      ...tile,
++      raster,
++      source: { cacheHit: index === 0, queryHash: `hash-${index}` },
++      sha256: `sha-${index}`,
++      validation: { coverage: 100, resolutionM: 1, minM: raster.min, maxM: raster.max }
++    };
++  });
++  const metadata = summarizeCoverageTiles({
++    role: "dtm",
++    endpoint: "https://example.test/wcs",
++    coverageId: "dtm",
++    plan,
++    tiles
++  });
++  assert.equal(metadata.tileCount, 2);
++  assert.equal(metadata.cacheHitTiles, 1);
++  assert.equal(metadata.coverage, 100);
++  const svg = coverageHeatmapSvg(metadata);
++  assert.match(svg, /DTM tiled coverage/);
++  assert.match(svg, /2 × 1 tiles/);
++});
++
++test("parses and validates tiled terrain controls", () => {
++  const parsed = parseArgs([
++    "build",
++    "--ea-tiled",
++    "--ea-tile-size-m", "1000",
++    "--ea-tile-concurrency", "2",
++    "--ea-tile-min-coverage", "0.9",
++    "--ea-tile-max-resolution-m", "2",
++    "--ea-tile-threshold-m", "1500",
++    "--ea-tile-fallback-single"
++  ]).options;
++  assert.equal(parsed.eaTiled, true);
++  assert.equal(parsed.eaTileSizeM, 1000);
++  assert.equal(parsed.eaTileConcurrency, 2);
++  assert.equal(parsed.eaTileMinCoverage, 0.9);
++  assert.equal(parsed.eaTileFallbackSingle, true);
++  assert.throws(() => parseArgs(["build", "--ea-tile-concurrency", "9"]), /between 1 and 8/);
++});
++
++function fakeRaster(boundingBox, values) {
++  const width = 2;
++  const height = 2;
++  return {
