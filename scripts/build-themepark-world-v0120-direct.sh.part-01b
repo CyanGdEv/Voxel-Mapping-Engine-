@@ -1,42 +1,33 @@
     test/planning-documents.test.mjs \
     2>&1 | tee "$DIAG/phase20-runner-boundary-regression.log"
 
+  PHASE20_B64="$ROOT/patches/v0120-phase20/phase20-portal-fallback-rebased.patch.gz.b64"
   PHASE20_PATCH="$ROOT/.phase20-planning-portal-fallback.patch"
-  PHASE20_PARTS=("$ROOT"/patches/v0120-phase20/v0120-phase20-planning-portal-fallback.patch.part-*)
-  PHASE20_EXPECTED_BLOBS=(
-    3038372b7bfb5af6633189fe921bf039b8ed3164
-    580cc7402e67ecd7183be5d28d8bc3414c0c7778
-    4a10be04281d6c32d7ae2bd6970bb264d7efa602
-    ab5ab80e9ca7ad7c5f4cffe996786d0c6a2ea4d0
-    151dc4eea7607b48720ba0196ffc9fcc74d5b5dd
-  )
-  [[ ${#PHASE20_PARTS[@]} -eq ${#PHASE20_EXPECTED_BLOBS[@]} ]] || {
-    echo "Phase 20 planning portal fallback patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+  EXPECTED_PHASE20_BLOB="dd56c015a9dabfcf9e6b68a1506bdb59da88cf32"
+  EXPECTED_PHASE20_PATCH_SHA="a3a1d91be78b87185cea8dab675f2b1d6cafd8748c732d69e24cc86cd720ea47"
+  ACTUAL_PHASE20_BLOB="$(git hash-object "$PHASE20_B64")"
+  printf 'bundle=%s\nexpected_blob=%s\nactual_blob=%s\n' \
+    "$(basename "$PHASE20_B64")" "$EXPECTED_PHASE20_BLOB" "$ACTUAL_PHASE20_BLOB" \
+    | tee "$DIAG/phase20-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE20_BLOB" == "$EXPECTED_PHASE20_BLOB" ]] || {
+    echo "Phase 20 rebased planning portal patch bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
-  : > "$PHASE20_PATCH"
-  : > "$DIAG/phase20-patch-checksum.txt"
-  for (( phase20_index=0; phase20_index<${#PHASE20_PARTS[@]}; phase20_index++ )); do
-    phase20_part="${PHASE20_PARTS[$phase20_index]}"
-    phase20_expected_blob="${PHASE20_EXPECTED_BLOBS[$phase20_index]}"
-    phase20_actual_blob="$(git hash-object "$phase20_part")"
-    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
-      "$(basename "$phase20_part")" "$phase20_expected_blob" "$phase20_actual_blob" \
-      | tee -a "$DIAG/phase20-patch-checksum.txt"
-    [[ "$phase20_actual_blob" == "$phase20_expected_blob" ]] || {
-      echo "Phase 20 planning portal fallback patch chunk mismatch: $(basename "$phase20_part")" | tee -a "$DIAG/source-error.txt" >&2
-      exit 2
-    }
-    cat "$phase20_part" >> "$PHASE20_PATCH"
-  done
+  base64 --decode "$PHASE20_B64" | gzip -dc > "$PHASE20_PATCH"
   ACTUAL_PHASE20_PATCH_SHA="$(sha256sum "$PHASE20_PATCH" | cut -d' ' -f1)"
-  printf 'assembled_sha256=%s\n' "$ACTUAL_PHASE20_PATCH_SHA" | tee -a "$DIAG/phase20-patch-checksum.txt"
-  [[ "$ACTUAL_PHASE20_PATCH_SHA" == "9ab6ded92c977f54d53e4305debae719e987455c7f12aa529994fa93ec479704" ]] || {
-    echo "Phase 20 planning portal fallback assembled patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE20_PATCH_SHA" "$ACTUAL_PHASE20_PATCH_SHA" \
+    | tee -a "$DIAG/phase20-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE20_PATCH_SHA" == "$EXPECTED_PHASE20_PATCH_SHA" ]] || {
+    echo "Phase 20 rebased planning portal patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
   }
-  patch --batch --forward -d "$GEN" -p1 < "$PHASE20_PATCH" \
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE20_PATCH" \
     2>&1 | tee "$DIAG/phase20-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 20 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
 
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase20-syntax-check.log"
