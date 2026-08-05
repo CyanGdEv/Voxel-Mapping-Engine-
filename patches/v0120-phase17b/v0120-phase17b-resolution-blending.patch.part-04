@@ -1,0 +1,140 @@
+tedRasterSampler,
++  createTerrainResolutionProfile,
++  createTiledRasterSampler,
++  planCoverageTiles,
++  summarizeCoverageTiles
++} from "../src/lib/lidar.mjs";
++
++test("assigns deterministic core, near and outer terrain resolutions", () => {
++  const bounds = { minE: 0, minN: 0, maxE: 6000, maxN: 1000 };
++  const profile = createTerrainResolutionProfile({
++    bounds,
++    coreBounds: { minE: 2000, minN: 0, maxE: 4000, maxN: 1000 },
++    coreResolutionM: 1,
++    nearResolutionM: 2,
++    outerResolutionM: 5,
++    nearDistanceM: 750,
++    featherM: 64
++  });
++  const plan = planCoverageTiles(bounds, 1000, profile);
++  assert.deepEqual(plan.tiles.map((tile) => tile.tier), ["outer", "near", "core", "core", "near", "outer"]);
++  assert.deepEqual(plan.tiles.map((tile) => tile.requestedResolutionM), [5, 2, 1, 1, 2, 5]);
++  assert.equal(plan.resolutionProfile.featherM, 64);
++});
++
++test("requests lower-resolution WCS output with a scale factor", () => {
++  const url = buildCoverageUrl({
++    endpoint: "https://example.test/wcs",
++    coverageId: "dtm",
++    bounds: { minE: 0, minN: 0, maxE: 1000, maxN: 1000 },
++    requestedResolutionM: 5
++  });
++  assert.equal(url.searchParams.get("scaleFactor"), "0.2");
++  assert.deepEqual(url.searchParams.getAll("subset"), ["E(0,1000)", "N(0,1000)"]);
++  const native = buildCoverageUrl({
++    endpoint: "https://example.test/wcs",
++    coverageId: "dtm",
++    bounds: { minE: 0, minN: 0, maxE: 1000, maxN: 1000 },
++    requestedResolutionM: 1
++  });
++  assert.equal(native.searchParams.has("scaleFactor"), false);
++});
++
++test("feathers different resolution tiles without a boundary cliff", () => {
++  const bounds = { minE: 0, minN: 0, maxE: 2000, maxN: 1000 };
++  const plan = planCoverageTiles(bounds, 1000);
++  const tiles = plan.tiles.map((tile) => ({
++    ...tile,
++    tier: tile.column === 0 ? "core" : "outer",
++    requestedResolutionM: tile.column === 0 ? 1 : 5,
++    raster: constantRaster(tile.bounds, tile.column === 0 ? 100 : 110, tile.column === 0 ? 1 : 5)
++  }));
++  const sample = createTiledRasterSampler({ ...plan, tiles }, { featherM: 100 });
++  assert.equal(sample(900, 500), 100);
++  assert.ok(Math.abs(sample(1100, 500) - 110) < 1e-9);
++  const left = sample(999, 500);
++  const boundary = sample(1000, 500);
++  const right = sample(1001, 500);
++  assert.ok(left > 102 && left < 105);
++  assert.ok(Math.abs(left - boundary) < 0.2);
++  assert.ok(Math.abs(boundary - right) < 0.2);
++});
++
++test("bilinear upsampling preserves a planar terrain slope", () => {
++  const raster = {
++    filename: "/tmp/plane.tif",
++    width: 2,
++    height: 2,
++    boundingBox: [0, 0, 4, 4],
++    resolution: [2, 2],
++    resolutionM: 2,
++    noData: null,
++    values: Float32Array.from([7, 9, 3, 5]),
++    min: 3,
++    max: 9,
++    validCells: 4,
++    totalCells: 4,
++    epsg: 27700
++  };
++  const sample = createProjectedRasterSampler(raster);
++  assert.equal(sample(2, 2), 6);
++  assert.equal(sample(1.5, 2.5), 6.5);
++});
++
++test("records resolution tiers and validates CLI profile ordering", () => {
++  const bounds = { minE: 0, minN: 0, maxE: 2000, maxN: 1000 };
++  const profile = createTerrainResolutionProfile({
++    bounds,
++    coreBounds: { minE: 0, minN: 0, maxE: 1000, maxN: 1000 },
++    coreResolutionM: 1,
++    nearResolutionM: 2,
++    outerResolutionM: 5,
++    nearDistanceM: 100,
++    featherM: 64
++  });
++  const plan = planCoverageTiles(bounds, 1000, profile);
++  const tiles = plan.tiles.map((tile, index) => {
++    const raster = constantRaster(tile.bounds, 100 + index, tile.requestedResolutionM);
++    return {
++      ...tile,
++      raster,
++      source: { cacheHit: false, queryHash: `q${index}`, scaleFactor: 1 / tile.requestedResolutionM },
++      validation: { coverage: 100, resolutionM: tile.requestedResolutionM, minM: raster.min, maxM: raster.max },
++      sha256: `s${index}`
++    };
++  });
++  const metadata = summarizeCoverageTiles({ role: "dtm", endpoint: "x", coverageId: "y", plan, tiles });
++  assert.equal(metadata.mode, "tiled-resolution-blended");
++  assert.deepEqual(metadata.resolutionProfile.tierCounts, { core: 1, near: 1, outer: 0 });
++
++  const parsed = parseArgs([
++    "build", "--ea-tiled", "--ea-resolution-blend", "--ea-resolution-core-bbox", "1,2,3,4",
++    "--ea-core-resolution-m", "1", "--ea-near-resolution-m", "2",
++    "--ea-outer-resolution-m", "5", "--ea-near-distance-m", "750",
++    "--ea-resolution-feather-m", "64"
++  ]).options;
++  assert.equal(parsed.eaResolutionBlend, true);
++  assert.equal(parsed.eaOuterResolutionM, 5);
++  assert.throws(() => parseArgs([
++    "build", "--ea-tiled", "--ea-resolution-blend", "--ea-resolution-core-bbox", "1,2,3,4",
++    "--ea-core-resolution-m", "5", "--ea-near-resolution-m", "2", "--ea-outer-resolution-m", "1"
++  ]), /core <= near <= outer/);
++});
++
++function constantRaster(bounds, value, resolutionM) {
++  return {
++    filename: "/tmp/tile.tif",
++    width: 2,
++    height: 2,
++    boundingBox: [bounds.minE, bounds.minN, bounds.maxE, bounds.maxN],
++    resolution: [resolutionM, resolutionM],
++    resolutionM,
++    noData: null,
++    values: Float32Array.from([value, value, value, value]),
++    min: value,
++    max: value,
++    validCells: 4,
++    totalCells: 4,
++    epsg: 27700
++  };
++}
