@@ -1,0 +1,94 @@
++  const rows = Math.ceil(heightM / tileSizeM);
++  const tiles = [];
++  for (let row = 0; row < rows; row += 1) {
++    for (let column = 0; column < columns; column += 1) {
++      const minE = bounds.minE + column * tileSizeM;
++      const minN = bounds.minN + row * tileSizeM;
++      tiles.push({
++        id: `r${String(row).padStart(2, "0")}-c${String(column).padStart(2, "0")}`,
++        row,
++        column,
++        bounds: {
++          minE,
++          minN,
++          maxE: Math.min(bounds.maxE, minE + tileSizeM),
++          maxN: Math.min(bounds.maxN, minN + tileSizeM)
++        }
++      });
++    }
++  }
++  return { bounds: { ...bounds }, tileSizeM, widthM, heightM, columns, rows, tiles };
++}
++
++export function validateCoverageTile(raster, requestedBounds, options = {}) {
++  const coverage = raster.validCells / raster.totalCells;
++  const tolerance = Math.max(2, raster.resolutionM * 2.5);
++  const [minX, minY, maxX, maxY] = raster.boundingBox;
++  invariant(minX <= requestedBounds.minE + tolerance && minY <= requestedBounds.minN + tolerance &&
++    maxX >= requestedBounds.maxE - tolerance && maxY >= requestedBounds.maxN - tolerance,
++  `${options.role || "coverage"} tile does not cover its requested projected bounds`);
++  invariant(raster.resolutionM <= (options.maximumResolutionM ?? 2),
++    `${options.role || "coverage"} tile resolution ${raster.resolutionM} m exceeds the configured limit`);
++  invariant(coverage >= (options.minimumCoverage ?? 0.85),
++    `${options.role || "coverage"} tile valid-cell coverage ${(coverage * 100).toFixed(2)}% is below the configured minimum`);
++  return {
++    coverage: Math.round(coverage * 100_000) / 1_000,
++    resolutionM: raster.resolutionM,
++    minM: raster.min,
++    maxM: raster.max
++  };
++}
++
++export function createTiledRasterSampler(mosaic) {
++  const tileMap = new Map(mosaic.tiles.map((tile) => [`${tile.row},${tile.column}`, {
++    ...tile,
++    sampler: tile.sampler || createProjectedRasterSampler(tile.raster)
++  }]));
++  const sampleTile = (row, column, x, y) => tileMap.get(`${row},${column}`)?.sampler(x, y) ?? null;
++  return (x, y) => {
++    if (x < mosaic.bounds.minE || x > mosaic.bounds.maxE || y < mosaic.bounds.minN || y > mosaic.bounds.maxN) return null;
++    const column = clamp(Math.floor((x - mosaic.bounds.minE) / mosaic.tileSizeM), 0, mosaic.columns - 1);
++    const row = clamp(Math.floor((y - mosaic.bounds.minN) / mosaic.tileSizeM), 0, mosaic.rows - 1);
++    const direct = sampleTile(row, column, x, y);
++    if (Number.isFinite(direct)) return direct;
++    for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
++      for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
++        if (!rowOffset && !columnOffset) continue;
++        const nearby = sampleTile(row + rowOffset, column + columnOffset, x, y);
++        if (Number.isFinite(nearby)) return nearby;
++      }
++    }
++    return null;
++  };
++}
++
++export function summarizeCoverageTiles({ role, endpoint, coverageId, plan, tiles }) {
++  const validCells = tiles.reduce((sum, tile) => sum + tile.raster.validCells, 0);
++  const totalCells = tiles.reduce((sum, tile) => sum + tile.raster.totalCells, 0);
++  const minM = Math.min(...tiles.map((tile) => tile.raster.min));
++  const maxM = Math.max(...tiles.map((tile) => tile.raster.max));
++  const resolutionM = Math.max(...tiles.map((tile) => tile.raster.resolutionM));
++  return {
++    mode: "tiled",
++    role,
++    endpoint,
++    coverageId,
++    bounds: [plan.bounds.minE, plan.bounds.minN, plan.bounds.maxE, plan.bounds.maxN],
++    tileSizeM: plan.tileSizeM,
++    rows: plan.rows,
++    columns: plan.columns,
++    tileCount: tiles.length,
++    cacheHitTiles: tiles.filter((tile) => tile.source.cacheHit).length,
++    validCells,
++    totalCells,
++    coverage: Math.round((validCells / totalCells) * 100_000) / 1_000,
++    minM,
++    maxM,
++    resolutionM,
++    queryHash: sha256(tiles.map((tile) => tile.source.queryHash).join("\n")),
++    tiles: tiles.map((tile) => ({
++      id: tile.id,
++      row: tile.row,
++      column: tile.column,
++      bounds: tile.raster.boundingBox,
++      requestedBounds: tile.bounds,
