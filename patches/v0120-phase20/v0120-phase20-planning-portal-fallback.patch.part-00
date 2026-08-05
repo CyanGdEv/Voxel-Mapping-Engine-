@@ -88,7 +88,8 @@ diff -ruN v0120_phase20_base/src/lib/planning-documents.mjs v0120_phase20_work/s
      mode,
 +    portalFallback: compactPortalFallback(portalFallback),
      policy: {
-       discovery: "Follow record-supplied URLs, one explicitly linked documents page, and bounded configured local-authority seed pages when national application coverage is empty.",
+-      discovery: "Follow only record-supplied documentation/document URLs and one explicitly linked documents page.",
++      discovery: "Follow record-supplied URLs, one explicitly linked documents page, and bounded configured local-authority seed pages when national application coverage is empty.",
        downloads: "Download only geometry-relevant PDF/image candidates within configured count and byte caps.",
 @@ -52,5 +81,7 @@
      textExtracted: 0,
