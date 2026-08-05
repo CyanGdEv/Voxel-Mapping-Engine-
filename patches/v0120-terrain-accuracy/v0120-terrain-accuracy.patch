@@ -1,5 +1,5 @@
 diff --git a/src/cli.mjs b/src/cli.mjs
-index 224e886..f84ff62 100644
+index 224e886..3f08639 100644
 --- a/src/cli.mjs
 +++ b/src/cli.mjs
 @@ -55,7 +55,7 @@ Supplemental public source fusion
@@ -11,18 +11,19 @@ index 224e886..f84ff62 100644
    --max-supplemental-download-mb 250
                                      Compressed-source download safety limit
    --strict-supplemental-sources    Fail the build instead of recording an unavailable adapter
-@@ -77,6 +77,9 @@ Public service consent
+@@ -77,6 +77,10 @@ Public service consent
    --open-meteo-url URL              Replaceable/customer elevation endpoint
    --ea-dtm-wcs-url URL              Replaceable Environment Agency DTM WCS
    --ea-dsm-wcs-url URL              Replaceable Environment Agency DSM WCS
 +  --ea-vom                          Acquire EA Vegetation Object Model canopy heights
 +  --ea-vom-wcs-url URL              Replaceable Environment Agency VOM WCS
 +  --ea-vom-coverage-id ID           Explicit VOM coverage ID; otherwise discover from capabilities
++  --ea-vom-bbox BBOX                Optional canopy-only bounds as south,west,north,east
    --ea-index-wfs-url URL            Replaceable LiDAR survey-index WFS
    --cache DIRECTORY                 Response cache (default .tpmap-cache)
    --no-cache                        Refresh bounded source requests
 diff --git a/src/lib/args.mjs b/src/lib/args.mjs
-index 44fab92..c892a97 100644
+index 44fab92..35a2c20 100644
 --- a/src/lib/args.mjs
 +++ b/src/lib/args.mjs
 @@ -4,7 +4,7 @@ const VALUE_FLAGS = new Set([
@@ -30,7 +31,7 @@ index 44fab92..c892a97 100644
    "nominatim-url", "cache", "elevation", "open-meteo-url",
    "open-meteo-api-key", "elevation-spacing", "dtm", "dsm", "ostn15-grid",
 -  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-index-wfs-url", "override", "overture",
-+  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-vom-wcs-url", "ea-vom-coverage-id", "ea-index-wfs-url", "override", "overture",
++  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-vom-wcs-url", "ea-vom-coverage-id", "ea-vom-bbox", "ea-index-wfs-url", "override", "overture",
    "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
    "planning-datasets", "planning-data-url", "trees-outside-woodland-url",
    "trees-outside-woodland-collection", "microsoft-buildings-index-url",
@@ -68,15 +69,19 @@ index 66c2c8d..a777a2a 100644
      const pair = sources.elevation.samplePairLocal(point[0], point[1]);
      const measured = Number.isFinite(pair?.surface) && Number.isFinite(pair?.terrain) ? pair.surface - pair.terrain : null;
 diff --git a/src/lib/lidar.mjs b/src/lib/lidar.mjs
-index c3eb454..9e2836d 100644
+index c3eb454..aeea8a1 100644
 --- a/src/lib/lidar.mjs
 +++ b/src/lib/lidar.mjs
-@@ -1,4 +1,5 @@
+@@ -1,7 +1,8 @@
  import path from "node:path";
 +import { readFile } from "node:fs/promises";
  import { fromFile } from "geotiff";
  import proj4 from "proj4";
- import { bboxCenter, createProjector } from "./geo.mjs";
+-import { bboxCenter, createProjector } from "./geo.mjs";
++import { bboxCenter, createProjector, parseBbox } from "./geo.mjs";
+ import { UserError, invariant } from "./errors.mjs";
+ import {
+   cachedBinary, cachedJson, ensureDir, fetchBinary, fetchJson, sha256, sha256File
 @@ -11,6 +12,7 @@ const EA_DTM_DATASET = "13787b9a-26a4-4775-8523-806d13af58fc";
  const EA_DSM_DATASET = "9ba4d5ac-d596-445a-9056-dae3ddec0178";
  const EA_DTM_WCS = "https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs";
@@ -85,22 +90,31 @@ index c3eb454..9e2836d 100644
  const EA_INDEX_WFS = "https://environment.data.gov.uk/spatialdata/survey-index-files/wfs";
  const OSTN15_URL = "https://cdn.proj.org/uk_os_OSTN15_NTv2_OSGBtoETRS.tif";
  const OSTN15_NAME = "OSTN15_NTv2_OSGBtoETRS";
-@@ -56,12 +58,27 @@ export async function acquireLidarElevation(options, provider) {
+@@ -56,12 +58,36 @@ export async function acquireLidarElevation(options, provider) {
      })
      : { filename: path.resolve(options.dsm), cacheHit: true, endpoint: null, queryHash: null };
  
-+  const vomSource = isLive && options.eaVom
-+    ? await acquireDiscoveredCoverage({
-+      endpoint: options.eaVomWcsUrl || EA_VOM_WCS,
-+      coverageId: options.eaVomCoverageId || null,
-+      preferred: /vegetation|object|vom/i,
-+      bounds: projectedBounds,
-+      cacheDir,
-+      userAgent: options.userAgent,
-+      noCache: options.noCache,
-+      role: "vom"
-+    })
-+    : null;
++  let vomSource = null;
++  let vomFailure = null;
++  if (isLive && options.eaVom) {
++    try {
++      const vomBounds = options.eaVomBbox
++        ? projectBbox(parseBbox(options.eaVomBbox), transform.forward)
++        : projectedBounds;
++      vomSource = await acquireDiscoveredCoverage({
++        endpoint: options.eaVomWcsUrl || EA_VOM_WCS,
++        coverageId: options.eaVomCoverageId || null,
++        preferred: /vegetation|object|vom/i,
++        bounds: vomBounds,
++        cacheDir,
++        userAgent: options.userAgent,
++        noCache: options.noCache,
++        role: "vom"
++      });
++    } catch (error) {
++      vomFailure = error?.message || String(error);
++    }
++  }
 +
    const dtm = await readGeoTiffRaster(dtmSource.filename, "DTM");
    const dsm = dsmSource ? await readGeoTiffRaster(dsmSource.filename, "DSM") : null;
@@ -115,7 +129,7 @@ index c3eb454..9e2836d 100644
    ]);
  
    const survey = isLive
-@@ -77,6 +94,7 @@ export async function acquireLidarElevation(options, provider) {
+@@ -77,6 +103,7 @@ export async function acquireLidarElevation(options, provider) {
    const localProjector = createProjector(bboxCenter(options.bbox));
    const terrainSampler = createProjectedRasterSampler(dtm);
    const surfaceSampler = dsm ? createProjectedRasterSampler(dsm) : null;
@@ -123,7 +137,7 @@ index c3eb454..9e2836d 100644
    const projectLocal = (xOrPoint, zValue) => {
      const [x, z] = Array.isArray(xOrPoint) ? xOrPoint : [xOrPoint, zValue];
      return transform.forward(localProjector.inverse([x, z]));
-@@ -95,6 +113,7 @@ export async function acquireLidarElevation(options, provider) {
+@@ -95,6 +122,7 @@ export async function acquireLidarElevation(options, provider) {
      projectedBounds,
      dtm: publicRasterMetadata(dtm, dtmSource, dtmHash),
      dsm: dsm ? publicRasterMetadata(dsm, dsmSource, dsmHash) : null,
@@ -131,19 +145,19 @@ index c3eb454..9e2836d 100644
      survey,
      transformation: {
        name: "OSTN15",
-@@ -112,7 +131,10 @@ export async function acquireLidarElevation(options, provider) {
+@@ -112,7 +140,10 @@ export async function acquireLidarElevation(options, provider) {
      dataset: isLive
        ? "https://environment.data.gov.uk/dataset/2e8d0733-4f43-48b4-9e51-631c25d1b0a9"
        : null,
 -    warning: dsm ? null : "No DSM was selected; measured structure heights and roof surfaces are unavailable."
 +    warning: [
 +      dsm ? null : "No DSM was selected; measured structure heights and roof surfaces are unavailable.",
-+      options.eaVom && !vom ? "EA Vegetation Object Model was requested but unavailable." : null
++      options.eaVom && !vom ? `EA Vegetation Object Model was requested but unavailable${vomFailure ? `: ${vomFailure}` : "."}` : null
 +    ].filter(Boolean).join(" ") || null
    };
  
    Object.defineProperties(result, {
-@@ -134,6 +156,14 @@ export async function acquireLidarElevation(options, provider) {
+@@ -134,6 +165,14 @@ export async function acquireLidarElevation(options, provider) {
          return surfaceSampler(easting, northing);
        } : null
      },
@@ -158,7 +172,7 @@ index c3eb454..9e2836d 100644
      samplePairLocal: {
        enumerable: false,
        value: surfaceSampler ? (x, z) => {
-@@ -256,6 +286,39 @@ function projectBbox(bbox, forward) {
+@@ -256,6 +295,39 @@ function projectBbox(bbox, forward) {
    };
  }
  
@@ -239,10 +253,10 @@ index 1d9d3de..ff000b2 100644
        cacheDir: path.join(runtime.cacheDir, "supplemental", "planning-data"),
 diff --git a/test/accuracy-source-upgrades.test.mjs b/test/accuracy-source-upgrades.test.mjs
 new file mode 100644
-index 0000000..2d68b13
+index 0000000..f3e093c
 --- /dev/null
 +++ b/test/accuracy-source-upgrades.test.mjs
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,80 @@
 +import test from "node:test";
 +import assert from "node:assert/strict";
 +import { mkdtemp, rm } from "node:fs/promises";
@@ -274,10 +288,11 @@ index 0000000..2d68b13
 +});
 +
 +test("CLI accepts EA VOM source controls", () => {
-+  const parsed = parseArgs(["build", "--ea-vom", "--ea-vom-wcs-url", "https://example.test/vom/wcs", "--ea-vom-coverage-id", "vom-id"]);
++  const parsed = parseArgs(["build", "--ea-vom", "--ea-vom-wcs-url", "https://example.test/vom/wcs", "--ea-vom-coverage-id", "vom-id", "--ea-vom-bbox", "52.98,-1.90,53.00,-1.86"]);
 +  assert.equal(parsed.options.eaVom, true);
 +  assert.equal(parsed.options.eaVomWcsUrl, "https://example.test/vom/wcs");
 +  assert.equal(parsed.options.eaVomCoverageId, "vom-id");
++  assert.equal(parsed.options.eaVomBbox, "52.98,-1.90,53.00,-1.86");
 +});
 +
 +test("Planning Data requests never exceed the provider's 500 feature page limit", async () => {
