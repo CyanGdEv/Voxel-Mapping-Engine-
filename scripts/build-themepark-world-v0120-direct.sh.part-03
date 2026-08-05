@@ -124,7 +124,7 @@ PY
     "${IMAGERY_ARGS[@]}"
   )
   [[ "$dsm" == "off" ]] && args+=(--no-dsm)
-  [[ "${TPMAP_EA_VOM:-true}" == "true" ]] && args+=(--ea-vom)
+  [[ "${TPMAP_EA_VOM:-true}" == "true" ]] && args+=(--ea-vom --ea-vom-bbox "$BBOX")
 
   local status
   if (cd "$GEN" && node src/cli.mjs "${args[@]}") 2>&1 | tee -a "$log"; then
