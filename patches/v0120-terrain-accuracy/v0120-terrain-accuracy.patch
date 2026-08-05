@@ -1,0 +1,324 @@
+diff --git a/src/cli.mjs b/src/cli.mjs
+index 224e886..f84ff62 100644
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -55,7 +55,7 @@ Supplemental public source fusion
+   --source-config FILE             Generic OGC API, ArcGIS or GeoJSON adapter config; repeatable
+   --max-supplemental-features 50000
+                                     Per-adapter bounded feature safety limit
+-  --supplemental-page-size 5000    Bounded API page size
++  --supplemental-page-size 5000    Bounded API page size; provider limits are enforced
+   --max-supplemental-download-mb 250
+                                     Compressed-source download safety limit
+   --strict-supplemental-sources    Fail the build instead of recording an unavailable adapter
+@@ -77,6 +77,9 @@ Public service consent
+   --open-meteo-url URL              Replaceable/customer elevation endpoint
+   --ea-dtm-wcs-url URL              Replaceable Environment Agency DTM WCS
+   --ea-dsm-wcs-url URL              Replaceable Environment Agency DSM WCS
++  --ea-vom                          Acquire EA Vegetation Object Model canopy heights
++  --ea-vom-wcs-url URL              Replaceable Environment Agency VOM WCS
++  --ea-vom-coverage-id ID           Explicit VOM coverage ID; otherwise discover from capabilities
+   --ea-index-wfs-url URL            Replaceable LiDAR survey-index WFS
+   --cache DIRECTORY                 Response cache (default .tpmap-cache)
+   --no-cache                        Refresh bounded source requests
+diff --git a/src/lib/args.mjs b/src/lib/args.mjs
+index 44fab92..c892a97 100644
+--- a/src/lib/args.mjs
++++ b/src/lib/args.mjs
+@@ -4,7 +4,7 @@ const VALUE_FLAGS = new Set([
+   "park-name", "bbox", "osm", "out", "contact", "overpass-url",
+   "nominatim-url", "cache", "elevation", "open-meteo-url",
+   "open-meteo-api-key", "elevation-spacing", "dtm", "dsm", "ostn15-grid",
+-  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-index-wfs-url", "override", "overture",
++  "ea-dtm-wcs-url", "ea-dsm-wcs-url", "ea-vom-wcs-url", "ea-vom-coverage-id", "ea-index-wfs-url", "override", "overture",
+   "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
+   "planning-datasets", "planning-data-url", "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+@@ -45,7 +45,7 @@ const VALUE_FLAGS = new Set([
+ const BOOLEAN_FLAGS = new Set([
+   "help", "strict", "accept-nominatim-policy", "accept-open-meteo-terms",
+   "commercial", "allow-large-area", "no-cache", "no-addon", "no-world", "no-preview",
+-  "no-dsm", "no-ride-info-signs", "quiet", "england-open-data",
++  "no-dsm", "ea-vom", "no-ride-info-signs", "quiet", "england-open-data",
+   "trees-outside-woodland", "planning-data", "microsoft-buildings",
+   "wikidata-places", "wikimedia-commons", "open-aerial-map",
+   "strict-supplemental-sources"
+diff --git a/src/lib/fidelity.mjs b/src/lib/fidelity.mjs
+index 66c2c8d..a777a2a 100644
+--- a/src/lib/fidelity.mjs
++++ b/src/lib/fidelity.mjs
+@@ -1,3 +1,4 @@
++import { polygonArea } from "./geo.mjs";
+ const PATH_KINDS = new Set(["path", "road"]);
+ 
+ const NAMED_COLOURS = Object.freeze({
+@@ -554,6 +555,14 @@ function deriveTreeEvidence(feature, sources, options) {
+   let heightM = taggedHeight;
+   let heightSource = taggedHeight === null ? null : "tagged-tree-height";
+   let confidence = taggedHeight === null ? 0 : 0.88;
++  if (heightM === null && point && typeof sources.elevation?.sampleVegetationHeightLocal === "function") {
++    const measured = sources.elevation.sampleVegetationHeightLocal(point[0], point[1]);
++    if (Number.isFinite(measured) && measured >= 2.5 && measured <= 70) {
++      heightM = round1(measured);
++      heightSource = "ea-vom-canopy-height-at-mapped-tree";
++      confidence = 0.84;
++    }
++  }
+   if (heightM === null && point && typeof sources.elevation?.samplePairLocal === "function") {
+     const pair = sources.elevation.samplePairLocal(point[0], point[1]);
+     const measured = Number.isFinite(pair?.surface) && Number.isFinite(pair?.terrain) ? pair.surface - pair.terrain : null;
+diff --git a/src/lib/lidar.mjs b/src/lib/lidar.mjs
+index c3eb454..9e2836d 100644
+--- a/src/lib/lidar.mjs
++++ b/src/lib/lidar.mjs
+@@ -1,4 +1,5 @@
+ import path from "node:path";
++import { readFile } from "node:fs/promises";
+ import { fromFile } from "geotiff";
+ import proj4 from "proj4";
+ import { bboxCenter, createProjector } from "./geo.mjs";
+@@ -11,6 +12,7 @@ const EA_DTM_DATASET = "13787b9a-26a4-4775-8523-806d13af58fc";
+ const EA_DSM_DATASET = "9ba4d5ac-d596-445a-9056-dae3ddec0178";
+ const EA_DTM_WCS = "https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs";
+ const EA_DSM_WCS = "https://environment.data.gov.uk/spatialdata/lidar-composite-digital-surface-model-last-return-dsm-1m/wcs";
++const EA_VOM_WCS = "https://environment.data.gov.uk/spatialdata/vegetation-object-model/wcs";
+ const EA_INDEX_WFS = "https://environment.data.gov.uk/spatialdata/survey-index-files/wfs";
+ const OSTN15_URL = "https://cdn.proj.org/uk_os_OSTN15_NTv2_OSGBtoETRS.tif";
+ const OSTN15_NAME = "OSTN15_NTv2_OSGBtoETRS";
+@@ -56,12 +58,27 @@ export async function acquireLidarElevation(options, provider) {
+     })
+     : { filename: path.resolve(options.dsm), cacheHit: true, endpoint: null, queryHash: null };
+ 
++  const vomSource = isLive && options.eaVom
++    ? await acquireDiscoveredCoverage({
++      endpoint: options.eaVomWcsUrl || EA_VOM_WCS,
++      coverageId: options.eaVomCoverageId || null,
++      preferred: /vegetation|object|vom/i,
++      bounds: projectedBounds,
++      cacheDir,
++      userAgent: options.userAgent,
++      noCache: options.noCache,
++      role: "vom"
++    })
++    : null;
++
+   const dtm = await readGeoTiffRaster(dtmSource.filename, "DTM");
+   const dsm = dsmSource ? await readGeoTiffRaster(dsmSource.filename, "DSM") : null;
++  const vom = vomSource ? await readGeoTiffRaster(vomSource.filename, "VOM") : null;
+   if (dsm) validateAlignedRasters(dtm, dsm);
+-  const [dtmHash, dsmHash] = await Promise.all([
++  const [dtmHash, dsmHash, vomHash] = await Promise.all([
+     sha256File(dtmSource.filename),
+-    dsmSource ? sha256File(dsmSource.filename) : null
++    dsmSource ? sha256File(dsmSource.filename) : null,
++    vomSource ? sha256File(vomSource.filename) : null
+   ]);
+ 
+   const survey = isLive
+@@ -77,6 +94,7 @@ export async function acquireLidarElevation(options, provider) {
+   const localProjector = createProjector(bboxCenter(options.bbox));
+   const terrainSampler = createProjectedRasterSampler(dtm);
+   const surfaceSampler = dsm ? createProjectedRasterSampler(dsm) : null;
++  const vegetationHeightSampler = vom ? createProjectedRasterSampler(vom) : null;
+   const projectLocal = (xOrPoint, zValue) => {
+     const [x, z] = Array.isArray(xOrPoint) ? xOrPoint : [xOrPoint, zValue];
+     return transform.forward(localProjector.inverse([x, z]));
+@@ -95,6 +113,7 @@ export async function acquireLidarElevation(options, provider) {
+     projectedBounds,
+     dtm: publicRasterMetadata(dtm, dtmSource, dtmHash),
+     dsm: dsm ? publicRasterMetadata(dsm, dsmSource, dsmHash) : null,
++    vom: vom ? publicRasterMetadata(vom, vomSource, vomHash) : null,
+     survey,
+     transformation: {
+       name: "OSTN15",
+@@ -112,7 +131,10 @@ export async function acquireLidarElevation(options, provider) {
+     dataset: isLive
+       ? "https://environment.data.gov.uk/dataset/2e8d0733-4f43-48b4-9e51-631c25d1b0a9"
+       : null,
+-    warning: dsm ? null : "No DSM was selected; measured structure heights and roof surfaces are unavailable."
++    warning: [
++      dsm ? null : "No DSM was selected; measured structure heights and roof surfaces are unavailable.",
++      options.eaVom && !vom ? "EA Vegetation Object Model was requested but unavailable." : null
++    ].filter(Boolean).join(" ") || null
+   };
+ 
+   Object.defineProperties(result, {
+@@ -134,6 +156,14 @@ export async function acquireLidarElevation(options, provider) {
+         return surfaceSampler(easting, northing);
+       } : null
+     },
++    sampleVegetationHeightLocal: {
++      enumerable: false,
++      value: vegetationHeightSampler ? (x, z) => {
++        const [easting, northing] = projectLocal(x, z);
++        const height = vegetationHeightSampler(easting, northing);
++        return Number.isFinite(height) && height >= 2.5 && height <= 70 ? height : null;
++      } : null
++    },
+     samplePairLocal: {
+       enumerable: false,
+       value: surfaceSampler ? (x, z) => {
+@@ -256,6 +286,39 @@ function projectBbox(bbox, forward) {
+   };
+ }
+ 
++async function acquireDiscoveredCoverage(options) {
++  const coverageId = options.coverageId || await discoverCoverageId(options);
++  return acquireCoverage({ ...options, coverageId });
++}
++
++async function discoverCoverageId({ endpoint, preferred, cacheDir, userAgent, noCache, role }) {
++  const url = new URL(endpoint);
++  url.searchParams.set("service", "WCS");
++  url.searchParams.set("version", "2.0.1");
++  url.searchParams.set("request", "GetCapabilities");
++  const cached = await cachedBinary({
++    cacheDir: path.join(cacheDir, "capabilities"),
++    key: url.toString(),
++    noCache,
++    extension: ".xml",
++    fetcher: () => fetchBinary(url, { headers: { "User-Agent": userAgent, Accept: "application/xml,text/xml;q=0.9,*/*;q=0.1" } }, { timeoutMs: 180_000, retries: 2 })
++  });
++  const bytes = cached.data || await readFile(cached.filename);
++  return selectCoverageIdFromCapabilities(bytes.toString("utf8"), preferred, role);
++}
++
++export function selectCoverageIdFromCapabilities(xml, preferred = null, role = "coverage") {
++  const ids = [...String(xml).matchAll(/<(?:[A-Za-z0-9_.-]+:)?CoverageId\b[^>]*>([^<]+)<\/(?:[A-Za-z0-9_.-]+:)?CoverageId>/g)]
++    .map((match) => decodeXml(match[1].trim()))
++    .filter(Boolean);
++  invariant(ids.length, `The ${role} WCS capabilities document contains no CoverageId`);
++  return preferred ? ids.find((id) => preferred.test(id)) || ids[0] : ids[0];
++}
++
++function decodeXml(value) {
++  return value.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
++}
++
+ async function acquireCoverage({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role }) {
+   const url = new URL(endpoint);
+   url.searchParams.set("service", "WCS");
+diff --git a/src/lib/raster.mjs b/src/lib/raster.mjs
+index 72bde6e..a5d9e3f 100644
+--- a/src/lib/raster.mjs
++++ b/src/lib/raster.mjs
+@@ -1336,6 +1336,12 @@ function vegetationAerialMultiplier(classification, modelClass) {
+ 
+ function resolveVegetationHeight({ x, z, evidence, elevation, modelClass, accuracyMode, seed }) {
+   if (Number.isFinite(evidence.heightM)) return { heightM: evidence.heightM, observed: true };
++  if (typeof elevation?.sampleVegetationHeightLocal === "function") {
++    const measured = elevation.sampleVegetationHeightLocal(x, z);
++    if (Number.isFinite(measured) && measured >= 2.5 && measured <= 70) {
++      return { heightM: measured, observed: true };
++    }
++  }
+   if (typeof elevation?.samplePairLocal === "function") {
+     const pair = elevation.samplePairLocal(x, z);
+     const measured = Number.isFinite(pair?.surface) && Number.isFinite(pair?.terrain)
+diff --git a/src/lib/supplemental-sources.mjs b/src/lib/supplemental-sources.mjs
+index 1d9d3de..ff000b2 100644
+--- a/src/lib/supplemental-sources.mjs
++++ b/src/lib/supplemental-sources.mjs
+@@ -10,7 +10,7 @@ import { cachedBinary, cachedJson, ensureDir, fetchBinary, fetchJson, readJson,
+ const OGL_3 = "Open Government Licence v3.0";
+ const PLANNING_DATA_URL = "https://www.planning.data.gov.uk/entity.geojson";
+ const TOW_OGC_URL = "https://environment.data.gov.uk/spatialdata/national-trees-outside-woodland-map/ogc/features/v1";
+-const MICROSOFT_BUILDINGS_INDEX = "https://bfppub.blob.core.windows.net/$web/2026-07-24/dataset-links.csv";
++const MICROSOFT_BUILDINGS_INDEX = "https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv";
+ const WIKIDATA_SPARQL = "https://query.wikidata.org/sparql";
+ const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
+ const OPEN_AERIAL_MAP_API = "https://api.openaerialmap.org/meta";
+@@ -210,7 +210,7 @@ async function acquirePlanningData(runtime, options) {
+     for (const dataset of datasets) url.searchParams.append("dataset", dataset);
+     url.searchParams.set("geometry", polygon);
+     url.searchParams.set("geometry_relation", "intersects");
+-    url.searchParams.set("limit", String(Math.min(runtime.pageSize, runtime.maxFeatures - features.length)));
++    url.searchParams.set("limit", String(Math.min(500, runtime.pageSize, runtime.maxFeatures - features.length)));
+     url.searchParams.set("offset", String(offset));
+     const { data, cacheHit } = await cachedJson({
+       cacheDir: path.join(runtime.cacheDir, "supplemental", "planning-data"),
+diff --git a/test/accuracy-source-upgrades.test.mjs b/test/accuracy-source-upgrades.test.mjs
+new file mode 100644
+index 0000000..2d68b13
+--- /dev/null
++++ b/test/accuracy-source-upgrades.test.mjs
+@@ -0,0 +1,79 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { mkdtemp, rm } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { parseArgs } from "../src/lib/args.mjs";
++import { enrichUniversalFidelity } from "../src/lib/fidelity.mjs";
++import { selectCoverageIdFromCapabilities } from "../src/lib/lidar.mjs";
++import { acquireSupplementalSources } from "../src/lib/supplemental-sources.mjs";
++
++test("EA VOM coverage is selected from WCS capabilities", () => {
++  const xml = `<?xml version="1.0"?><wcs:Capabilities xmlns:wcs="http://www.opengis.net/wcs/2.0"><wcs:Contents><wcs:CoverageSummary><wcs:CoverageId>unrelated__hillshade</wcs:CoverageId></wcs:CoverageSummary><wcs:CoverageSummary><wcs:CoverageId>vegetation-object-model__VOM_1m</wcs:CoverageId></wcs:CoverageSummary></wcs:Contents></wcs:Capabilities>`;
++  assert.equal(selectCoverageIdFromCapabilities(xml, /vegetation|vom/i, "vom"), "vegetation-object-model__VOM_1m");
++});
++
++test("EA VOM height takes precedence over DSM minus DTM for mapped trees", () => {
++  const map = {
++    features: [{ id: "tree", kind: "vegetation", subtype: "tree", tags: {}, localGeometry: { type: "Point", coordinates: [4, 5] } }],
++    pathTopology: null, pathGeometry: null, orthophoto: null, terrainDetails: null
++  };
++  enrichUniversalFidelity(map, {
++    elevation: {
++      sampleVegetationHeightLocal: () => 18.4,
++      samplePairLocal: () => ({ terrain: 100, surface: 109 })
++    }
++  }, { accuracyMode: "verified" });
++  assert.equal(map.features[0].fidelity.tree.heightM, 18.4);
++  assert.equal(map.features[0].fidelity.tree.heightSource, "ea-vom-canopy-height-at-mapped-tree");
++});
++
++test("CLI accepts EA VOM source controls", () => {
++  const parsed = parseArgs(["build", "--ea-vom", "--ea-vom-wcs-url", "https://example.test/vom/wcs", "--ea-vom-coverage-id", "vom-id"]);
++  assert.equal(parsed.options.eaVom, true);
++  assert.equal(parsed.options.eaVomWcsUrl, "https://example.test/vom/wcs");
++  assert.equal(parsed.options.eaVomCoverageId, "vom-id");
++});
++
++test("Planning Data requests never exceed the provider's 500 feature page limit", async () => {
++  const cacheDir = await mkdtemp(path.join(tmpdir(), "tpmap-planning-limit-"));
++  const originalFetch = globalThis.fetch;
++  const urls = [];
++  globalThis.fetch = async (url) => {
++    urls.push(String(url));
++    return new Response(JSON.stringify({ type: "FeatureCollection", features: [], links: [] }), {
++      status: 200, headers: { "content-type": "application/json" }
++    });
++  };
++  try {
++    await acquireSupplementalSources({ planningData: true, supplementalPageSize: 5000, noCache: true }, {
++      bbox: { south: 52.98, west: -1.90, north: 53.00, east: -1.86 },
++      center: { lat: 52.99, lon: -1.88 }, cacheDir, userAgent: "test"
++    });
++    const request = new URL(urls[0]);
++    assert.equal(request.searchParams.get("limit"), "500");
++  } finally {
++    globalThis.fetch = originalFetch;
++    await rm(cacheDir, { recursive: true, force: true });
++  }
++});
++
++test("Microsoft building adapter uses the current official index", async () => {
++  const cacheDir = await mkdtemp(path.join(tmpdir(), "tpmap-ms-index-"));
++  const originalFetch = globalThis.fetch;
++  const urls = [];
++  globalThis.fetch = async (url) => {
++    urls.push(String(url));
++    return new Response("Location,QuadKey,Size\n", { status: 200 });
++  };
++  try {
++    await acquireSupplementalSources({ microsoftBuildings: true, noCache: true }, {
++      bbox: { south: 52.98, west: -1.90, north: 53.00, east: -1.86 },
++      center: { lat: 52.99, lon: -1.88 }, cacheDir, userAgent: "test"
++    });
++    assert.equal(urls[0], "https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv");
++  } finally {
++    globalThis.fetch = originalFetch;
++    await rm(cacheDir, { recursive: true, force: true });
++  }
++});
