@@ -3,8 +3,8 @@
 
   PHASE20_B64="$ROOT/patches/v0120-phase20/phase20-portal-fallback-rebased.patch.gz.b64"
   PHASE20_PATCH="$ROOT/.phase20-planning-portal-fallback.patch"
-  EXPECTED_PHASE20_BLOB="dd56c015a9dabfcf9e6b68a1506bdb59da88cf32"
-  EXPECTED_PHASE20_PATCH_SHA="a3a1d91be78b87185cea8dab675f2b1d6cafd8748c732d69e24cc86cd720ea47"
+  EXPECTED_PHASE20_BLOB="ae0c0d79135d7356226cf728141010cab0e4a015"
+  EXPECTED_PHASE20_PATCH_SHA="ce2a7fe44f8bb87cec8ff8c32bf9683a4b537a9ba5429a89d0d448391bc9f91e"
   ACTUAL_PHASE20_BLOB="$(git hash-object "$PHASE20_B64")"
   printf 'bundle=%s\nexpected_blob=%s\nactual_blob=%s\n' \
     "$(basename "$PHASE20_B64")" "$EXPECTED_PHASE20_BLOB" "$ACTUAL_PHASE20_BLOB" \
