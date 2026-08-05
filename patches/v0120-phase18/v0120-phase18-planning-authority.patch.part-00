@@ -1,0 +1,160 @@
+diff --git a/PLANNING_AUTHORITY_INTEGRATION.md b/PLANNING_AUTHORITY_INTEGRATION.md
+new file mode 100644
+index 0000000..68ff9a8
+--- /dev/null
++++ b/PLANNING_AUTHORITY_INTEGRATION.md
+@@ -0,0 +1,28 @@
++# Planning authority geometry integration
++
++The Planning Data API and extracted planning-plan geometry are separate evidence classes.
++
++## Automatic Planning Data API use
++
++`--planning-data` queries bounded Planning Data entities. Exact feature datasets such as `listed-building-outline` can fill missing buildings or replace a conflicting OpenStreetMap outline through the gated planning-authority policy. Planning application geometry is treated as a red-line/site boundary only. It is retained for evidence and never interpreted as the approved building or path layout.
++
++## Extracted planning drawings
++
++Use `--planning-geometry FILE` for GeoJSON traced or extracted from a planning drawing, site plan, completion drawing, or as-built plan. Every collection must record its provider, source URL, and reuse licence. Every feature must record:
++
++- `kind`
++- `planning_geometry_role`
++- `planning_status`
++- `planning_confidence`
++- `planning_reference`
++- whether the proposal is implemented
++
++Automatic replacement is designed for `as-built`, `implemented-layout`, and current authoritative feature geometry. Pending, refused, withdrawn, expired, draft, weak, or ambiguous observations remain evidence-only.
++
++## Override modes
++
++- `off`: planning evidence can fill a clear gap but cannot replace OSM.
++- `gated`: default. Replacement requires implemented/current evidence, sufficient confidence, a unique matching OSM target, and enough geometric overlap or a same-name proximity match.
++- `authoritative`: also permits approved/granted evidence when explicitly selected. This can show an approved future layout before construction and should not be used for an as-built recreation unless that is intentional.
++
++The build writes `planning-authority-decisions.json`, recording every gap fill, corroboration, OSM replacement, rejected status, confidence rejection, and ambiguous conflict.
+diff --git a/README.md b/README.md
+index beb9411..2628d60 100644
+--- a/README.md
++++ b/README.md
+@@ -465,3 +465,7 @@ node src/cli.mjs build \
+ Generic public services can be declared with `--source-config`. Supported types are `ogc-api-features`, `arcgis-feature-layer`, `geojson-url`, and `geojson-file`. See `examples/supplemental-source-config.json`. Every configured source must declare its provider and licence. All configured vector services and files must return or contain WGS84 longitude/latitude geometry (`EPSG:4326`); reproject national-grid data before ingestion.
+ 
+ The build writes `supplemental-sources.json`, containing request bounds, pages, cache state, accepted feature counts, failures, warnings, imagery candidates, and photo evidence. Optional service failures are recorded and skipped by default; add `--strict-supplemental-sources` when a source is mandatory.
++
++## Planning authority geometry
++
++Planning Data can now fill missing authoritative outlines and, under strict confidence/status/overlap gates, replace inaccurate OpenStreetMap geometry. Planning application site boundaries remain evidence-only because a red-line application boundary is not the approved physical layout. Extracted or traced implemented plans can be supplied with `--planning-geometry`; see `PLANNING_AUTHORITY_INTEGRATION.md` and `examples/planning-authority-geometry.geojson`.
+diff --git a/examples/planning-authority-geometry.geojson b/examples/planning-authority-geometry.geojson
+new file mode 100644
+index 0000000..6851978
+--- /dev/null
++++ b/examples/planning-authority-geometry.geojson
+@@ -0,0 +1,53 @@
++{
++  "type": "FeatureCollection",
++  "name": "Implemented planning geometry example",
++  "source": {
++    "name": "Example local planning authority",
++    "url": "https://planning.example.gov/application/APP-2026-001",
++    "license": "Open Government Licence v3.0",
++    "dataset": "implemented-planning-layout",
++    "checked_at": "2026-08-05T00:00:00Z"
++  },
++  "features": [
++    {
++      "type": "Feature",
++      "geometry": {
++        "type": "Polygon",
++        "coordinates": [[[-1.9003, 52.9800], [-1.9000, 52.9800], [-1.9000, 52.9802], [-1.9003, 52.9802], [-1.9003, 52.9800]]]
++      },
++      "properties": {
++        "id": "planning:APP-2026-001:building-a",
++        "name": "Implemented building outline",
++        "kind": "building",
++        "subtype": "planning-derived-building",
++        "planning_reference": "APP-2026-001",
++        "planning_geometry_role": "as-built",
++        "planning_status": "implemented",
++        "planning_implemented": true,
++        "planning_confidence": 0.95,
++        "verified": true
++      }
++    },
++    {
++      "type": "Feature",
++      "geometry": {
++        "type": "LineString",
++        "coordinates": [[-1.9003, 52.9799], [-1.9001, 52.9800], [-1.8998, 52.9801]]
++      },
++      "properties": {
++        "id": "planning:APP-2026-001:path-a",
++        "name": "Implemented access path",
++        "kind": "path",
++        "subtype": "footway",
++        "surface": "paved",
++        "width": 4,
++        "planning_reference": "APP-2026-001",
++        "planning_geometry_role": "implemented-layout",
++        "planning_status": "implemented",
++        "planning_implemented": true,
++        "planning_confidence": 0.93,
++        "verified": true
++      }
++    }
++  ]
++}
+diff --git a/src/cli.mjs b/src/cli.mjs
+index be46d09..c747b18 100644
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -43,8 +43,16 @@ Core options
+ Supplemental public source fusion
+   --england-open-data              Enable Planning Data + National Trees Outside Woodland
+   --trees-outside-woodland         Bounded Forestry Commission canopy polygons and heights
+-  --planning-data                  Bounded Planning Data trees, TPO zones, woodland and listed buildings
++  --planning-data                  Bounded Planning Data constraints, outlines and applications
+   --planning-datasets CSV          Override the Planning Data dataset list
++  --planning-geometry FILE         Extracted planning-plan GeoJSON; repeatable
++  --planning-override-mode gated   off, gated, or authoritative OSM replacement policy
++  --planning-override-min-confidence .86
++                                    Minimum planning evidence score for automatic replacement
++  --planning-override-min-overlap .18
++                                    Minimum geometry overlap used to identify the OSM target
++  --planning-override-max-offset-m 25
++                                    Maximum planning-to-OSM candidate displacement
+   --microsoft-buildings            Download only intersecting level-9 ML building partitions
+   --microsoft-buildings-min-confidence .65
+                                     Minimum footprint confidence when supplied
+diff --git a/src/lib/args.mjs b/src/lib/args.mjs
+index 5a5bd6e..51046f1 100644
+--- a/src/lib/args.mjs
++++ b/src/lib/args.mjs
+@@ -11,7 +11,10 @@ const VALUE_FLAGS = new Set([
+   "ea-outer-resolution-m", "ea-near-distance-m", "ea-resolution-feather-m",
+   "ea-index-wfs-url", "override", "overture",
+   "public-data", "source-fusion-tolerance-m", "source-config", "os-openmap-local",
+-  "planning-datasets", "planning-data-url", "trees-outside-woodland-url",
++  "planning-datasets", "planning-data-url", "planning-geometry",
++  "planning-override-mode", "planning-override-min-confidence",
++  "planning-override-min-overlap", "planning-override-max-offset-m",
++  "trees-outside-woodland-url",
+   "trees-outside-woodland-collection", "microsoft-buildings-index-url",
+   "microsoft-buildings-min-confidence", "wikidata-url", "wikidata-limit",
+   "wikimedia-commons-url", "wikimedia-commons-limit", "open-aerial-map-url",
+@@ -62,7 +65,7 @@ export function parseArgs(argv) {
+   const command = args[0]?.startsWith("--") ? "help" : (args.shift() || "help");
+   const options = {
+     override: [], overture: [], publicData: [], sourceConfig: [], osOpenMapLocal: [],
+-    rideProfile: [], ridePointCloud: [], orthophoto: []
++    planningGeometry: [], rideProfile: [], ridePointCloud: [], orthophoto: []
+   };
+ 
+   while (args.length) {
+@@ -90,6 +93,7 @@ export function parseArgs(argv) {
+     else if (key === "public-data") options.publicData.push(value);
+     else if (key === "source-config") options.sourceConfig.push(value);
+     else if (key === "os-openmap-local") options.osOpenMapLocal.push(value);
++    else if (key === "planning-geometry") options.planningGeometry.push(value);
+     else if (key === "ride-profile") options.rideProfile.push(value);
+     else if (key === "ride-point-cloud") options.ridePointCloud.push(value);
+     else if (key === "orthophoto") options.orthophoto.push(value);
