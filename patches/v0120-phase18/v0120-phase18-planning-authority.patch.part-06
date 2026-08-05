@@ -1,0 +1,153 @@
++    }
++  };
++}
++
++test("planning authority CLI controls validate and keep repeatable geometry files", () => {
++  const { options } = parseArgs([
++    "build", "--planning-data", "--planning-geometry", "a.geojson", "--planning-geometry", "b.geojson",
++    "--planning-override-mode", "gated", "--planning-override-min-confidence", "0.9",
++    "--planning-override-min-overlap", "0.2", "--planning-override-max-offset-m", "18"
++  ]);
++  assert.deepEqual(options.planningGeometry, ["a.geojson", "b.geojson"]);
++  assert.equal(options.planningOverrideMode, "gated");
++  assert.equal(options.planningOverrideMinConfidence, 0.9);
++  assert.throws(() => parseArgs(["build", "--planning-override-mode", "unsafe"]), /off, gated, or authoritative/);
++});
++
++test("Planning Data distinguishes authoritative outlines from application site boundaries", () => {
++  const outline = supplementalTest.standardizePlanningFeature({
++    type: "Feature",
++    geometry: polygon(-1.9001, 52.9799, -1.8999, 52.9801),
++    properties: { entity: 1, dataset: "listed-building-outline", name: "Tower" }
++  }, 0, "https://www.planning.data.gov.uk/entity.geojson");
++  assert.equal(outline.properties.kind, "building");
++  assert.equal(outline.properties.merge_policy, "planning-authority");
++  assert.equal(outline.properties.planning_geometry_role, "authoritative-feature");
++  assert.equal(outline.properties.planning_status, "current");
++
++  const application = supplementalTest.standardizePlanningFeature({
++    type: "Feature",
++    geometry: polygon(-1.901, 52.979, -1.899, 52.981),
++    properties: { entity: 2, dataset: "planning-application", reference: "APP/2", status: "approved" }
++  }, 0, "https://www.planning.data.gov.uk/entity.geojson");
++  assert.equal(application.properties.kind, "detail");
++  assert.equal(application.properties.merge_policy, "planning-site");
++  assert.equal(application.properties.planning_geometry_role, "site-boundary");
++  assert.equal(application.properties.render_in_world, false);
++});
++
++test("implemented high-confidence planning geometry replaces inaccurate OSM geometry", async () => {
++  const existing = [osmFeature("osm:way:1", polygon(-1.90015, 52.9799, -1.89985, 52.98012))];
++  const authoritative = polygon(-1.9001, 52.97994, -1.89978, 52.98016);
++  const summary = await fuseAdditionalMapSources(existing, projector, {
++    acquiredPublicData: acquiredPlanning([planningFeature({ geometry: authoritative })]),
++    planningOverrideMode: "gated",
++    planningOverrideMinConfidence: 0.86,
++    planningOverrideMinOverlap: 0.18,
++    planningOverrideMaxOffsetM: 25
++  });
++  assert.equal(existing.length, 1);
++  assert.equal(existing[0].id, "planning:123");
++  assert.equal(existing[0].source.replaces, "osm:way:1");
++  assert.equal(existing[0].verification.plan, "planning-authority-override");
++  assert.equal(existing[0].vertical.heightM, 8, "OSM height evidence is retained when planning has no height");
++  assert.equal(summary.planningAuthority.osmOverridden, 1);
++});
++
++test("pending or weak planning proposals cannot replace OSM", async () => {
++  for (const proposal of [
++    planningFeature({ geometry: polygon(-1.9001, 52.97994, -1.89978, 52.98016), status: "pending", confidence: 0.96 }),
++    planningFeature({ geometry: polygon(-1.9001, 52.97994, -1.89978, 52.98016), status: "implemented", confidence: 0.6 })
++  ]) {
++    const existing = [osmFeature("osm:way:2", polygon(-1.90015, 52.9799, -1.89985, 52.98012))];
++    const summary = await fuseAdditionalMapSources(existing, projector, {
++      acquiredPublicData: acquiredPlanning([proposal]), planningOverrideMode: "gated"
++    });
++    assert.equal(existing.length, 1);
++    assert.equal(existing[0].id, "osm:way:2");
++    assert.equal(summary.planningAuthority.osmOverridden, 0);
++  }
++});
++
++test("planning geometry fills missing mapped features", async () => {
++  const existing = [];
++  const line = { type: "LineString", coordinates: [[-1.9002, 52.98], [-1.8998, 52.9802]] };
++  const summary = await fuseAdditionalMapSources(existing, projector, {
++    acquiredPublicData: acquiredPlanning([planningFeature({ geometry: line, kind: "path", id: "planning:path:1", name: "Approved path" })])
++  });
++  assert.equal(existing.length, 1);
++  assert.equal(existing[0].kind, "path");
++  assert.equal(existing[0].verification.plan, "planning-authority-gap-fill");
++  assert.equal(summary.planningAuthority.gapFilled, 1);
++});
++
++test("equivalent planning geometry corroborates rather than duplicates OSM", async () => {
++  const geometry = polygon(-1.9001, 52.9799, -1.8999, 52.9801);
++  const existing = [osmFeature("osm:way:3", geometry, "building", "Tower")];
++  const summary = await fuseAdditionalMapSources(existing, projector, {
++    acquiredPublicData: acquiredPlanning([planningFeature({ geometry, name: "Tower" })])
++  });
++  assert.equal(existing.length, 1);
++  assert.equal(existing[0].id, "osm:way:3");
++  assert.equal(existing[0].verification.plan, "planning-corroborated-public-map");
++  assert.equal(existing[0].source.planningCorroboration.length, 1);
++  assert.equal(summary.planningAuthority.corroborated, 1);
++});
++
++test("planning geometry files require explicit provenance and implementation evidence", async () => {
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-planning-authority-"));
++  const file = path.join(root, "planning.geojson");
++  await writeFile(file, JSON.stringify({
++    type: "FeatureCollection",
++    source: { name: "Example council", url: "https://planning.example/APP-4", license: "OGL-3.0" },
++    features: [{
++      type: "Feature",
++      geometry: polygon(-1.9001, 52.9799, -1.8999, 52.9801),
++      properties: {
++        id: "planning:APP-4:building", kind: "building", planning_geometry_role: "as-built",
++        planning_status: "implemented", planning_confidence: 0.94, verified: true
++      }
++    }]
++  }));
++  const result = await acquireSupplementalSources({ planningGeometry: [file] }, {
++    bbox: { west: -1.91, south: 52.97, east: -1.89, north: 52.99 },
++    cacheDir: path.join(root, "cache"), userAgent: "test/0.12.0"
++  });
++  const feature = result.collections[0].collection.features[0];
++  assert.equal(feature.properties.merge_policy, "planning-authority");
++  assert.equal(feature.properties.planning_implemented, true);
++  assert.equal(feature.properties.source_adapter, "planning-geometry");
++});
++
++test("Planning Data application boundaries remain evidence-only and never replace mapped buildings", async () => {
++  const building = osmFeature("osm:way:application-site", polygon(-1.9001, 52.9799, -1.8999, 52.9801));
++  const raw = supplementalTest.standardizePlanningFeature({
++    type: "Feature",
++    geometry: polygon(-1.901, 52.979, -1.899, 52.981),
++    properties: { entity: 88, dataset: "planning-application", status: "approved", reference: "APP/88" }
++  }, 0, "https://www.planning.data.gov.uk/entity.geojson");
++  const existing = [building];
++  const summary = await fuseAdditionalMapSources(existing, projector, {
++    acquiredPublicData: acquiredPlanning([raw], "planning-data-api")
++  });
++  assert.equal(existing.some((feature) => feature.id === "osm:way:application-site"), true);
++  assert.equal(summary.planningAuthority.osmOverridden, 0);
++  assert.equal(summary.planningAuthority.siteBoundaries, 1);
++});
++
++test("ambiguous planning geometry cannot delete multiple possible OSM targets", async () => {
++  const existing = [
++    osmFeature("osm:way:a", polygon(-1.90020, 52.9799, -1.90000, 52.9801), "building", "North wing"),
++    osmFeature("osm:way:b", polygon(-1.90000, 52.9799, -1.89980, 52.9801), "building", "South wing")
++  ];
++  const combined = planningFeature({
++    geometry: polygon(-1.90018, 52.9799, -1.89982, 52.9801),
++    id: "planning:ambiguous", name: "Combined building"
++  });
++  const summary = await fuseAdditionalMapSources(existing, projector, {
++    acquiredPublicData: acquiredPlanning([combined])
++  });
++  assert.equal(existing.length, 2);
++  assert.equal(summary.planningAuthority.osmOverridden, 0);
++  assert.equal(summary.planningAuthority.ambiguousWithheld, 1);
++});

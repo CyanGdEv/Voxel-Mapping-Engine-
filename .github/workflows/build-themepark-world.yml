@@ -41,6 +41,35 @@ on:
         required: true
         default: true
         type: boolean
+      planning_override_mode:
+        description: Planning geometry policy for OSM conflicts
+        required: true
+        default: gated
+        type: choice
+        options:
+          - off
+          - gated
+          - authoritative
+      planning_geometry_path:
+        description: Optional repository path to implemented or as-built planning GeoJSON
+        required: false
+        default: ""
+        type: string
+      planning_override_min_confidence:
+        description: Minimum planning confidence for automatic OSM replacement
+        required: true
+        default: "0.86"
+        type: string
+      planning_override_min_overlap:
+        description: Minimum geometry overlap used to identify an OSM target
+        required: true
+        default: "0.18"
+        type: string
+      planning_override_max_offset_m:
+        description: Maximum planning-to-OSM displacement in metres
+        required: true
+        default: "25"
+        type: string
       microsoft_buildings:
         description: Use Microsoft ML building footprints as confidence-gated gap fill
         required: true
@@ -122,6 +151,11 @@ jobs:
       TPMAP_ACCURACY: ${{ inputs.accuracy }}
       TPMAP_WORLD_MARGIN: ${{ inputs.world_margin }}
       TPMAP_ENGLAND_OPEN_DATA: ${{ inputs.england_open_data }}
+      TPMAP_PLANNING_OVERRIDE_MODE: ${{ inputs.planning_override_mode }}
+      TPMAP_PLANNING_GEOMETRY_PATH: ${{ inputs.planning_geometry_path }}
+      TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE: ${{ inputs.planning_override_min_confidence }}
+      TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP: ${{ inputs.planning_override_min_overlap }}
+      TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M: ${{ inputs.planning_override_max_offset_m }}
       TPMAP_MICROSOFT_BUILDINGS: ${{ inputs.microsoft_buildings }}
       TPMAP_WIKIDATA_PLACES: ${{ inputs.wikidata_places }}
       TPMAP_WIKIMEDIA_COMMONS: ${{ inputs.wikimedia_commons }}
@@ -182,6 +216,9 @@ jobs:
             printf '%s\n' "- Accuracy profile: ${SUMMARY_ACCURACY:-unknown}"
             printf '%s\n' "- Successful build strategy: ${SUMMARY_STRATEGY:-none}"
             printf '%s\n' "- England open data: $TPMAP_ENGLAND_OPEN_DATA"
+            printf '%s\n' "- Planning override mode: $TPMAP_PLANNING_OVERRIDE_MODE"
+            printf '%s\n' "- Planning geometry file: ${TPMAP_PLANNING_GEOMETRY_PATH:-none}"
+            printf '%s\n' "- Planning override confidence: $TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE"
             printf '%s\n' "- Microsoft buildings: $TPMAP_MICROSOFT_BUILDINGS"
             printf '%s\n' "- Wikidata places: $TPMAP_WIKIDATA_PLACES"
             printf '%s\n' "- Wikimedia Commons evidence: $TPMAP_WIKIMEDIA_COMMONS"
@@ -195,7 +232,7 @@ jobs:
               printf '%s\n' '- Download the mcworld artifact below, unzip it in the iOS Files app, then tap the .mcworld file.'
             else
               printf '\n%s\n' '## Failure details'
-              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/build-*.log; do
+              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/planning-authority-config.txt ci-diagnostics/phase18-* ci-diagnostics/build-*.log; do
                 [[ -f "$LOG" ]] || continue
                 printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
                 printf '%s\n' '```text'

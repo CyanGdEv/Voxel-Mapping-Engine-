@@ -1,0 +1,160 @@
++    return {
++      match: distanceM <= config.maxOffsetM && (nameMatch || distanceM <= Math.max(3, config.toleranceM)),
++      equivalent: distanceM <= config.toleranceM,
++      score: Math.max(0, 1 - distanceM / Math.max(1, config.maxOffsetM)),
++      distanceM, nameMatch
++    };
++  }
++  return { match: false, score: 0 };
++}
++
++function approximateAreaOverlap(first, second) {
++  const aBounds = geometryBounds(first), bBounds = geometryBounds(second);
++  const intersection = {
++    minX: Math.max(aBounds.minX, bBounds.minX), minZ: Math.max(aBounds.minZ, bBounds.minZ),
++    maxX: Math.min(aBounds.maxX, bBounds.maxX), maxZ: Math.min(aBounds.maxZ, bBounds.maxZ)
++  };
++  const areaA = localGeometryArea(first), areaB = localGeometryArea(second);
++  if (intersection.minX >= intersection.maxX || intersection.minZ >= intersection.maxZ || !areaA || !areaB) {
++    return { intersectionArea: 0, planningArea: areaA, osmArea: areaB, planningFraction: 0, osmFraction: 0, iou: 0 };
++  }
++  const intersectionBoundsArea = (intersection.maxX - intersection.minX) * (intersection.maxZ - intersection.minZ);
++  const spacing = Math.max(0.5, Math.min(3, Math.sqrt(intersectionBoundsArea / 4000) || 0.5));
++  let insideBoth = 0, samples = 0;
++  for (let z = intersection.minZ + spacing / 2; z < intersection.maxZ; z += spacing) {
++    for (let x = intersection.minX + spacing / 2; x < intersection.maxX; x += spacing) {
++      samples += 1;
++      if (pointInsideAreaGeometry(first, x, z) && pointInsideAreaGeometry(second, x, z)) insideBoth += 1;
++    }
++  }
++  const intersectionArea = samples ? insideBoth * spacing * spacing : 0;
++  const union = Math.max(Number.EPSILON, areaA + areaB - intersectionArea);
++  return {
++    intersectionArea,
++    planningArea: areaA,
++    osmArea: areaB,
++    planningFraction: Math.min(1, intersectionArea / areaA),
++    osmFraction: Math.min(1, intersectionArea / areaB),
++    iou: Math.min(1, intersectionArea / union)
++  };
++}
++
++function localGeometryArea(geometry) {
++  if (geometry.type === "Polygon") return polygonNetArea(geometry.coordinates);
++  if (geometry.type === "MultiPolygon") return geometry.coordinates.reduce((sum, polygon) => sum + polygonNetArea(polygon), 0);
++  return 0;
++}
++
++function polygonNetArea(rings) {
++  if (!rings?.length) return 0;
++  return Math.max(0, polygonArea(rings[0]) - rings.slice(1).reduce((sum, ring) => sum + polygonArea(ring), 0));
++}
++
++function pointInsideAreaGeometry(geometry, x, z) {
++  if (geometry.type === "Polygon") return pointInPolygon(x, z, geometry.coordinates);
++  if (geometry.type === "MultiPolygon") return geometry.coordinates.some((polygon) => pointInPolygon(x, z, polygon));
++  return false;
++}
++
++function isAreaGeometry(geometry) {
++  return ["Polygon", "MultiPolygon"].includes(geometry?.type);
++}
++
++function isLineGeometry(geometry) {
++  return ["LineString", "MultiLineString"].includes(geometry?.type);
++}
++
++function geometryCenterDistance(first, second) {
++  const a = geometryBounds(first), b = geometryBounds(second);
++  return Math.hypot((a.minX + a.maxX - b.minX - b.maxX) / 2, (a.minZ + a.maxZ - b.minZ - b.maxZ) / 2);
++}
++
++function planningKindsCompatible(first, second) {
++  if (first === second) return true;
++  return [first, second].every((kind) => ["path", "road"].includes(kind));
++}
++
++function attachPlanningCorroboration(target, planning, policy, metrics) {
++  const evidence = {
++    planningId: planning.id,
++    provider: planning.source?.provider || null,
++    dataset: planning.source?.dataset || null,
++    sourceUrl: planning.source?.sourceUrl || null,
++    reference: planning.tags?.planning_reference || null,
++    confidence: policy.confidence,
++    status: policy.status,
++    role: policy.role,
++    metrics: compactMatchMetrics(metrics)
++  };
++  target.source.planningCorroboration = [...(target.source.planningCorroboration || []), evidence].slice(-8);
++  target.verification.plan = "planning-corroborated-public-map";
++}
++
++function inheritMissingFeatureEvidence(planning, replaced) {
++  planning.name ||= replaced.name;
++  planning.tags = { ...replaced.tags, ...planning.tags };
++  if (!Number.isFinite(planning.vertical?.heightM) && Number.isFinite(replaced.vertical?.heightM)) {
++    planning.vertical.heightM = replaced.vertical.heightM;
++    planning.vertical.heightSource = `${replaced.vertical.heightSource || "osm"}-retained-during-planning-override`;
++  }
++  if (!Number.isFinite(planning.vertical?.elevationM) && Number.isFinite(replaced.vertical?.elevationM)) {
++    planning.vertical.elevationM = replaced.vertical.elevationM;
++  }
++}
++
++function compactReplacedSource(feature) {
++  return {
++    id: feature.id,
++    provider: feature.source?.provider || null,
++    elementType: feature.source?.elementType || null,
++    elementId: feature.source?.elementId || null,
++    version: feature.source?.version || null,
++    timestamp: feature.source?.timestamp || null,
++    name: feature.name || null,
++    kind: feature.kind,
++    subtype: feature.subtype
++  };
++}
++
++function compactMatchMetrics(metrics = {}) {
++  return Object.fromEntries(Object.entries(metrics)
++    .filter(([key, value]) => key !== "match" && key !== "equivalent" && (typeof value === "number" || typeof value === "boolean"))
++    .map(([key, value]) => [key, typeof value === "number" ? Math.round(value * 1000) / 1000 : value]));
++}
++
++function recordPlanningDecision(stats, feature, decision) {
++  stats.considered += 1;
++  const counters = {
++    "gap-fill": "gapFilled",
++    "override-osm": "osmOverridden",
++    corroborated: "corroborated",
++    "rejected-confidence": "rejectedConfidence",
++    "rejected-status": "rejectedStatus",
++    "conflict-withheld": "conflictsWithheld",
++    "withheld-role": "conflictsWithheld",
++    "ambiguous-withheld": "ambiguousWithheld"
++  };
++  if (counters[decision.action]) stats[counters[decision.action]] += 1;
++  const entry = {
++    planningId: feature.id,
++    kind: feature.kind,
++    action: decision.action,
++    targetId: decision.targetId || null,
++    alternateTargetId: decision.alternateTargetId || null,
++    role: decision.policy?.role || feature.tags?.planning_geometry_role || null,
++    status: decision.policy?.status || feature.tags?.planning_status || null,
++    confidence: decision.policy?.confidence ?? numberOrNull(feature.tags?.planning_confidence),
++    metrics: decision.metrics ? compactMatchMetrics(decision.metrics) : null,
++    reference: feature.tags?.planning_reference || null
++  };
++  if (stats.decisions.length < 5000) stats.decisions.push(entry);
++  else stats.decisionsTruncated = true;
++}
++
++function normalizedName(value) {
++  return value ? String(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() : "";
++}
++
++function clamp01(value) {
++  return Math.max(0, Math.min(1, Number(value) || 0));
++}

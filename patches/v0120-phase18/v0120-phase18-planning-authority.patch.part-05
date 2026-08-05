@@ -1,0 +1,160 @@
++  }
++  return {
++    collections: [collectionEntry({
++      id: `planning-geometry:${path.basename(filename)}`,
++      adapter: "planning-geometry",
++      provider,
++      endpoint: defaults.sourceUrl,
++      cacheHit: true,
++      collection: featureCollection(standardized, {
++        name: provider,
++        url: defaults.sourceUrl,
++        license: defaults.license,
++        dataset: defaults.dataset || "planning-derived-geometry",
++        checked_at: defaults.timestamp || new Date().toISOString()
++      }),
++      request: { file: path.basename(filename), features: standardized.length }
++    })],
++    warnings: []
++  };
++}
++
++function planningCollectionSourceDefaults(collection) {
++  const source = collection.source || collection.properties?.source || {};
++  return {
++    provider: source.name || source.provider || collection.source_name || null,
++    sourceUrl: source.url || source.source_url || collection.source_url || null,
++    license: source.license || collection.license || null,
++    timestamp: source.checked_at || source.captured_at || source.updated_at || collection.checked_at || null,
++    dataset: source.dataset || collection.name || null
++  };
++}
++
++const SUPPORTED_PLANNING_GEOMETRY_KINDS = new Set([
++  "building", "structure", "path", "road", "surface", "water", "vegetation",
++  "ride_track", "ride_support", "rail", "barrier", "attraction", "amenity",
++  "detail", "park_boundary"
++]);
++
++function normalizePlanningDataset(value) {
++  return String(value || "planning-entity").trim().toLowerCase().replace(/[_\s]+/g, "-");
++}
++
++function normalizePlanningRole(value) {
++  const role = String(value || "").trim().toLowerCase().replace(/[_\s]+/g, "-");
++  return [
++    "authoritative-feature", "approved-layout", "as-built", "implemented-layout",
++    "site-boundary", "constraint-only"
++  ].includes(role) ? role : null;
++}
++
++function planningStatus(properties, dataset) {
++  const raw = firstString(properties, [
++    "planning_status", "planning-status", "planning-permission-status",
++    "planning_permission_status", "decision", "decision-status", "decision_status",
++    "application-status", "application_status", "status", "period"
++  ]);
++  if (raw) return raw.trim().toLowerCase().replace(/[_\s]+/g, "-");
++  return ["listed-building-outline", "tree"].includes(dataset) ? "current" : "unknown";
++}
++
++function planningImplemented(properties, role) {
++  if (["as-built", "implemented-layout"].includes(role)) return true;
++  const value = properties.planning_implemented ?? properties.implemented ?? properties.built ?? properties.complete;
++  if (value === true || value === 1) return true;
++  return ["true", "yes", "implemented", "built", "complete", "completed", "operational"]
++    .includes(String(value || "").trim().toLowerCase());
++}
++
+ async function acquireMicrosoftBuildings(runtime, options) {
+   const indexUrl = options.microsoftBuildingsIndexUrl || MICROSOFT_BUILDINGS_INDEX;
+   const index = await fetchCachedText(runtime, indexUrl, "microsoft-buildings-index");
+@@ -1105,6 +1270,9 @@ export const __test = {
+   parseCsv,
+   geometryIntersectsBbox,
+   standardizePlanningFeature,
++  normalizePlanningRole,
++  planningStatus,
++  planningImplemented,
+   classifyOsOpenMapLocal,
+   selectMicrosoftRows,
+   inferTowSubtype,
+diff --git a/test/planning-authority.test.mjs b/test/planning-authority.test.mjs
+new file mode 100644
+index 0000000..a9ae9c0
+--- /dev/null
++++ b/test/planning-authority.test.mjs
+@@ -0,0 +1,226 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import path from "node:path";
++import { mkdtemp, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { parseArgs } from "../src/lib/args.mjs";
++import { acquireSupplementalSources, __test as supplementalTest } from "../src/lib/supplemental-sources.mjs";
++import { fuseAdditionalMapSources } from "../src/lib/source-fusion.mjs";
++import { createProjector, geometryMapCoordinates } from "../src/lib/geo.mjs";
++
++const projector = createProjector({ lat: 52.98, lon: -1.9 });
++
++function polygon(west, south, east, north) {
++  return {
++    type: "Polygon",
++    coordinates: [[
++      [west, south], [east, south], [east, north], [west, north], [west, south]
++    ]]
++  };
++}
++
++function osmFeature(id, geometry, kind = "building", name = "Existing") {
++  return {
++    id,
++    name,
++    kind,
++    subtype: kind === "building" ? "yes" : "footway",
++    tags: kind === "building" ? { building: "yes" } : { highway: "footway" },
++    geometry,
++    localGeometry: geometryMapCoordinates(geometry, projector.forward),
++    vertical: { heightM: kind === "building" ? 8 : null, heightSource: kind === "building" ? "building:levels" : null, elevationM: null },
++    source: { provider: "OpenStreetMap", elementType: "way", elementId: id, version: 2, timestamp: "2024-01-01T00:00:00Z" },
++    verification: { plan: "public-map", vertical: "unknown" }
++  };
++}
++
++function acquiredPlanning(features, adapter = "planning-geometry") {
++  return [{
++    id: adapter,
++    adapter,
++    endpoint: "https://planning.example/application/123",
++    collection: {
++      type: "FeatureCollection",
++      source: {
++        name: "Example planning authority",
++        url: "https://planning.example/application/123",
++        license: "Open Government Licence v3.0"
++      },
++      features
++    }
++  }];
++}
++
++function planningFeature({ geometry, kind = "building", role = "implemented-layout", status = "implemented", confidence = 0.95, id = "planning:123", name = "Existing" }) {
++  return {
++    type: "Feature",
++    geometry,
++    properties: {
++      id,
++      name,
++      kind,
++      subtype: `${kind}-planning`,
++      source_name: "Example planning authority",
++      source_url: "https://planning.example/application/123",
++      license: "Open Government Licence v3.0",
++      source_adapter: "planning-geometry",
++      source_dataset: "planning-derived-geometry",
++      merge_policy: "planning-authority",
++      planning_geometry_role: role,
++      planning_status: status,
++      planning_implemented: status === "implemented",
++      planning_confidence: confidence,
++      planning_reference: "APP/123"

@@ -1,0 +1,160 @@
+         feature.source.replaces = replaces;
++        feature.source.replacedSource = compactReplacedSource(replaced);
+       }
+     }
+ 
+     const mergePolicy = String(raw.properties?.merge_policy || "independent-detail");
+-    if (!replaces && ["gap-fill", "semantic-only"].includes(mergePolicy)) {
++    if (!replaces && mergePolicy === "planning-authority") {
++      const decision = planningAuthorityMergeDecision(feature, features, accepted, planningConfig);
++      recordPlanningDecision(planningStats, feature, decision);
++      if (!decision.accept) {
++        if (decision.action === "corroborated") bucket.duplicatesWithheld += 1;
++        else bucket.partialOverlapsWithheld += 1;
++        continue;
++      }
++    } else if (!replaces && mergePolicy === "planning-site") {
++      planningStats.siteBoundaries += 1;
++      recordPlanningDecision(planningStats, feature, { action: "site-boundary", accept: true });
++    } else if (!replaces && ["gap-fill", "semantic-only"].includes(mergePolicy)) {
+       const decision = supplementalMergeDecision(feature, features, accepted, lineIndex, toleranceM, mergePolicy);
+       if (decision === "duplicate") {
+         bucket.duplicatesWithheld += 1;
+@@ -171,6 +195,301 @@ function supplementalMergeDecision(feature, existing, accepted, lineIndex, toler
+   return overtureMergeDecision(feature, existing, accepted, lineIndex, toleranceM);
+ }
+ 
++
++function planningStats(config) {
++  return {
++    schemaVersion: 1,
++    mode: config.mode,
++    config,
++    considered: 0,
++    gapFilled: 0,
++    osmOverridden: 0,
++    corroborated: 0,
++    siteBoundaries: 0,
++    rejectedConfidence: 0,
++    rejectedStatus: 0,
++    conflictsWithheld: 0,
++    ambiguousWithheld: 0,
++    decisions: [],
++    decisionsTruncated: false
++  };
++}
++
++function planningAuthorityMergeDecision(feature, existing, accepted, config) {
++  const policy = planningFeaturePolicy(feature, config);
++  if (!policy.statusAllowed) return { action: "rejected-status", accept: false, policy };
++  if (policy.confidence < config.minConfidence) return { action: "rejected-confidence", accept: false, policy };
++  if (!policy.overrideEligible && !policy.gapFillEligible) {
++    return { action: "withheld-role", accept: false, policy };
++  }
++
++  const candidates = existing
++    .filter((candidate) => candidate.source?.provider === "OpenStreetMap")
++    .filter((candidate) => planningKindsCompatible(feature.kind, candidate.kind))
++    .map((candidate) => ({ candidate, metrics: planningGeometryMatch(feature, candidate, config) }))
++    .filter((entry) => entry.metrics.match)
++    .sort((a, b) => b.metrics.score - a.metrics.score);
++
++  if (!candidates.length) {
++    if (!policy.gapFillEligible) return { action: "conflict-withheld", accept: false, policy };
++    feature.verification.plan = "planning-authority-gap-fill";
++    feature.source.planningDecision = { action: "gap-fill", confidence: policy.confidence };
++    return { action: "gap-fill", accept: true, policy };
++  }
++
++  const best = candidates[0];
++  const second = candidates[1];
++  if (second && second.metrics.score >= Math.max(config.minOverlap, best.metrics.score * 0.9)) {
++    return {
++      action: "ambiguous-withheld", accept: false, policy,
++      targetId: best.candidate.id,
++      alternateTargetId: second.candidate.id,
++      metrics: best.metrics
++    };
++  }
++
++  if (best.metrics.equivalent) {
++    attachPlanningCorroboration(best.candidate, feature, policy, best.metrics);
++    return { action: "corroborated", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
++  }
++  if (config.mode === "off" || !policy.overrideEligible) {
++    return { action: "conflict-withheld", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
++  }
++
++  const index = existing.indexOf(best.candidate);
++  if (index < 0) return { action: "conflict-withheld", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
++  existing.splice(index, 1);
++  inheritMissingFeatureEvidence(feature, best.candidate);
++  feature.source.replaces = best.candidate.id;
++  feature.source.replacedSource = compactReplacedSource(best.candidate);
++  feature.source.planningDecision = {
++    action: "override-osm",
++    confidence: policy.confidence,
++    status: policy.status,
++    role: policy.role,
++    metrics: compactMatchMetrics(best.metrics)
++  };
++  feature.verification.plan = "planning-authority-override";
++  feature.tags.planning_override = "yes";
++  return { action: "override-osm", accept: true, policy, targetId: best.candidate.id, metrics: best.metrics };
++}
++
++function planningFeaturePolicy(feature, config) {
++  const tags = feature.tags || {};
++  const role = String(tags.planning_geometry_role || "constraint-only").toLowerCase();
++  const status = String(tags.planning_status || "unknown").toLowerCase();
++  const confidence = clamp01(numberOrNull(tags.planning_confidence) ?? 0.7);
++  const implemented = tags.planning_implemented === true || String(tags.planning_implemented).toLowerCase() === "true";
++  const dataset = String(feature.source?.dataset || tags.source_dataset || "").toLowerCase();
++  const currentAuthorityDataset = ["listed-building-outline", "tree"].includes(dataset);
++  const blocked = /(?:refused|withdrawn|invalid|expired|cancelled|canceled|superseded|draft|pending|submitted|undecided)/.test(status);
++  const implementedStatus = /(?:implemented|built|complete|completed|operational|existing|current|extant)/.test(status);
++  const approvedStatus = /(?:approved|granted|consented|permitted)/.test(status);
++  const roleAllows = ["authoritative-feature", "as-built", "implemented-layout", "approved-layout"].includes(role);
++  const statusAllowed = !blocked && (currentAuthorityDataset || implemented || implementedStatus ||
++    (config.mode === "authoritative" && approvedStatus));
++  const overrideEligible = roleAllows && statusAllowed &&
++    (role !== "approved-layout" || implemented || implementedStatus || config.mode === "authoritative");
++  const gapFillEligible = roleAllows && statusAllowed;
++  return { role, status, confidence, implemented, dataset, statusAllowed, overrideEligible, gapFillEligible };
++}
++
++function planningGeometryMatch(planning, osm, config) {
++  const first = planning.localGeometry;
++  const second = osm.localGeometry;
++  if (!first || !second) return { match: false, score: 0 };
++  const nameMatch = normalizedName(planning.name) && normalizedName(planning.name) === normalizedName(osm.name);
++  if (isAreaGeometry(first) && isAreaGeometry(second)) {
++    const overlap = approximateAreaOverlap(first, second);
++    const distanceM = geometryCenterDistance(first, second);
++    const overlapMatch = Math.max(overlap.planningFraction, overlap.osmFraction, overlap.iou) >= config.minOverlap;
++    const proximityMatch = nameMatch && distanceM <= config.maxOffsetM;
++    const score = Math.max(overlap.iou, Math.min(overlap.planningFraction, overlap.osmFraction),
++      proximityMatch ? 0.5 * (1 - distanceM / Math.max(1, config.maxOffsetM)) : 0);
++    return {
++      match: overlapMatch || proximityMatch,
++      equivalent: overlap.planningFraction >= 0.82 && overlap.osmFraction >= 0.82,
++      score, distanceM, nameMatch, ...overlap
++    };
++  }
++  if (isLineGeometry(first) && isLineGeometry(second)) {
++    const looseForward = lineOverlapPair(first, second, config.maxOffsetM);
++    const looseReverse = lineOverlapPair(second, first, config.maxOffsetM);
++    const strictForward = lineOverlapPair(first, second, config.toleranceM);
++    const strictReverse = lineOverlapPair(second, first, config.toleranceM);
++    const distanceM = geometryCenterDistance(first, second);
++    const score = Math.max(Math.min(looseForward, looseReverse), nameMatch && distanceM <= config.maxOffsetM ? 0.45 : 0);
++    return {
++      match: Math.max(looseForward, looseReverse) >= config.minOverlap || (nameMatch && distanceM <= config.maxOffsetM),
++      equivalent: strictForward >= 0.82 && strictReverse >= 0.82,
++      score, distanceM, nameMatch,
++      planningFraction: looseForward, osmFraction: looseReverse,
++      strictPlanningFraction: strictForward, strictOsmFraction: strictReverse
++    };
++  }
++  if (first.type === "Point" && second.type === "Point") {
++    const distanceM = Math.hypot(first.coordinates[0] - second.coordinates[0], first.coordinates[1] - second.coordinates[1]);
