@@ -1,0 +1,48 @@
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase23-compatibility-tests.log"
+
+  PHASE24_B64="$ROOT/patches/v0120-phase24/v0120-phase24-planning-portal-resilience.patch.gz.b64"
+  PHASE24_PATCH="$ROOT/.phase24-planning-portal-resilience.patch"
+  EXPECTED_PHASE24_BLOB="70b85fc4d8b54099a99c0edd3419897d098c7168"
+  EXPECTED_PHASE24_PATCH_SHA="e995ff8c1fdf93c9fef6231a72f6ca3ee08837ef2af29d3391a490031c2b9edf"
+  ACTUAL_PHASE24_BLOB="$(git hash-object "$PHASE24_B64")"
+  printf 'bundle=%s\nexpected_blob=%s\nactual_blob=%s\n' \
+    "$(basename "$PHASE24_B64")" "$EXPECTED_PHASE24_BLOB" "$ACTUAL_PHASE24_BLOB" \
+    | tee "$DIAG/phase24-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE24_BLOB" == "$EXPECTED_PHASE24_BLOB" ]] || {
+    echo "Phase 24 planning portal resilience bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  base64 --decode "$PHASE24_B64" | gzip -dc > "$PHASE24_PATCH"
+  ACTUAL_PHASE24_PATCH_SHA="$(sha256sum "$PHASE24_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE24_PATCH_SHA" "$ACTUAL_PHASE24_PATCH_SHA" \
+    | tee -a "$DIAG/phase24-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE24_PATCH_SHA" == "$EXPECTED_PHASE24_PATCH_SHA" ]] || {
+    echo "Phase 24 planning portal resilience patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE24_PATCH" \
+    2>&1 | tee "$DIAG/phase24-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 24 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase24-syntax-check.log"
+  node --test \
+    test/planning-documents.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    2>&1 | tee "$DIAG/phase24-planning-portal-tests.log"
+
+  node --test \
+    test/planning-georeference.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
