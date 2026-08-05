@@ -28,7 +28,7 @@ mkdir -p "$GEN"
 unzip -q "$SOURCE_ZIP" -d "$GEN"
 
 ACCURACY_PATCH="$ROOT/patches/v0120-terrain-accuracy/v0120-terrain-accuracy.patch"
-EXPECTED_ACCURACY_PATCH_SHA="c8b4e18487f4f9acf1be4334190d152d17e83f5020ed739a26df8c95db8cf649"
+EXPECTED_ACCURACY_PATCH_SHA="ef0c7f932386647a2d200c795823f4bda92a56a647d32dcb236f9e150e203531"
 [[ -f "$ACCURACY_PATCH" ]] || {
   echo "Missing v0.12 terrain accuracy source patch." | tee "$DIAG/source-error.txt" >&2
   exit 2
