@@ -1,0 +1,146 @@
+reLidarElevation(options, provider) {
+         userAgent: options.userAgent,
+         noCache: options.noCache,
+         role: "vom",
+-        options: { ...options, eaTileMinCoverage: 0 }
++        options: { ...options, eaTileMinCoverage: 0, eaResolutionBlend: false, eaResolutionProfile: null }
+       });
+     } catch (error) {
+       vomFailure = error?.message || String(error);
+@@ -109,10 +121,11 @@ export async function acquireLidarElevation(options, provider) {
+   };
+   const result = {
+     provider: isLive
+-      ? `Environment Agency National LIDAR Programme DTM/DSM${dtmBundle.mode === "tiled" ? " (tiled)" : ""}`
++      ? `Environment Agency National LIDAR Programme DTM/DSM${dtmBundle.mode === "tiled" ? (resolutionProfile ? " (tiled, resolution-blended)" : " (tiled)") : ""}`
+       : "Local GeoTIFF DTM/DSM",
+     sourceKind: isLive ? "ea-lidar" : "geotiff",
+-    acquisitionMode: dtmBundle.mode,
++    acquisitionMode: dtmBundle.mode === "tiled" && resolutionProfile ? "tiled-resolution-blended" : dtmBundle.mode,
++    resolutionProfile: dtmBundle.metadata.resolutionProfile || null,
+     resolutionM: Math.max(dtmBundle.metadata.resolutionM, dsmBundle?.metadata.resolutionM || 0),
+     verticalAccuracyRmseM: isLive ? 0.15 : null,
+     datum: isLive ? "Ordnance Datum Newlyn" : "source GeoTIFF datum",
+@@ -330,7 +343,7 @@ function decodeXml(value) {
+   return value.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+ }
+ 
+-async function acquireCoverage({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role }) {
++export function buildCoverageUrl({ endpoint, coverageId, bounds, requestedResolutionM = 1 }) {
+   const url = new URL(endpoint);
+   url.searchParams.set("service", "WCS");
+   url.searchParams.set("version", "2.0.1");
+@@ -339,12 +352,28 @@ async function acquireCoverage({ endpoint, coverageId, bounds, cacheDir, userAge
+   url.searchParams.set("format", "image/tiff");
+   url.searchParams.append("subset", `E(${bounds.minE},${bounds.maxE})`);
+   url.searchParams.append("subset", `N(${bounds.minN},${bounds.maxN})`);
++  if (requestedResolutionM > 1.001) {
++    url.searchParams.set("scaleFactor", formatScaleFactor(1 / requestedResolutionM));
++  }
++  return url;
++}
++
++async function acquireCoverage({ endpoint, coverageId, bounds, cacheDir, userAgent, noCache, role, requestedResolutionM = 1 }) {
++  const url = buildCoverageUrl({ endpoint, coverageId, bounds, requestedResolutionM });
+   const cached = await cachedBinary({
+     cacheDir: path.join(cacheDir, "coverage"), key: url.toString(), noCache,
+     extension: ".tif",
+     fetcher: () => fetchBinary(url, { headers: { "User-Agent": userAgent, Accept: "image/tiff" } }, { timeoutMs: 240_000, retries: 2 })
+   });
+-  return { filename: cached.filename, cacheHit: cached.cacheHit, endpoint, queryHash: sha256(url.toString()), role };
++  return {
++    filename: cached.filename,
++    cacheHit: cached.cacheHit,
++    endpoint,
++    queryHash: sha256(url.toString()),
++    role,
++    requestedResolutionM,
++    scaleFactor: requestedResolutionM > 1.001 ? 1 / requestedResolutionM : 1
++  };
+ }
+ 
+ 
+@@ -392,23 +421,48 @@ async function acquireTiledCoverageBundle({ endpoint, coverageId, bounds, cacheD
+   const tileSizeM = options.eaTileSizeM ?? 1_000;
+   const concurrency = options.eaTileConcurrency ?? 2;
+   const minimumCoverage = role === "vom" ? 0 : (options.eaTileMinCoverage ?? 0.85);
+-  const plan = planCoverageTiles(bounds, tileSizeM);
++  const resolutionProfile = role === "vom" ? null : options.eaResolutionProfile;
++  const plan = planCoverageTiles(bounds, tileSizeM, resolutionProfile);
+   const settled = await mapLimit(plan.tiles, concurrency, async (tile) => {
+-    try {
++    const requestedResolutionM = tile.requestedResolutionM || 1;
++    const acquireAndValidate = async (resolutionM, nativeResolutionFallback = false) => {
+       const source = await acquireCoverage({
+         endpoint, coverageId, bounds: tile.bounds, cacheDir, userAgent, noCache,
+-        role: `${role}-tile-${tile.row}-${tile.column}`
++        role: `${role}-tile-${tile.row}-${tile.column}`,
++        requestedResolutionM: resolutionM
+       });
+       const raster = await readGeoTiffRaster(source.filename, `${role.toUpperCase()} tile ${tile.id}`);
+       const validation = validateCoverageTile(raster, tile.bounds, {
+-        role, minimumCoverage, maximumResolutionM: options.eaTileMaxResolutionM ?? 2
++        role,
++        minimumCoverage,
++        requestedResolutionM,
++        maximumResolutionM: Math.max(options.eaTileMaxResolutionM ?? 2, requestedResolutionM * 1.25)
+       });
+       return {
+-        ...tile, source, raster, sampler: createProjectedRasterSampler(raster), validation,
++        ...tile,
++        source: { ...source, nativeResolutionFallback },
++        raster,
++        sampler: createProjectedRasterSampler(raster),
++        validation,
+         sha256: await sha256File(source.filename)
+       };
+-    } catch (error) {
+-      return { ...tile, error: error?.message || String(error) };
++    };
++    try {
++      return await acquireAndValidate(requestedResolutionM, false);
++    } catch (scaledError) {
++      if (requestedResolutionM <= 1.001) {
++        return { ...tile, error: scaledError?.message || String(scaledError) };
++      }
++      try {
++        const fallback = await acquireAndValidate(1, true);
++        fallback.resolutionFallbackReason = scaledError?.message || String(scaledError);
++        return fallback;
++      } catch (nativeError) {
++        return {
++          ...tile,
++          error: `scaled request failed: ${scaledError?.message || scaledError}; native retry failed: ${nativeError?.message || nativeError}`
++        };
++      }
+     }
+   });
+   const failures = settled.filter((tile) => tile.error);
+@@ -426,14 +480,71 @@ async function acquireTiledCoverageBundle({ endpoint, coverageId, bounds, cacheD
+   metadata.heatmap = artifacts.heatmap;
+   return {
+     mode: "tiled",
+-    sampler: createTiledRasterSampler({ ...plan, tiles }),
++    sampler: createTiledRasterSampler({ ...plan, tiles }, { featherM: resolutionProfile?.featherM || 0 }),
+     metadata,
+-    warning: null,
++    warning: tiles.some((tile) => tile.source.nativeResolutionFallback)
++      ? `${tiles.filter((tile) => tile.source.nativeResolutionFallback).length} ${role.toUpperCase()} tiles rejected scaled WCS output and used native-resolution tile retries.`
++      : null,
+     raster: { ...plan, tiles }
+   };
+ }
+ 
+-export function planCoverageTiles(bounds, tileSizeM = 1_000) {
++export function createTerrainResolutionProfile({
++  bounds,
++  coreBounds,
++  coreResolutionM = 1,
++  nearResolutionM = 2,
++  outerResolutionM = 5,
++  nearDistanceM = 750,
++  featherM = 64
++}) {
++  invariant(bounds && coreBounds, "Resolution blending requires terrain and core projected bounds");
++  invariant(coreResolutionM > 0 && nearResolutionM >= coreResolutionM && outerResolutionM >= nearResolutionM,
++    "Res
