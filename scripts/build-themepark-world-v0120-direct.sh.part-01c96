@@ -1,0 +1,90 @@
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase25-compatibility-tests.log"
+
+  node "$ROOT/scripts/prefetch-planning-portal.mjs" --self-test \
+    2>&1 | tee "$DIAG/phase26-prefetch-client-selftest.log"
+  node "$ROOT/scripts/select-planning-prefetch.mjs" --self-test \
+    2>&1 | tee "$DIAG/phase26-prefetch-selector-selftest.log"
+
+  PHASE26_B64="$ROOT/.phase26-planning-cross-platform-prefetch.patch.gz.b64"
+  PHASE26_PATCH="$ROOT/.phase26-planning-cross-platform-prefetch.patch"
+  PHASE26_PARTS=("$ROOT"/patches/v0120-phase26/v0120-phase26-planning-cross-platform-prefetch.patch.gz.b64.part-*)
+  PHASE26_EXPECTED_BLOBS=(
+    fabbabe7380d30c78e0563c768710a179ee1172c
+    e22c7236810397c08c803f236cbbed1825005156
+    6de9e113cdfd47ef961d809e7a041d3d6398e202
+    709df98cd9bad4cf855bd5452c20166cf4d9e7fb
+    1b281e7058f59415b8356a48c4b45c4f0845de6b
+  )
+  EXPECTED_PHASE26_BUNDLE_SHA="087ce0a2d91036e646c8ce51cc40595af48e54553382fb9f3326aa178b38bdad"
+  EXPECTED_PHASE26_PATCH_SHA="4daa40e615851b0a7839cb5a727dcc865d09e43d362809a251f7bd93a3733ef5"
+  [[ ${#PHASE26_PARTS[@]} -eq ${#PHASE26_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 26 cross-platform planning prefetch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE26_B64"
+  : > "$DIAG/phase26-patch-checksum.txt"
+  for (( phase26_index=0; phase26_index<${#PHASE26_PARTS[@]}; phase26_index++ )); do
+    phase26_part="${PHASE26_PARTS[$phase26_index]}"
+    phase26_expected_blob="${PHASE26_EXPECTED_BLOBS[$phase26_index]}"
+    phase26_actual_blob="$(git hash-object "$phase26_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase26_part")" "$phase26_expected_blob" "$phase26_actual_blob" \
+      | tee -a "$DIAG/phase26-patch-checksum.txt"
+    [[ "$phase26_actual_blob" == "$phase26_expected_blob" ]] || {
+      echo "Phase 26 cross-platform planning prefetch chunk mismatch: $(basename "$phase26_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase26_part" >> "$PHASE26_B64"
+  done
+  ACTUAL_PHASE26_BUNDLE_SHA="$(sha256sum "$PHASE26_B64" | cut -d' ' -f1)"
+  printf 'bundle_expected=%s\nbundle_actual=%s\n' \
+    "$EXPECTED_PHASE26_BUNDLE_SHA" "$ACTUAL_PHASE26_BUNDLE_SHA" \
+    | tee -a "$DIAG/phase26-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE26_BUNDLE_SHA" == "$EXPECTED_PHASE26_BUNDLE_SHA" ]] || {
+    echo "Phase 26 cross-platform planning prefetch assembled bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  base64 --decode "$PHASE26_B64" | gzip -dc > "$PHASE26_PATCH"
+  ACTUAL_PHASE26_PATCH_SHA="$(sha256sum "$PHASE26_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE26_PATCH_SHA" "$ACTUAL_PHASE26_PATCH_SHA" \
+    | tee -a "$DIAG/phase26-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE26_PATCH_SHA" == "$EXPECTED_PHASE26_PATCH_SHA" ]] || {
+    echo "Phase 26 cross-platform planning prefetch patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE26_PATCH" \
+    2>&1 | tee "$DIAG/phase26-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 26 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase26-syntax-check.log"
+  node --test \
+    test/planning-documents.test.mjs \
+    test/planning-coverage.test.mjs \
+    2>&1 | tee "$DIAG/phase26-planning-prefetch-tests.log"
+
+  node --test \
+    test/planning-georeference.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    test/planning-coverage.test.mjs \
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase26-compatibility-tests.log"
+

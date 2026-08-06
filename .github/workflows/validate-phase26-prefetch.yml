@@ -1,0 +1,137 @@
+name: Validate Phase 26 Cross-platform Planning Prefetch
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "scripts/prefetch-planning-portal.mjs"
+      - "scripts/prefetch-planning-portal-browser.mjs"
+      - "scripts/prefetch-planning-portal-http.mjs"
+      - "scripts/complete-planning-prefetch-attachments.mjs"
+      - "scripts/select-planning-prefetch.mjs"
+      - "patches/v0120-phase26/**"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-*"
+      - ".github/workflows/build-themepark-world.yml"
+      - ".github/workflows/validate-phase26-prefetch.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase26-prefetch-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic:
+    name: Validate deterministic prefetch clients
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run deterministic client checks
+        shell: bash
+        run: |
+          node scripts/prefetch-planning-portal-http.mjs --self-test
+          node scripts/complete-planning-prefetch-attachments.mjs --self-test
+          node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/prefetch-planning-portal.mjs --self-test
+          node scripts/select-planning-prefetch.mjs --self-test
+
+  prefetch:
+    name: Live portal test (${{ matrix.label }})
+    needs: deterministic
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: linux-gnutls
+          - os: windows-2025
+            label: windows-schannel
+          - os: macos-15
+            label: macos-native
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install GnuTLS wget
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget ca-certificates
+      - name: Run live bounded prefetch
+        continue-on-error: true
+        shell: bash
+        run: |
+          rm -rf planning-prefetch-output
+          mkdir -p planning-prefetch-output
+          node scripts/prefetch-planning-portal-browser.mjs \
+            --output planning-prefetch-output/browser \
+            --runner "${{ matrix.label }}-legacy-http" \
+            --max-applications 20 \
+            --max-documents 8 \
+            --max-mb 10 || true
+          node scripts/prefetch-planning-portal.mjs \
+            --output planning-prefetch-output/native \
+            --runner "${{ matrix.label }}" \
+            --max-applications 20 \
+            --max-documents 8 \
+            --max-mb 10 || true
+      - name: Upload candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planning-prefetch-${{ matrix.label }}
+          path: planning-prefetch-output/**
+          if-no-files-found: warn
+          retention-days: 3
+
+  select:
+    name: Require one usable planning transport
+    needs: [deterministic, prefetch]
+    if: ${{ always() && needs.deterministic.result == 'success' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: planning-prefetch-*
+          path: planning-prefetch-candidates
+          merge-multiple: false
+      - name: Run selector checks
+        run: node scripts/select-planning-prefetch.mjs --self-test
+      - name: Select a live planning artifact
+        run: |
+          node scripts/select-planning-prefetch.mjs \
+            --input planning-prefetch-candidates \
+            --output planning-prefetch-selected \
+            --required true
+      - name: Upload selected live artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase26-selected-planning-prefetch
+          path: planning-prefetch-selected/**
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload selection diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase26-planning-prefetch-diagnostics
+          path: planning-prefetch-selected/**
+          if-no-files-found: warn
+          retention-days: 14

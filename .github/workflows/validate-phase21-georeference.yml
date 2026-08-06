@@ -1,14 +1,9 @@
 name: Validate Planning Patch Chain
 
 on:
-  push:
-    branches:
-      - agent/phase21-planning-drawing-georeference
-      - agent/phase22-planning-vector-extraction
-      - agent/phase23-gated-osm-repair
-      - agent/phase24-planning-portal-resilience
-      - agent/phase25-planning-tls-enforcement
+  workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "patches/v0120-phase20/**"
       - "patches/v0120-phase21/**"
@@ -16,11 +11,22 @@ on:
       - "patches/v0120-phase23/**"
       - "patches/v0120-phase24/**"
       - "patches/v0120-phase25/**"
+      - "patches/v0120-phase26/**"
+      - "scripts/prefetch-planning-portal.mjs"
+      - "scripts/prefetch-planning-portal-browser.mjs"
+      - "scripts/prefetch-planning-portal-http.mjs"
+      - "scripts/complete-planning-prefetch-attachments.mjs"
+      - "scripts/select-planning-prefetch.mjs"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
       - ".github/workflows/validate-phase21-georeference.yml"
+      - ".github/workflows/validate-phase26-prefetch.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: planning-patch-chain-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate-planning-chain:
@@ -47,7 +53,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gdal-bin unzip poppler-utils curl
+          sudo apt-get install -y --no-install-recommends gdal-bin unzip poppler-utils curl wget ca-certificates
 
       - name: Assemble validation runner
         shell: bash
