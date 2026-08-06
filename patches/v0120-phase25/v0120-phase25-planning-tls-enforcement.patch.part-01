@@ -1,0 +1,75 @@
++const TLS_ERROR_PATTERN = /(?:SSL|TLS|certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|CERT_HAS_EXPIRED|ERR_TLS|EPROTO|ECONNRESET|reason\(1000\))/i;
+ const ALTON_TOWERS_REGISTER_SNAPSHOT = [
+   { reference: "SMD/2022/0556", status: "approved", proposal: "Indoor attraction with associated groundworks and landscaping", priority: 88 },
+   { reference: "SMD/2017/0111", status: "approved", proposal: "Amended path and additional landscaping associated with the approved SW8 ride", priority: 112 },
+@@ -613,32 +618,47 @@
+ async function fetchPortalBinary(runtime, url, options = {}) {
+   const headers = portalRequestHeaders(runtime, options);
+   const attempts = [];
+-  const nodeFetch = runtime.planningPortalNodeFetch || (async ({ url: target, headers: requestHeaders, timeoutMs }) =>
+-    fetchBinary(target, { headers: requestHeaders }, { timeoutMs, retries: 3 }));
++  const timeoutMs = options.timeoutMs || 120_000;
++  const maxBytes = options.maxBytes || 25 * 1024 * 1024;
++  const cookieJar = path.join(runtime.cacheDir, "supplemental", "planning-portal-cookies.txt");
++  const nodeFetch = runtime.planningPortalNodeFetch || (async ({ url: target, headers: requestHeaders, timeoutMs: requestTimeout }) =>
++    fetchBinary(target, { headers: requestHeaders }, { timeoutMs: requestTimeout, retries: 3 }));
+   try {
+-    const value = await nodeFetch({ url, headers, timeoutMs: options.timeoutMs || 120_000, maxBytes: options.maxBytes });
++    const value = await nodeFetch({ url, headers, timeoutMs, maxBytes: options.maxBytes });
+     const data = normalizeFetchedBytes(value);
+     enforcePortalByteLimit(data, options.maxBytes);
+-    return { data, transport: "node-fetch", finalUrl: url, attempts: [{ transport: "node-fetch", ok: true, bytes: data.length }] };
++    validatePortalCompatibilityPayload(data, options);
++    return {
++      data,
++      transport: "node-fetch",
++      finalUrl: url,
++      tlsVerification: "verified",
++      attempts: [{ transport: "node-fetch", ok: true, bytes: data.length, tlsVerification: "verified" }]
++    };
+   } catch (error) {
+-    attempts.push({ transport: "node-fetch", ok: false, error: errorDetails(error) });
++    attempts.push({ transport: "node-fetch", ok: false, error: errorDetails(error), tlsVerification: "verified" });
+   }
+ 
+   const curlFetch = runtime.planningPortalCurlFetch || curlPortalBinary;
+-  try {
+-    const value = await curlFetch({
+-      url,
+-      headers,
+-      timeoutMs: options.timeoutMs || 120_000,
+-      maxBytes: options.maxBytes || 25 * 1024 * 1024,
+-      cookieJar: path.join(runtime.cacheDir, "supplemental", "planning-portal-cookies.txt")
+-    });
+-    const data = normalizeFetchedBytes(value);
+-    enforcePortalByteLimit(data, options.maxBytes);
+-    attempts.push({ transport: "curl", ok: true, bytes: data.length });
+-    return { data, transport: "curl", finalUrl: url, attempts };
+-  } catch (error) {
+-    attempts.push({ transport: "curl", ok: false, error: errorDetails(error) });
++  const modes = [{ transport: "curl", tlsMode: "standard", tlsVerification: "verified" }];
++  if (portalTlsCompatibilityAllowed(url, runtime, attempts)) {
++    modes.push(
++      { transport: "curl-legacy-tls", tlsMode: "legacy", tlsVerification: "verified-legacy-ciphers" },
++      { transport: "curl-insecure-allowlisted", tlsMode: "insecure-allowlisted", tlsVerification: "bypassed-for-allowlisted-official-host" }
++    );
++  }
++  for (const mode of modes) {
++    try {
++      const value = await curlFetch({ url, headers, timeoutMs, maxBytes, cookieJar, tlsMode: mode.tlsMode });
++      const data = normalizeFetchedBytes(value);
++      enforcePortalByteLimit(data, options.maxBytes);
++      validatePortalCompatibilityPayload(data, options);
++      attempts.push({ transport: mode.transport, ok: true, bytes: data.length, tlsVerification: mode.tlsVerification });
++      return { data, transport: mode.transport, finalUrl: url, tlsVerification: mode.tlsVerification, attempts };
++    } catch (error) {
++      attempts.push({ transport: mode.transport, ok: false, error: errorDetails(error), tlsVerification: mode.tlsVerification });
++      if (mode.tlsMode === "standard" && !portalTlsCompatibilityAllowed(url, runtime, attempts)) break;
++    }
+   }
+ 
+   const combined = new Error(`portal fetch failed for ${url}: ${attempts.map(formatAttempt).join("; ")}`);
+@@ -659,21 +679,51 @@
+   return headers;
+ }
+ 
