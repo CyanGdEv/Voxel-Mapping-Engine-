@@ -14,7 +14,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 // and deleted. No generated code is retained in the repository workspace.
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const payloadDirectory = path.join(scriptDirectory, "phase28-planning-prefetch");
-const expectedPartCount = 5;
+const expectedPartCount = 17;
 const expectedNormalizedBase64Hash = "18d451ca6cc8fca850f5d2ec5d5f53b9390d1d9a99b4ee350947dfd9d41968d7";
 const expectedCompressedHash = "6b26b76293d1df89fa58dad9268919b85cf05e38c8a6ef609a62bd68b3f368ce";
 const expectedPayloadHash = "c5e3a7f55f415ef2e8a64d6dd82039e0fbb17b1bdd4ddbf3bd2cf94e8da44563";
@@ -48,7 +48,7 @@ try {
 
 function loadSources() {
   const names = readdirSync(payloadDirectory)
-    .filter((name) => /^phase28-planning-prefetch-scripts\.json\.gz\.b64\.part-[0-9a-z]+$/.test(name))
+    .filter((name) => /^phase28-planning-prefetch-scripts-v2\.json\.gz\.b64\.part-[0-9]+$/.test(name))
     .sort();
   if (names.length !== expectedPartCount) throw new Error("Phase 28 planning payload part count mismatch");
   const normalizedBase64 = names
