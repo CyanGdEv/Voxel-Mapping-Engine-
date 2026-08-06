@@ -1,0 +1,301 @@
+--- a/src/lib/planning-documents.mjs
++++ b/src/lib/planning-documents.mjs
+@@ -76,8 +76,14 @@
+   const portalFallback = mode === "off"
+     ? emptyPortalFallback("disabled")
+     : await discoverFallbackPlanningApplications(runtime, options, config, applications.length);
+-  applications = mergePlanningApplications([...applications, ...portalFallback.applications])
+-    .slice(0, config.maxApplications);
++  const prefetchBridge = mode === "off"
++    ? emptyPlanningPrefetchBridge("disabled")
++    : await planningApplicationsFromPrefetch(runtime);
++  applications = mergePlanningApplications([
++    ...applications,
++    ...portalFallback.applications,
++    ...prefetchBridge.applications
++  ]).slice(0, config.maxApplications);
+   const evidence = {
+     schemaVersion: 1,
+     status: mode === "off" ? "disabled" : applications.length ? "active" : "no-applications",
+@@ -111,10 +117,17 @@
+     geometryCandidates: 0,
+     geometryExtractionQueue: [],
+     applications: [],
+-    warnings: [...(portalFallback.warnings || [])]
++    planningPrefetch: compactPlanningPrefetchBridge(prefetchBridge),
++    warnings: [...(portalFallback.warnings || []), ...(prefetchBridge.warnings || [])]
+   };
+   if (mode === "off" || !applications.length) {
+-    evidence.coverage = evaluatePlanningCoverage(evidence, portalFallback, config, collectPlanningApplications(collections).length);
++    evidence.coverage = evaluatePlanningCoverage(
++      evidence,
++      portalFallback,
++      config,
++      collectPlanningApplications(collections).length,
++      prefetchBridge.applications.length
++    );
+     if (!evidence.coverage.passed) {
+       evidence.status = "coverage-failed";
+       evidence.warnings.push(evidence.coverage.message);
+@@ -175,7 +188,13 @@
+   evidence.warnings.push(...(evidence.georeference.warnings || []).map((warning) => `georeference: ${warning}`));
+   evidence.vectorExtraction = await vectorizePlanningDrawings(runtime, options, evidence);
+   evidence.warnings.push(...(evidence.vectorExtraction.warnings || []).map((warning) => `vectorize: ${warning}`));
+-  evidence.coverage = evaluatePlanningCoverage(evidence, portalFallback, config, collectPlanningApplications(collections).length);
++  evidence.coverage = evaluatePlanningCoverage(
++    evidence,
++    portalFallback,
++    config,
++    collectPlanningApplications(collections).length,
++    prefetchBridge.applications.length
++  );
+   if (!evidence.coverage.passed) {
+     evidence.status = "coverage-failed";
+     evidence.warnings.push(evidence.coverage.message);
+@@ -195,6 +214,19 @@
+   const candidateMap = new Map();
+   let pagesFetched = 0;
+ 
++  for (const document of application.prefetchedDocuments || []) {
++    const candidate = classifyDocumentCandidate({
++      url: normalizePortalUrl(document.url || document.transportUrl || ""),
++      linkText: document.text || document.role || "",
++      sourcePageUrl: application.documentationUrl || application.applicationUrl || null
++    });
++    if (document.role && roleScore(document.role) > roleScore(candidate.role)) candidate.role = document.role;
++    candidate.score = Math.max(candidate.score, Number(document.score || 0), roleScore(candidate.role) + 5);
++    candidate.rejected = candidate.rejected || document.rejected === true;
++    candidate.prefetched = true;
++    addCandidate(candidateMap, candidate);
++  }
++
+   for (const seed of seeds) {
+     if (looksDownloadable(seed)) {
+       addCandidate(candidateMap, classifyDocumentCandidate({ url: seed, linkText: "", sourcePageUrl: application.documentationUrl }));
+@@ -563,12 +595,24 @@
+   for (const application of applications || []) {
+     const key = application.reference || application.applicationUrl || application.documentationUrl || application.id;
+     if (!key) continue;
+-    if (!unique.has(key)) unique.set(key, { ...application, documentUrls: uniqueUrls(application.documentUrls || []) });
+-    else {
++    if (!unique.has(key)) {
++      unique.set(key, {
++        ...application,
++        documentUrls: uniqueUrls(application.documentUrls || []),
++        prefetchedDocuments: mergePrefetchedDocuments(application.prefetchedDocuments || [])
++      });
++    } else {
+       const existing = unique.get(key);
+       existing.documentUrls = uniqueUrls([...(existing.documentUrls || []), ...(application.documentUrls || [])]);
++      existing.prefetchedDocuments = mergePrefetchedDocuments([
++        ...(existing.prefetchedDocuments || []),
++        ...(application.prefetchedDocuments || [])
++      ]);
+       existing.documentationUrl ||= application.documentationUrl;
+       existing.applicationUrl ||= application.applicationUrl;
++      existing.portalPriority = Math.max(Number(existing.portalPriority || 0), Number(application.portalPriority || 0));
++      existing.discoveryMethod ||= application.discoveryMethod;
++      existing.prefetchRunner ||= application.prefetchRunner;
+       if (["unknown", "pending"].includes(existing.status) && !["unknown", "pending"].includes(application.status)) {
+         existing.status = application.status;
+       }
+@@ -577,6 +621,86 @@
+   return [...unique.values()];
+ }
+ 
++function mergePrefetchedDocuments(documents) {
++  const unique = new Map();
++  for (const document of documents || []) {
++    const url = normalizePortalUrl(document?.url || document?.transportUrl || "");
++    if (!safeHttpUrl(url)) continue;
++    const current = unique.get(url);
++    const candidate = { ...document, url };
++    if (!current || Number(candidate.score || 0) > Number(current.score || 0)) unique.set(url, candidate);
++  }
++  return [...unique.values()];
++}
++
++function emptyPlanningPrefetchBridge(status) {
++  return { status, runner: null, applications: [], documents: 0, warnings: [] };
++}
++
++function compactPlanningPrefetchBridge(result) {
++  return {
++    status: result.status,
++    runner: result.runner,
++    applications: result.applications.length,
++    documents: result.documents,
++    warnings: result.warnings
++  };
++}
++
++async function planningApplicationsFromPrefetch(runtime) {
++  if (!planningPrefetchDirectory(runtime)) return emptyPlanningPrefetchBridge("not-configured");
++  try {
++    const prefetch = await loadPlanningPrefetch(runtime);
++    const manifestApplications = Array.isArray(prefetch.manifest.applications) ? prefetch.manifest.applications : [];
++    const applications = [];
++    let documents = 0;
++    for (const application of manifestApplications) {
++      if (!application || application.failure) continue;
++      const reference = application.reference || null;
++      const applicationUrl = normalizePortalUrl(application.url || application.transportUrl || "");
++      const hints = mergePrefetchedDocuments([
++        ...(Array.isArray(application.documents) ? application.documents : []),
++        ...(Array.isArray(application.downloadedDocuments) ? application.downloadedDocuments : [])
++      ]).filter((document) => {
++        const normalized = normalizePortalUrl(document.url || document.transportUrl || "");
++        const entry = prefetch.entries.get(normalized) ||
++          prefetch.entries.get(legacyHttpAlias(normalized)) ||
++          prefetch.entries.get(canonicalHttpsAlias(normalized));
++        if (!entry || entry.kind !== "document") return false;
++        return !entry.applicationReference || !reference || entry.applicationReference === reference;
++      });
++      if (!safeHttpUrl(applicationUrl) || !hints.length) continue;
++      documents += hints.length;
++      applications.push({
++        id: `planning-prefetch:${reference || sha256(applicationUrl).slice(0, 16)}`,
++        reference,
++        status: application.status || "unknown",
++        documentationUrl: applicationUrl,
++        applicationUrl,
++        documentUrls: hints.map((document) => document.url),
++        prefetchedDocuments: hints,
++        portalProvider: "verified-planning-prefetch",
++        portalPriority: 1_000 + portalApplicationPriority(`${application.proposal || ""} ${application.status || ""}`),
++        portalRowText: String(application.proposal || "").slice(0, 1_000),
++        discoveryMethod: "verified-planning-prefetch",
++        prefetchRunner: prefetch.manifest.runner || prefetch.manifest.platform || "unknown"
++      });
++    }
++    return {
++      status: applications.length && documents ? "usable" : "no-linked-documents",
++      runner: prefetch.manifest.runner || prefetch.manifest.platform || "unknown",
++      applications,
++      documents,
++      warnings: applications.length && documents ? [] : ["Verified planning prefetch contained no application-linked document entries."]
++    };
++  } catch (error) {
++    return {
++      ...emptyPlanningPrefetchBridge("rejected"),
++      warnings: [`Planning prefetch application bridge rejected: ${error?.message || error}`]
++    };
++  }
++}
++
+ function emptyPortalFallback(status) {
+   return {
+     schemaVersion: 1, status, providersConsidered: 0, pagesFetched: 0, rowsConsidered: 0,
+@@ -924,9 +1048,10 @@
+   return [error?.code, error?.cause?.code, error?.message || String(error)].filter(Boolean).join(": ");
+ }
+ 
+-export function evaluatePlanningCoverage(evidence, portalFallback, config, planningDataApplications = 0) {
++export function evaluatePlanningCoverage(evidence, portalFallback, config, planningDataApplications = 0, prefetchedApplications = 0) {
+   const livePortalApplications = Number(portalFallback?.liveApplications || 0);
+-  const liveApplications = planningDataApplications + livePortalApplications;
++  const verifiedPrefetchApplications = Number(prefetchedApplications || 0);
++  const liveApplications = planningDataApplications + livePortalApplications + verifiedPrefetchApplications;
+   const downloadedDocuments = Number(evidence.documentsDownloaded || 0);
+   const applicationPass = liveApplications >= config.minApplications;
+   const documentPass = downloadedDocuments >= config.minDocuments;
+@@ -940,6 +1065,7 @@
+     liveApplications,
+     planningDataApplications,
+     livePortalApplications,
++    verifiedPrefetchApplications,
+     snapshotApplications: Number(portalFallback?.snapshotApplications || 0),
+     downloadedDocuments,
+     minimumApplications: config.minApplications,
+@@ -1296,5 +1422,7 @@
+   normalizePortalUrl,
+   safeHttpUrl,
+   looksDownloadable,
+-  portalProvidersFor
++  portalProvidersFor,
++  planningApplicationsFromPrefetch,
++  mergePrefetchedDocuments
+ };
+--- a/test/planning-documents.test.mjs
++++ b/test/planning-documents.test.mjs
+@@ -449,6 +449,80 @@
+   assert.match(result.attempts[0].artifactSha256, /^[a-f0-9]{64}$/);
+ });
+ 
++test("verified prefetch manifest applications bridge AppBlobImage documents into coverage", async () => {
++  const { mkdir, writeFile } = await import("node:fs/promises");
++  const { createHash } = await import("node:crypto");
++  const root = await mkdtemp(path.join(tmpdir(), "tpmap-planning-prefetch-bridge-"));
++  await mkdir(path.join(root, "files"), { recursive: true });
++  const applicationUrl = "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet?PKID=12345";
++  const transportApplicationUrl = applicationUrl.replace("https:", "http:");
++  const documentUrl = "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=approved_site_plan.pdf";
++  const transportDocumentUrl = documentUrl.replace("https:", "http:");
++  const page = Buffer.from("<!doctype html><html><body>Planning application without ordinary attachment links</body></html>");
++  const document = Buffer.from("%PDF-1.4\nverified prefetch plan\n%%EOF");
++  await writeFile(path.join(root, "files/app.html"), page);
++  await writeFile(path.join(root, "files/plan.pdf"), document);
++  const digest = (value) => createHash("sha256").update(value).digest("hex");
++  await writeFile(path.join(root, "manifest.json"), JSON.stringify({
++    schemaVersion: 1,
++    status: "usable",
++    generatedAt: new Date().toISOString(),
++    runner: "macos-native-chromium",
++    tlsVerification: "legacy-http-official-host",
++    liveApplications: 1,
++    documentsDownloaded: 1,
++    applications: [{
++      reference: "SMD/2024/0001",
++      status: "approved",
++      proposal: "Approved ride layout",
++      url: applicationUrl,
++      transportUrl: transportApplicationUrl,
++      documents: [{ url: documentUrl, transportUrl: transportDocumentUrl, role: "site-plan", score: 100, text: "Approved site plan" }],
++      downloadedDocuments: [{ url: documentUrl, transportUrl: transportDocumentUrl, role: "site-plan", text: "Approved site plan", bytes: document.length, sha256: digest(document), mime: "application/pdf" }]
++    }],
++    entries: [{
++      url: applicationUrl,
++      finalUrl: applicationUrl,
++      transportUrl: transportApplicationUrl,
++      file: "files/app.html",
++      kind: "application-page",
++      applicationReference: "SMD/2024/0001",
++      bytes: page.length,
++      sha256: digest(page),
++      mime: "text/html",
++      tlsVerification: "legacy-http-official-host"
++    }, {
++      url: documentUrl,
++      finalUrl: documentUrl,
++      transportUrl: transportDocumentUrl,
++      file: "files/plan.pdf",
++      kind: "document",
++      applicationReference: "SMD/2024/0001",
++      bytes: document.length,
++      sha256: digest(document),
++      mime: "application/pdf",
++      tlsVerification: "legacy-http-official-host"
++    }]
++  }));
++  const evidence = await acquirePlanningDocumentEvidence({
++    cacheDir: path.join(root, "cache"),
++    planningPrefetchDir: root,
++    parkName: "Alton Towers Resort"
++  }, {
++    parkName: "Alton Towers Resort",
++    planningDocuments: true,
++    planningDocumentMode: "download",
++    planningPortalProviders: [],
++    planningCoveragePolicy: "fail",
++    planningMinApplications: 1,
++    planningMinDocuments: 1
++  }, []);
++  assert.equal(evidence.planningPrefetch.status, "usable");
++  assert.equal(evidence.documentsDownloaded, 1);
++  assert.equal(evidence.coverage.passed, true);
++  assert.equal(evidence.applications[0].documents[0].transport, "planning-prefetch:macos-native-chromium");
++});
++
+ test("planning prefetch rejects non-official hosts and falls back to live transport", async () => {
+   const { mkdir, writeFile } = await import("node:fs/promises");
+   const { createHash } = await import("node:crypto");
