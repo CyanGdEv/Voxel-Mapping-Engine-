@@ -7,6 +7,7 @@ on:
       - agent/phase22-planning-vector-extraction
       - agent/phase23-gated-osm-repair
       - agent/phase24-planning-portal-resilience
+      - agent/phase25-planning-tls-enforcement
   pull_request:
     paths:
       - "patches/v0120-phase20/**"
@@ -14,6 +15,7 @@ on:
       - "patches/v0120-phase22/**"
       - "patches/v0120-phase23/**"
       - "patches/v0120-phase24/**"
+      - "patches/v0120-phase25/**"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
       - ".github/workflows/validate-phase21-georeference.yml"
 
