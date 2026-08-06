@@ -69,12 +69,15 @@
 
   find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase26-syntax-check.log"
-  node --test \
+
+  # Regression suites must not inherit the selected production prefetch. They
+  # simulate failed transports and snapshot-only states with their own fixtures.
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
     test/planning-documents.test.mjs \
     test/planning-coverage.test.mjs \
     2>&1 | tee "$DIAG/phase26-planning-prefetch-tests.log"
 
-  node --test \
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
     test/planning-georeference.test.mjs \
     test/planning-vectorize.test.mjs \
     test/planning-vector-fusion.test.mjs \
