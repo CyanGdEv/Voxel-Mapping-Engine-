@@ -1,0 +1,78 @@
++    assert.match(error.message, /live applications 0\/1/);
++    return true;
++  });
++});
++
++test("an explicit fail policy overrides a warning catalogue", () => {
++  assert.throws(() => enforcePlanningCoverage(sources("warn"), { planningCoveragePolicy: "fail" }), /Planning coverage failed/);
++});
++
++test("warning-only or passing coverage does not stop packaging", () => {
++  assert.doesNotThrow(() => enforcePlanningCoverage(sources("warn"), {}));
++  assert.doesNotThrow(() => enforcePlanningCoverage(sources("fail", true), {}));
++});
+diff -ruN phase25_base/test/planning-documents.test.mjs phase25_work/test/planning-documents.test.mjs
+--- phase25_base/test/planning-documents.test.mjs	2026-08-05 23:25:42.000000000 +0000
++++ phase25_work/test/planning-documents.test.mjs	2026-08-06 06:34:25.705226843 +0000
+@@ -348,3 +348,61 @@
+   assert.equal(__test.isAltonTowersPlanningBuild({ bbox: { south: 52.97, west: -1.93, north: 53, east: -1.88 } }, {}), true);
+   assert.equal(__test.isAltonTowersPlanningBuild({ parkName: "Thorpe Park" }, {}), false);
+ });
++
++
++test("allowlisted Staffordshire hosts use a recorded TLS compatibility ladder", async () => {
++  const calls = [];
++  const result = await __test.fetchPortalBinary({
++    cacheDir: await mkdtemp(path.join(tmpdir(), "tpmap-portal-tls-compat-")),
++    userAgent: "test",
++    planningPortalNodeFetch: async () => {
++      const error = new Error("fetch failed");
++      error.cause = Object.assign(new Error("socket reset"), { code: "ECONNRESET", hostname: "publicaccess.staffsmoorlands.gov.uk" });
++      throw error;
++    },
++    planningPortalCurlFetch: async ({ tlsMode }) => {
++      calls.push(tlsMode);
++      if (tlsMode === "standard") throw new Error("curl failed (35): SSL routines reason(1000)");
++      if (tlsMode === "legacy") throw new Error("curl failed (60): unable to get local issuer certificate");
++      return Buffer.from("<html><body>Planning application search</body></html>");
++    }
++  }, "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet", {
++    accept: "text/html,*/*",
++    maxBytes: 4096,
++    timeoutMs: 1000
++  });
++  assert.deepEqual(calls, ["standard", "legacy", "insecure-allowlisted"]);
++  assert.equal(result.transport, "curl-insecure-allowlisted");
++  assert.equal(result.tlsVerification, "bypassed-for-allowlisted-official-host");
++  assert.equal(result.attempts.length, 4);
++  assert.match(__test.formatTransportError({ message: "x", details: { attempts: result.attempts } }), /bypassed-for-allowlisted-official-host/);
++});
++
++test("TLS verification is never bypassed for non-allowlisted hosts", async () => {
++  const calls = [];
++  await assert.rejects(() => __test.fetchPortalBinary({
++    cacheDir: path.join(tmpdir(), "tpmap-portal-no-bypass"),
++    planningPortalNodeFetch: async () => { throw Object.assign(new Error("TLS failed"), { code: "EPROTO" }); },
++    planningPortalCurlFetch: async ({ tlsMode }) => { calls.push(tlsMode); throw new Error("certificate failure"); }
++  }, "https://planning.example/portal", {
++    accept: "text/html,*/*",
++    maxBytes: 4096,
++    timeoutMs: 1000
++  }), /portal fetch failed/);
++  assert.deepEqual(calls, ["standard"]);
++});
++
++test("TLS compatibility HTML must still look like an official planning response", async () => {
++  await assert.rejects(() => __test.fetchPortalBinary({
++    cacheDir: path.join(tmpdir(), "tpmap-portal-invalid-html"),
++    planningPortalNodeFetch: async () => { throw Object.assign(new Error("reset"), { code: "ECONNRESET" }); },
++    planningPortalCurlFetch: async ({ tlsMode }) => {
++      if (tlsMode !== "insecure-allowlisted") throw new Error("TLS failure");
++      return Buffer.from("<html><body>unrelated advertising page</body></html>");
++    }
++  }, "https://www.staffsmoorlands.gov.uk/article/758/Search-and-track-planning-applications", {
++    accept: "text/html,*/*",
++    maxBytes: 4096,
++    timeoutMs: 1000
++  }), /content validation|portal fetch failed/);
++});
