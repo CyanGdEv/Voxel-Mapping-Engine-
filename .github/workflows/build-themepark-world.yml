@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       preset:
-        description: Park preset
+        description: Select the theme park to generate
         required: true
         default: alton-towers
         type: choice
@@ -12,136 +12,6 @@ on:
           - alton-towers
           - chessington
           - thorpe-park
-          - custom
-      park_name:
-        description: Custom park name; used only with the custom preset
-        required: false
-        default: ""
-        type: string
-      bbox:
-        description: Custom WGS84 bounds as south,west,north,east
-        required: false
-        default: ""
-        type: string
-      accuracy:
-        description: Reconstruction policy
-        required: true
-        default: benchmark
-        type: choice
-        options:
-          - benchmark
-          - verified
-      world_margin:
-        description: Extra terrain around the park in blocks
-        required: true
-        default: "32"
-        type: string
-      england_open_data:
-        description: Use Planning Data and National Trees Outside Woodland
-        required: true
-        default: true
-        type: boolean
-      planning_document_mode:
-        description: Automatically discover planning documents and optionally cache/extract them
-        required: true
-        default: extract
-        type: choice
-        options:
-          - off
-          - discover
-          - download
-          - extract
-      # Advanced planning-document limits are repository variables rather than
-      # workflow_dispatch inputs. GitHub accepts at most 25 dispatch inputs.
-      planning_override_mode:
-        description: Planning geometry policy for OSM conflicts
-        required: true
-        default: gated
-        type: choice
-        options:
-          - off
-          - gated
-          - authoritative
-      planning_geometry_path:
-        description: Optional repository path to implemented or as-built planning GeoJSON
-        required: false
-        default: ""
-        type: string
-      planning_override_min_confidence:
-        description: Minimum planning confidence for automatic OSM replacement
-        required: true
-        default: "0.86"
-        type: string
-      planning_override_min_overlap:
-        description: Minimum geometry overlap used to identify an OSM target
-        required: true
-        default: "0.18"
-        type: string
-      planning_override_max_offset_m:
-        description: Maximum planning-to-OSM displacement in metres
-        required: true
-        default: "25"
-        type: string
-      microsoft_buildings:
-        description: Use Microsoft ML building footprints as confidence-gated gap fill
-        required: true
-        default: true
-        type: boolean
-      wikidata_places:
-        description: Add bounded Wikidata place and attraction labels
-        required: true
-        default: true
-        type: boolean
-      wikimedia_commons:
-        description: Catalogue nearby geotagged Wikimedia photo evidence
-        required: true
-        default: false
-        type: boolean
-      open_aerial_map:
-        description: Discover openly licensed aerial imagery candidates
-        required: true
-        default: true
-        type: boolean
-      strict_supplemental_sources:
-        description: Fail instead of skipping an unavailable supplemental provider
-        required: true
-        default: false
-        type: boolean
-      source_config_path:
-        description: Optional repository path to an OGC, ArcGIS or GeoJSON source config
-        required: false
-        default: ""
-        type: string
-      os_openmap_local_path:
-        description: Optional repository path to WGS84 OS OpenMap Local GeoJSON
-        required: false
-        default: ""
-        type: string
-      orthophoto_url:
-        description: Optional direct georeferenced RGB GeoTIFF or COG URL
-        required: false
-        default: ""
-        type: string
-      orthophoto_source:
-        description: Imagery provider or survey name
-        required: false
-        default: ""
-        type: string
-      orthophoto_license:
-        description: Explicit reuse licence for the imagery
-        required: false
-        default: ""
-        type: string
-      orthophoto_date:
-        description: Optional imagery capture date in YYYY-MM-DD format
-        required: false
-        default: ""
-        type: string
-      orthophoto_sha256:
-        description: Optional imagery SHA-256 checksum
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -152,8 +22,8 @@ concurrency:
 
 jobs:
   planning-prefetch:
-    name: Planning portal prefetch (${{ matrix.label }})
-    if: ${{ inputs.preset == 'alton-towers' && inputs.england_open_data && inputs.planning_document_mode != 'off' }}
+    name: Planning discovery (${{ matrix.label }})
+    if: ${{ inputs.preset == 'alton-towers' }}
     strategy:
       fail-fast: false
       matrix:
@@ -165,7 +35,7 @@ jobs:
           - os: macos-15
             label: macos-native
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -175,48 +45,41 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install GnuTLS wget
+      - name: Install Linux planning transport dependencies
         if: ${{ runner.os == 'Linux' }}
         shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wget ca-certificates
 
-      - name: Install Chromium portal transport
+      - name: Validate expanded planning client
         shell: bash
         run: |
-          npm install --no-save playwright@1.55.0
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            npx playwright install --with-deps chromium
-          else
-            npx playwright install chromium
-          fi
-
-      - name: Validate prefetch client
-        shell: bash
-        run: |
+          node scripts/prefetch-planning-portal-http.mjs --self-test
+          node scripts/complete-planning-prefetch-attachments.mjs --self-test
+          node scripts/complete-planning-prefetch-balanced.mjs --self-test
           node scripts/prefetch-planning-portal-browser.mjs --self-test
           node scripts/prefetch-planning-portal.mjs --self-test
 
-      - name: Prefetch bounded official planning records
+      - name: Discover and download official planning evidence
         continue-on-error: true
         shell: bash
         run: |
           node scripts/prefetch-planning-portal-browser.mjs \
             --output planning-prefetch-output \
-            --runner "${{ matrix.label }}-chromium" \
-            --max-applications "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}" \
-            --max-documents "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}" \
-            --max-mb "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}" || true
+            --runner "${{ matrix.label }}-expanded" \
+            --max-applications 300 \
+            --max-documents 1200 \
+            --max-mb 150 || true
           node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' ? 0 : 1)" || \
             node scripts/prefetch-planning-portal.mjs \
               --output planning-prefetch-output \
               --runner "${{ matrix.label }}" \
-              --max-applications "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}" \
-              --max-documents "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}" \
-              --max-mb "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}"
+              --max-applications 300 \
+              --max-documents 1200 \
+              --max-mb 150
 
-      - name: Upload platform planning prefetch
+      - name: Upload platform planning evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -226,11 +89,11 @@ jobs:
           retention-days: 2
 
   select-planning-prefetch:
-    name: Select verified planning prefetch
+    name: Select strongest verified planning evidence
     if: always()
     needs: planning-prefetch
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -241,7 +104,7 @@ jobs:
           node-version: "22"
 
       - name: Download platform candidates
-        if: ${{ inputs.preset == 'alton-towers' && inputs.england_open_data && inputs.planning_document_mode != 'off' }}
+        if: ${{ inputs.preset == 'alton-towers' }}
         uses: actions/download-artifact@v4
         with:
           pattern: planning-prefetch-*
@@ -255,7 +118,7 @@ jobs:
         shell: bash
         run: |
           required=false
-          if [[ "${{ inputs.preset }}" == "alton-towers" && "${{ inputs.england_open_data }}" == "true" && "${{ inputs.planning_document_mode }}" != "off" ]]; then
+          if [[ "${{ inputs.preset }}" == "alton-towers" ]]; then
             required=true
           fi
           node scripts/select-planning-prefetch.mjs \
@@ -263,7 +126,26 @@ jobs:
             --output planning-prefetch-selected \
             --required "$required"
 
-      - name: Upload selected planning prefetch
+      - name: Write planning evidence summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f planning-prefetch-selected/manifest.json ]]; then
+            node - <<'NODE'
+            const manifest = require('./planning-prefetch-selected/manifest.json');
+            const represented = (manifest.applications || []).filter((app) => (app.downloadedDocuments || []).length > 0).length;
+            console.log(JSON.stringify({
+              status: manifest.status,
+              runner: manifest.runner,
+              liveApplications: manifest.liveApplications || 0,
+              documentsDownloaded: manifest.documentsDownloaded || 0,
+              representedApplications: represented,
+              totalBytes: manifest.totalBytes || 0
+            }, null, 2));
+            NODE
+          fi
+
+      - name: Upload selected planning evidence
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -272,7 +154,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-      - name: Upload prefetch selection diagnostics
+      - name: Upload planning selection diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -282,43 +164,43 @@ jobs:
           retention-days: 14
 
   build-world:
-    name: Generate Bedrock .mcworld
+    name: Generate automatic Bedrock world
     needs: select-planning-prefetch
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
       TPMAP_CONTACT: ${{ vars.TPMAP_CONTACT || format('https://github.com/{0}', github.repository) }}
       TPMAP_PRESET: ${{ inputs.preset }}
-      TPMAP_PARK_NAME: ${{ inputs.park_name }}
-      TPMAP_BBOX: ${{ inputs.bbox }}
-      TPMAP_ACCURACY: ${{ inputs.accuracy }}
-      TPMAP_WORLD_MARGIN: ${{ inputs.world_margin }}
-      TPMAP_ENGLAND_OPEN_DATA: ${{ inputs.england_open_data }}
-      TPMAP_PLANNING_DOCUMENT_MODE: ${{ inputs.planning_document_mode }}
-      TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}
-      TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}
-      TPMAP_PLANNING_DOCUMENT_MAX_MB: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}
-      TPMAP_PLANNING_DOCUMENT_MAX_PAGES: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_PAGES || '5' }}
-      TPMAP_PLANNING_DOCUMENT_MIN_SCORE: ${{ vars.TPMAP_PLANNING_DOCUMENT_MIN_SCORE || '35' }}
-      TPMAP_PLANNING_DOCUMENT_LICENSE: ${{ vars.TPMAP_PLANNING_DOCUMENT_LICENSE }}
+      TPMAP_PARK_NAME: ""
+      TPMAP_BBOX: ""
+      TPMAP_ACCURACY: benchmark
+      TPMAP_WORLD_MARGIN: "32"
+      TPMAP_ENGLAND_OPEN_DATA: "true"
+      TPMAP_PLANNING_DOCUMENT_MODE: extract
+      TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS: "300"
+      TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS: "1200"
+      TPMAP_PLANNING_DOCUMENT_MAX_MB: "150"
+      TPMAP_PLANNING_DOCUMENT_MAX_PAGES: "12"
+      TPMAP_PLANNING_DOCUMENT_MIN_SCORE: "25"
+      TPMAP_PLANNING_DOCUMENT_LICENSE: ""
       TPMAP_PLANNING_PREFETCH_DIR: ${{ github.workspace }}/planning-prefetch-selected
-      TPMAP_PLANNING_OVERRIDE_MODE: ${{ inputs.planning_override_mode }}
-      TPMAP_PLANNING_GEOMETRY_PATH: ${{ inputs.planning_geometry_path }}
-      TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE: ${{ inputs.planning_override_min_confidence }}
-      TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP: ${{ inputs.planning_override_min_overlap }}
-      TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M: ${{ inputs.planning_override_max_offset_m }}
-      TPMAP_MICROSOFT_BUILDINGS: ${{ inputs.microsoft_buildings }}
-      TPMAP_WIKIDATA_PLACES: ${{ inputs.wikidata_places }}
-      TPMAP_WIKIMEDIA_COMMONS: ${{ inputs.wikimedia_commons }}
-      TPMAP_OPEN_AERIAL_MAP: ${{ inputs.open_aerial_map }}
-      TPMAP_STRICT_SUPPLEMENTAL_SOURCES: ${{ inputs.strict_supplemental_sources }}
-      TPMAP_SOURCE_CONFIG_PATH: ${{ inputs.source_config_path }}
-      TPMAP_OS_OPENMAP_LOCAL_PATH: ${{ inputs.os_openmap_local_path }}
-      TPMAP_ORTHOPHOTO_URL: ${{ inputs.orthophoto_url }}
-      TPMAP_ORTHOPHOTO_SOURCE: ${{ inputs.orthophoto_source }}
-      TPMAP_ORTHOPHOTO_LICENSE: ${{ inputs.orthophoto_license }}
-      TPMAP_ORTHOPHOTO_DATE: ${{ inputs.orthophoto_date }}
-      TPMAP_ORTHOPHOTO_SHA256: ${{ inputs.orthophoto_sha256 }}
+      TPMAP_PLANNING_OVERRIDE_MODE: gated
+      TPMAP_PLANNING_GEOMETRY_PATH: ""
+      TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE: "0.86"
+      TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP: "0.18"
+      TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M: "25"
+      TPMAP_MICROSOFT_BUILDINGS: "true"
+      TPMAP_WIKIDATA_PLACES: "true"
+      TPMAP_WIKIMEDIA_COMMONS: "false"
+      TPMAP_OPEN_AERIAL_MAP: "true"
+      TPMAP_STRICT_SUPPLEMENTAL_SOURCES: "false"
+      TPMAP_SOURCE_CONFIG_PATH: ""
+      TPMAP_OS_OPENMAP_LOCAL_PATH: ""
+      TPMAP_ORTHOPHOTO_URL: ""
+      TPMAP_ORTHOPHOTO_SOURCE: ""
+      TPMAP_ORTHOPHOTO_LICENSE: ""
+      TPMAP_ORTHOPHOTO_DATE: ""
+      TPMAP_ORTHOPHOTO_SHA256: ""
       TPMAP_MAX_SUPPLEMENTAL_FEATURES: "50000"
       TPMAP_SUPPLEMENTAL_PAGE_SIZE: "5000"
       TPMAP_MAX_SUPPLEMENTAL_DOWNLOAD_MB: "250"
@@ -331,7 +213,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Download selected planning prefetch
+      - name: Download selected planning evidence
         uses: actions/download-artifact@v4
         with:
           name: planning-prefetch-selected
@@ -343,11 +225,13 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install geospatial command-line tools
+      - name: Install geospatial and automatic-registration tools
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gdal-bin unzip poppler-utils
+          sudo apt-get install -y --no-install-recommends \
+            gdal-bin unzip poppler-utils python3-opencv
+          python3 -c 'import cv2; print(cv2.__version__)'
 
       - name: Generate and validate world
         id: build
@@ -362,40 +246,28 @@ jobs:
         shell: bash
         env:
           SUMMARY_PRESET: ${{ inputs.preset }}
-          SUMMARY_ACCURACY: ${{ inputs.accuracy }}
           SUMMARY_STRATEGY: ${{ steps.build.outputs.strategy || 'none' }}
         run: |
           {
-            printf '%s\n' '# Voxel Mapping Engine — Theme Park World'
+            printf '%s\n' '# Voxel Mapping Engine — Automatic Theme Park World'
             printf '\n'
-            printf '%s\n' '- Generator: ThemePark Map v0.12.0 Supplemental Source Fusion'
-            printf '%s\n' "- Park preset: ${SUMMARY_PRESET:-unknown}"
-            printf '%s\n' "- Accuracy profile: ${SUMMARY_ACCURACY:-unknown}"
-            printf '%s\n' "- Successful build strategy: ${SUMMARY_STRATEGY:-none}"
-            printf '%s\n' "- England open data: $TPMAP_ENGLAND_OPEN_DATA"
-            printf '%s\n' "- Planning document mode: $TPMAP_PLANNING_DOCUMENT_MODE"
-            printf '%s\n' "- Planning prefetch directory: $TPMAP_PLANNING_PREFETCH_DIR"
+            printf '%s\n' "- Park: ${SUMMARY_PRESET:-unknown}"
+            printf '%s\n' '- Player inputs: park selection only'
+            printf '%s\n' '- Accuracy profile: benchmark'
+            printf '%s\n' "- Successful strategy: ${SUMMARY_STRATEGY:-none}"
+            printf '%s\n' '- Planning workflow: expanded discovery, balanced acquisition, automatic registration, vector extraction and gated fusion'
             if [[ -f "$TPMAP_PLANNING_PREFETCH_DIR/manifest.json" ]]; then
-              node -e 'const m=require(process.argv[1]); console.log(`- Planning prefetch runner: ${m.runner}; applications: ${m.liveApplications}; documents: ${m.documentsDownloaded}; TLS: ${m.tlsVerification}`)' "$TPMAP_PLANNING_PREFETCH_DIR/manifest.json"
+              node -e 'const m=require(process.argv[1]); const r=(m.applications||[]).filter(a=>(a.downloadedDocuments||[]).length).length; console.log(`- Planning evidence: ${m.liveApplications||0} applications, ${m.documentsDownloaded||0} documents, ${r} represented applications, runner ${m.runner||"unknown"}`)' "$TPMAP_PLANNING_PREFETCH_DIR/manifest.json"
             fi
-            printf '%s\n' "- Planning document caps: ${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS} applications, ${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS} documents, ${TPMAP_PLANNING_DOCUMENT_MAX_MB} MB"
-            printf '%s\n' "- Planning override mode: $TPMAP_PLANNING_OVERRIDE_MODE"
-            printf '%s\n' "- Planning geometry file: ${TPMAP_PLANNING_GEOMETRY_PATH:-none}"
-            printf '%s\n' "- Planning override confidence: $TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE"
-            printf '%s\n' "- Microsoft buildings: $TPMAP_MICROSOFT_BUILDINGS"
-            printf '%s\n' "- Wikidata places: $TPMAP_WIKIDATA_PLACES"
-            printf '%s\n' "- Wikimedia Commons evidence: $TPMAP_WIKIMEDIA_COMMONS"
-            printf '%s\n' "- OpenAerialMap discovery: $TPMAP_OPEN_AERIAL_MAP"
-            printf '%s\n' "- Strict supplemental sources: $TPMAP_STRICT_SUPPLEMENTAL_SOURCES"
             if [[ -n "${MCWORLD:-}" && -f "$MCWORLD" ]]; then
               printf '\n%s\n' '## Generated world'
               printf '%s\n' "- File: $(basename "$MCWORLD")"
               printf '%s\n' "- Size: $(du -h "$MCWORLD" | cut -f1)"
               printf '%s\n' "- SHA-256: $(sha256sum "$MCWORLD" | cut -d' ' -f1)"
-              printf '%s\n' '- Download the mcworld artifact below, unzip it in the iOS Files app, then tap the .mcworld file.'
+              printf '%s\n' '- Download the artifact, unzip it in the iOS Files app, then tap the .mcworld file.'
             else
               printf '\n%s\n' '## Failure details'
-              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/planning-authority-config.txt ci-diagnostics/planning-document-config.txt ci-diagnostics/phase18-* ci-diagnostics/phase19-* ci-diagnostics/phase2*-* ci-diagnostics/build-*.log; do
+              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/planning-authority-config.txt ci-diagnostics/planning-document-config.txt ci-diagnostics/phase2*-* ci-diagnostics/build-*.log; do
                 [[ -f "$LOG" ]] || continue
                 printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
                 printf '%s\n' '```text'

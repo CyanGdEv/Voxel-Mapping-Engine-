@@ -1,4 +1,4 @@
-name: Validate Phase 26 Cross-platform Planning Prefetch
+name: Validate Cross-platform Planning Prefetch
 
 on:
   workflow_dispatch:
@@ -9,8 +9,12 @@ on:
       - "scripts/prefetch-planning-portal-browser.mjs"
       - "scripts/prefetch-planning-portal-http.mjs"
       - "scripts/complete-planning-prefetch-attachments.mjs"
+      - "scripts/complete-planning-prefetch-balanced.mjs"
+      - "scripts/complete-planning-prefetch-balanced.impl.mjs.gz.b64.part-*"
       - "scripts/select-planning-prefetch.mjs"
       - "patches/v0120-phase26/**"
+      - "patches/v0120-phase27/**"
+      - "patches/v0120-phase28/**"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
       - ".github/workflows/build-themepark-world.yml"
       - ".github/workflows/validate-phase26-prefetch.yml"
@@ -19,14 +23,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: phase26-prefetch-${{ github.event.pull_request.number || github.ref }}
+  group: planning-prefetch-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   deterministic:
-    name: Validate deterministic prefetch clients
+    name: Validate deterministic planning clients
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +41,7 @@ jobs:
         run: |
           node scripts/prefetch-planning-portal-http.mjs --self-test
           node scripts/complete-planning-prefetch-attachments.mjs --self-test
+          node scripts/complete-planning-prefetch-balanced.mjs --self-test
           node scripts/prefetch-planning-portal-browser.mjs --self-test
           node scripts/prefetch-planning-portal.mjs --self-test
           node scripts/select-planning-prefetch.mjs --self-test
@@ -56,7 +61,7 @@ jobs:
           - os: macos-15
             label: macos-native
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,7 +73,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wget ca-certificates
-      - name: Run live bounded prefetch
+      - name: Run live bounded expanded prefetch
         continue-on-error: true
         shell: bash
         run: |
@@ -76,16 +81,16 @@ jobs:
           mkdir -p planning-prefetch-output
           node scripts/prefetch-planning-portal-browser.mjs \
             --output planning-prefetch-output/browser \
-            --runner "${{ matrix.label }}-legacy-http" \
-            --max-applications 20 \
-            --max-documents 8 \
-            --max-mb 10 || true
+            --runner "${{ matrix.label }}-expanded" \
+            --max-applications 40 \
+            --max-documents 20 \
+            --max-mb 20 || true
           node scripts/prefetch-planning-portal.mjs \
             --output planning-prefetch-output/native \
             --runner "${{ matrix.label }}" \
-            --max-applications 20 \
-            --max-documents 8 \
-            --max-mb 10 || true
+            --max-applications 40 \
+            --max-documents 20 \
+            --max-mb 20 || true
       - name: Upload candidate
         if: always()
         uses: actions/upload-artifact@v4
@@ -119,11 +124,21 @@ jobs:
             --input planning-prefetch-candidates \
             --output planning-prefetch-selected \
             --required true
+      - name: Verify expanded evidence distribution
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const manifest = require('./planning-prefetch-selected/manifest.json');
+          if (manifest.status !== 'usable') throw new Error(`selected manifest status is ${manifest.status}`);
+          if ((manifest.documentsDownloaded || 0) < 1) throw new Error('selected manifest has no documents');
+          const represented = (manifest.applications || []).filter((app) => (app.downloadedDocuments || []).length > 0).length;
+          console.log(JSON.stringify({ applications: manifest.liveApplications, documents: manifest.documentsDownloaded, representedApplications: represented }));
+          NODE
       - name: Upload selected live artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: phase26-selected-planning-prefetch
+          name: selected-planning-prefetch
           path: planning-prefetch-selected/**
           if-no-files-found: error
           retention-days: 3
@@ -131,7 +146,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase26-planning-prefetch-diagnostics
+          name: planning-prefetch-diagnostics
           path: planning-prefetch-selected/**
           if-no-files-found: warn
           retention-days: 14

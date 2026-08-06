@@ -12,12 +12,17 @@ on:
       - "patches/v0120-phase24/**"
       - "patches/v0120-phase25/**"
       - "patches/v0120-phase26/**"
+      - "patches/v0120-phase27/**"
+      - "patches/v0120-phase28/**"
       - "scripts/prefetch-planning-portal.mjs"
       - "scripts/prefetch-planning-portal-browser.mjs"
       - "scripts/prefetch-planning-portal-http.mjs"
       - "scripts/complete-planning-prefetch-attachments.mjs"
+      - "scripts/complete-planning-prefetch-balanced.mjs"
+      - "scripts/complete-planning-prefetch-balanced.impl.mjs.gz.b64.part-*"
       - "scripts/select-planning-prefetch.mjs"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
+      - ".github/workflows/build-themepark-world.yml"
       - ".github/workflows/validate-phase21-georeference.yml"
       - ".github/workflows/validate-phase26-prefetch.yml"
 
@@ -31,7 +36,7 @@ concurrency:
 jobs:
   validate-planning-chain:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       TPMAP_CONTACT: https://github.com/${{ github.repository }}
       NODE_OPTIONS: --max-old-space-size=6144
@@ -49,11 +54,23 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org
 
-      - name: Install geospatial validation tools
+      - name: Install geospatial and automatic-registration tools
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gdal-bin unzip poppler-utils curl wget ca-certificates
+          sudo apt-get install -y --no-install-recommends \
+            gdal-bin unzip poppler-utils curl wget ca-certificates python3-opencv
+          python3 -c 'import cv2; print(cv2.__version__)'
+
+      - name: Validate expanded planning prefetch client
+        shell: bash
+        run: |
+          node scripts/prefetch-planning-portal-http.mjs --self-test
+          node scripts/complete-planning-prefetch-attachments.mjs --self-test
+          node scripts/complete-planning-prefetch-balanced.mjs --self-test
+          node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/prefetch-planning-portal.mjs --self-test
+          node scripts/select-planning-prefetch.mjs --self-test
 
       - name: Assemble validation runner
         shell: bash
@@ -74,7 +91,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/planning-chain-validation.sh"
           bash -n "$RUNNER_TEMP/planning-chain-validation.sh"
 
-      - name: Apply patch chain and run tests with production prefetch sentinel
+      - name: Apply Phase 20–28 chain and run tests
         shell: bash
         run: |
           TPMAP_PLANNING_PREFETCH_DIR="$RUNNER_TEMP/production-prefetch-sentinel" \
