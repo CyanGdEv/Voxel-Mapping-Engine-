@@ -14,14 +14,10 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 // and deleted. No generated code is retained in the repository workspace.
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const payloadDirectory = path.join(scriptDirectory, "phase28-planning-prefetch");
-const expectedPartHashes = [
-  "21bb70d162e2b5b9afd06456f476bcd2a2e1e4cc78f23ba8b1b37bec37ccadfe",
-  "891fd22c891bc383780c43c2cdc4a8112f157afa188b1d8ae2c04e69d6ec9e19",
-  "658c10b8042caae68a25b40bb729c4b857d662edbd7025099b4d9a5cd08b5d6e",
-  "4eee2afed05c37c7ecf9cfcbb186e931e2373bff79389a09a2f7ab42f180300f",
-  "f59576d8be8920ad660f9242c8b260c1bbbd7225bbd06ac6f851adad7795789f"
-];
-const expectedBundleHash = "710465aeecdb1d9a83eda4c6a813c8b76e47434053d863d1d8910ef4f318be98";
+const expectedPartCount = 5;
+const expectedNormalizedBase64Hash = "18d451ca6cc8fca850f5d2ec5d5f53b9390d1d9a99b4ee350947dfd9d41968d7";
+const expectedCompressedHash = "6b26b76293d1df89fa58dad9268919b85cf05e38c8a6ef609a62bd68b3f368ce";
+const expectedPayloadHash = "c5e3a7f55f415ef2e8a64d6dd82039e0fbb17b1bdd4ddbf3bd2cf94e8da44563";
 const requestedArgs = process.argv.slice(2);
 const args = productionCaps(requestedArgs);
 const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "vx-phase28-planning-"));
@@ -54,15 +50,17 @@ function loadSources() {
   const names = readdirSync(payloadDirectory)
     .filter((name) => /^phase28-planning-prefetch-scripts\.json\.gz\.b64\.part-[0-9a-z]+$/.test(name))
     .sort();
-  if (names.length !== expectedPartHashes.length) throw new Error("Phase 28 planning payload part count mismatch");
-  const parts = names.map((name, index) => {
-    const data = readFileSync(path.join(payloadDirectory, name));
-    if (sha256(data) !== expectedPartHashes[index]) throw new Error(`Phase 28 planning payload checksum mismatch: ${name}`);
-    return data;
-  });
-  const bundle = Buffer.concat(parts);
-  if (sha256(bundle) !== expectedBundleHash) throw new Error("Phase 28 planning payload bundle checksum mismatch");
-  return JSON.parse(gunzipSync(Buffer.from(bundle.toString("ascii").replace(/\s+/g, ""), "base64")).toString("utf8"));
+  if (names.length !== expectedPartCount) throw new Error("Phase 28 planning payload part count mismatch");
+  const normalizedBase64 = names
+    .map((name) => readFileSync(path.join(payloadDirectory, name), "utf8"))
+    .join("")
+    .replace(/\s+/g, "");
+  if (sha256(normalizedBase64) !== expectedNormalizedBase64Hash) throw new Error("Phase 28 planning payload normalized bundle checksum mismatch");
+  const compressed = Buffer.from(normalizedBase64, "base64");
+  if (sha256(compressed) !== expectedCompressedHash) throw new Error("Phase 28 planning payload compressed checksum mismatch");
+  const payload = gunzipSync(compressed);
+  if (sha256(payload) !== expectedPayloadHash) throw new Error("Phase 28 planning payload source checksum mismatch");
+  return JSON.parse(payload.toString("utf8"));
 }
 
 function productionCaps(values) {
