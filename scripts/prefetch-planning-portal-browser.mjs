@@ -18,8 +18,7 @@ const args = process.argv.slice(2);
 runNode(collector, args);
 
 if (args.includes("--self-test")) {
-  // The collector owns the deterministic transport check. The completion stage is
-  // exercised against the live, bounded application pages immediately afterwards.
+  runNode(attachmentCompleter, ["--self-test"]);
   console.log("planning legacy HTTP and attachment pipeline self-test passed");
 } else {
   const completionArgs = ["--directory", optionValue(args, "--output") || "planning-prefetch-output"];
