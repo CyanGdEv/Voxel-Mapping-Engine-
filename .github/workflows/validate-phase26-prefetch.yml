@@ -8,6 +8,8 @@ on:
     paths:
       - "scripts/prefetch-planning-portal.mjs"
       - "scripts/prefetch-planning-portal-browser.mjs"
+      - "scripts/prefetch-planning-portal-http.mjs"
+      - "scripts/complete-planning-prefetch-attachments.mjs"
       - "scripts/select-planning-prefetch.mjs"
       - "patches/v0120-phase26/**"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
@@ -16,6 +18,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: phase26-prefetch-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   prefetch:
@@ -31,7 +37,7 @@ jobs:
           - os: macos-15
             label: macos-native
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -57,6 +63,7 @@ jobs:
         shell: bash
         run: |
           node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/complete-planning-prefetch-attachments.mjs --self-test
           node scripts/prefetch-planning-portal.mjs --self-test
       - name: Run live bounded prefetch
         continue-on-error: true
@@ -68,13 +75,13 @@ jobs:
             --output planning-prefetch-output/browser \
             --runner "${{ matrix.label }}-chromium" \
             --max-applications 20 \
-            --max-documents 20 \
+            --max-documents 8 \
             --max-mb 10 || true
           node scripts/prefetch-planning-portal.mjs \
             --output planning-prefetch-output/native \
             --runner "${{ matrix.label }}" \
             --max-applications 20 \
-            --max-documents 20 \
+            --max-documents 8 \
             --max-mb 10 || true
       - name: Upload candidate
         if: always()
