@@ -1,0 +1,132 @@
+name: Build Theme Park — One Click
+
+on:
+  workflow_dispatch:
+    inputs:
+      park:
+        description: Select the theme park
+        required: true
+        default: alton-towers
+        type: choice
+        options:
+          - alton-towers
+          - chessington
+          - thorpe-park
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: one-click-themepark-${{ github.ref }}-${{ inputs.park }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Automatically collect data and build world
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Start full automatic world build
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARK: ${{ inputs.park }}
+          BRANCH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run build-themepark-world.yml \
+            --repo "$REPOSITORY" \
+            --ref "$BRANCH" \
+            -f preset="$PARK" \
+            -f park_name='' \
+            -f bbox='' \
+            -f accuracy=benchmark \
+            -f world_margin=32 \
+            -f england_open_data=true \
+            -f planning_document_mode=extract \
+            -f planning_override_mode=gated \
+            -f planning_geometry_path='' \
+            -f planning_override_min_confidence=0.86 \
+            -f planning_override_min_overlap=0.18 \
+            -f planning_override_max_offset_m=25 \
+            -f microsoft_buildings=true \
+            -f wikidata_places=true \
+            -f wikimedia_commons=false \
+            -f open_aerial_map=true \
+            -f strict_supplemental_sources=false \
+            -f source_config_path='' \
+            -f os_openmap_local_path='' \
+            -f orthophoto_url='' \
+            -f orthophoto_source='' \
+            -f orthophoto_license='' \
+            -f orthophoto_date='' \
+            -f orthophoto_sha256=''
+
+          child=''
+          for attempt in $(seq 1 60); do
+            child="$(gh run list \
+              --repo "$REPOSITORY" \
+              --workflow build-themepark-world.yml \
+              --branch "$BRANCH" \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,createdAt,headSha \
+              --jq ".[] | select(.createdAt >= \"$started_at\" and .headSha == \"$HEAD_SHA\") | .databaseId" \
+              | head -n1)"
+            [[ -n "$child" ]] && break
+            sleep 5
+          done
+          [[ -n "$child" ]] || { echo 'Could not identify the dispatched world-build run.' >&2; exit 1; }
+          echo "run_id=$child" >> "$GITHUB_OUTPUT"
+          echo "Started automatic world-build run $child"
+
+      - name: Wait for automatic build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CHILD_RUN: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "$CHILD_RUN" --repo "$REPOSITORY" --exit-status --interval 30
+
+      - name: Download generated world and diagnostics
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CHILD_RUN: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          mkdir -p child-artifacts
+          gh run download "$CHILD_RUN" --repo "$REPOSITORY" --dir child-artifacts || true
+          find child-artifacts -maxdepth 3 -type f -print || true
+
+      - name: Upload one-click results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.park }}-automatic-world-results
+          path: child-artifacts/**
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 30
+
+      - name: Write result summary
+        if: always()
+        shell: bash
+        env:
+          CHILD_RUN: ${{ steps.dispatch.outputs.run_id }}
+          PARK: ${{ inputs.park }}
+        run: |
+          {
+            echo '# Automatic Theme Park Build'
+            echo
+            echo "- Park: $PARK"
+            echo "- Full build run: $CHILD_RUN"
+            echo '- Planning discovery, document acquisition, alignment, extraction, validation, source fusion and world packaging were run automatically.'
+            echo '- Download the copied world artifact from this run.'
+          } >> "$GITHUB_STEP_SUMMARY"
