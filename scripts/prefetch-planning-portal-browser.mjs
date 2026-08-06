@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Phase 28 validation marker: exact payload assembly is exercised in CI.
 import process from "node:process";
 import path from "node:path";
 import os from "node:os";
