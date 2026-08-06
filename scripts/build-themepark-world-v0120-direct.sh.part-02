@@ -1,3 +1,4 @@
+  node --test \
     test/path-geometry.test.mjs \
     test/supplemental-sources.test.mjs \
     test/appearance-vegetation.test.mjs \
