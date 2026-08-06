@@ -16,14 +16,14 @@
   PHASE26_PATCH="$ROOT/.phase26-planning-cross-platform-prefetch.patch"
   PHASE26_PARTS=("$ROOT"/patches/v0120-phase26/v0120-phase26-planning-cross-platform-prefetch.patch.gz.b64.part-*)
   PHASE26_EXPECTED_BLOBS=(
-    17072e9d798ba177fec65452ce8f4a651c9b37b2
-    589b502f9489b0b80019222aa43d443e77370da1
-    ff3a99d664ed3ddff78e8b62893e494d9670225e
-    e30341d8d06890cd9315ef36c10269b0fe166449
-    10b83ecb1395431f6183ab5ae05e88383ddb21a9
+    fabbabe7380d30c78e0563c768710a179ee1172c
+    e22c7236810397c08c803f236cbbed1825005156
+    6de9e113cdfd47ef961d809e7a041d3d6398e202
+    709df98cd9bad4cf855bd5452c20166cf4d9e7fb
+    1b281e7058f59415b8356a48c4b45c4f0845de6b
   )
-  EXPECTED_PHASE26_BUNDLE_SHA="366a2a415e920ab48b4c434c0ada8e546a8331bab533bf1e6b9571e9d6d19166"
-  EXPECTED_PHASE26_PATCH_SHA="99733f311311cebb79846b87f3e3d422c7dfcac5ac70fe81879ef9ece68e302a"
+  EXPECTED_PHASE26_BUNDLE_SHA="087ce0a2d91036e646c8ce51cc40595af48e54553382fb9f3326aa178b38bdad"
+  EXPECTED_PHASE26_PATCH_SHA="4daa40e615851b0a7839cb5a727dcc865d09e43d362809a251f7bd93a3733ef5"
   [[ ${#PHASE26_PARTS[@]} -eq ${#PHASE26_EXPECTED_BLOBS[@]} ]] || {
     echo "Phase 26 cross-platform planning prefetch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
     exit 2
@@ -79,3 +79,11 @@
     test/planning-vectorize.test.mjs \
     test/planning-vector-fusion.test.mjs \
     test/planning-coverage.test.mjs \
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase26-compatibility-tests.log"
