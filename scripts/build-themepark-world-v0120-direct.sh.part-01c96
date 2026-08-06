@@ -87,3 +87,5 @@
     test/planning-authority.test.mjs \
     test/planning-documents.test.mjs \
     2>&1 | tee "$DIAG/phase26-compatibility-tests.log"
+
+  node --test \
