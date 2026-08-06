@@ -1,0 +1,64 @@
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase24-compatibility-tests.log"
+
+  PHASE25_PATCH="$ROOT/.phase25-planning-tls-enforcement.patch"
+  PHASE25_PARTS=("$ROOT"/patches/v0120-phase25/v0120-phase25-planning-tls-enforcement.patch.part-*)
+  PHASE25_EXPECTED_BLOBS=(
+    47935cbd8e19a705b0232aee53dbd010a45ab5cd
+    344425cc5db4f7fc35629a27f9b99484d474e95d
+    d9dae650fa6fcd19b0a0218db0741ba1e0569d39
+    3df5e0df57a40574e6f15916fbdfda50d88c8fb2
+  )
+  EXPECTED_PHASE25_PATCH_SHA="84963ad8c411742e370e8efa724ccb145e76fbc8c8d7cdd3c082df389cfefd46"
+  [[ ${#PHASE25_PARTS[@]} -eq ${#PHASE25_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 25 planning TLS/enforcement patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE25_PATCH"
+  : > "$DIAG/phase25-patch-checksum.txt"
+  for (( phase25_index=0; phase25_index<${#PHASE25_PARTS[@]}; phase25_index++ )); do
+    phase25_part="${PHASE25_PARTS[$phase25_index]}"
+    phase25_expected_blob="${PHASE25_EXPECTED_BLOBS[$phase25_index]}"
+    phase25_actual_blob="$(git hash-object "$phase25_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase25_part")" "$phase25_expected_blob" "$phase25_actual_blob" \
+      | tee -a "$DIAG/phase25-patch-checksum.txt"
+    [[ "$phase25_actual_blob" == "$phase25_expected_blob" ]] || {
+      echo "Phase 25 planning TLS/enforcement patch chunk mismatch: $(basename "$phase25_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase25_part" >> "$PHASE25_PATCH"
+  done
+  ACTUAL_PHASE25_PATCH_SHA="$(sha256sum "$PHASE25_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE25_PATCH_SHA" "$ACTUAL_PHASE25_PATCH_SHA" \
+    | tee -a "$DIAG/phase25-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE25_PATCH_SHA" == "$EXPECTED_PHASE25_PATCH_SHA" ]] || {
+    echo "Phase 25 planning TLS/enforcement patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE25_PATCH" \
+    2>&1 | tee "$DIAG/phase25-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 25 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  find "$GEN/src" "$GEN/scripts" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase25-syntax-check.log"
+  node --test \
+    test/planning-documents.test.mjs \
+    test/planning-coverage.test.mjs \
+    2>&1 | tee "$DIAG/phase25-planning-tls-enforcement-tests.log"
+
+  node --test \
+    test/planning-georeference.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    test/planning-coverage.test.mjs \

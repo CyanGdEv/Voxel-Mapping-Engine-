@@ -1,0 +1,75 @@
+diff -ruN phase25_base/PLANNING_PORTAL_RESILIENCE.md phase25_work/PLANNING_PORTAL_RESILIENCE.md
+--- phase25_base/PLANNING_PORTAL_RESILIENCE.md	2026-08-05 23:25:42.000000000 +0000
++++ phase25_work/PLANNING_PORTAL_RESILIENCE.md	2026-08-06 06:36:04.089226843 +0000
+@@ -7,3 +7,10 @@
+ - A bounded Alton Towers metadata snapshot from the official major-applications register keeps known references visible when the live portal is unavailable. Snapshot records never claim documents or geometry.
+ - `planning-coverage-policy=fail` stops world packaging after QA artifacts are written when minimum live applications or downloaded documents are not met.
+ - Private builds should use `planning-vector-fusion-mode=private`; unknown-licence council-derived vectors remain explicitly non-redistributable and raw documents stay cache-only.
++
++## Phase 25 enforcement and TLS compatibility
++
++- The pipeline enforces the coverage policy resolved inside the planning catalogue, even when the CLI did not explicitly repeat `--planning-coverage-policy fail`.
++- The two official Staffordshire Moorlands hosts use a three-stage curl ladder after Node fetch fails: normal verified TLS, verified TLS with legacy cipher compatibility, then a host-allowlisted `--insecure` request.
++- Certificate verification bypass is never available to arbitrary hosts. It is recorded as `bypassed-for-allowlisted-official-host`, remains HTTPS-only, and retrieved HTML must pass planning-content validation before it is parsed.
++- PDF and image downloads remain MIME-sniffed, hash-recorded, cache-only, and subject to the existing private-use and planning-authority gates.
+diff -ruN phase25_base/src/lib/pipeline.mjs phase25_work/src/lib/pipeline.mjs
+--- phase25_base/src/lib/pipeline.mjs	2026-08-05 23:25:42.000000000 +0000
++++ phase25_work/src/lib/pipeline.mjs	2026-08-06 06:34:25.705226843 +0000
+@@ -14,7 +14,7 @@
+ import { buildEvidenceReport } from "./report.mjs";
+ import { buildPreviewHtml, buildPreviewSvg } from "./preview.mjs";
+ import { ensureDir, sha256, slugify, writeJson, writeText } from "./io.mjs";
+-import { UserError } from "./errors.mjs";
++import { enforcePlanningCoverage } from "./planning-coverage.mjs";
+ 
+ export async function buildPark(options = {}, progress = () => {}) {
+   progress("Resolving bounded public sources");
+@@ -236,16 +236,6 @@
+   return result;
+ }
+ 
+-function enforcePlanningCoverage(sources, options) {
+-  if (options.planningCoveragePolicy !== "fail") return;
+-  const coverage = sources.supplemental?.evidence?.["planning-documents"]?.coverage;
+-  if (!coverage || coverage.passed !== false) return;
+-  const error = new UserError(coverage.message || "Planning coverage failed.");
+-  error.code = "PLANNING_COVERAGE_FAILED";
+-  error.details = coverage;
+-  throw error;
+-}
+-
+ function withoutLargeData(value) {
+   if (!value) return value;
+   const { data, points, query, ...rest } = value;
+@@ -299,3 +289,4 @@
+     }))
+   };
+ }
++
+diff -ruN phase25_base/src/lib/planning-coverage.mjs phase25_work/src/lib/planning-coverage.mjs
+--- phase25_base/src/lib/planning-coverage.mjs	1970-01-01 00:00:00.000000000 +0000
++++ phase25_work/src/lib/planning-coverage.mjs	2026-08-06 06:34:25.705226843 +0000
+@@ -0,0 +1,12 @@
++import { UserError } from "./errors.mjs";
++
++export function enforcePlanningCoverage(sources, options = {}) {
++  const coverage = sources.supplemental?.evidence?.["planning-documents"]?.coverage;
++  if (!coverage || coverage.passed !== false) return;
++  const resolvedPolicy = options.planningCoveragePolicy || coverage.policy || "warn";
++  if (resolvedPolicy !== "fail") return;
++  const error = new UserError(coverage.message || "Planning coverage failed.");
++  error.code = "PLANNING_COVERAGE_FAILED";
++  error.details = coverage;
++  throw error;
++}
+diff -ruN phase25_base/src/lib/planning-documents.mjs phase25_work/src/lib/planning-documents.mjs
+--- phase25_base/src/lib/planning-documents.mjs	2026-08-05 23:25:42.000000000 +0000
++++ phase25_work/src/lib/planning-documents.mjs	2026-08-06 06:35:26.117226843 +0000
+@@ -17,6 +17,11 @@
+ ]);
+ const STAFFORDSHIRE_PORTAL_REFERER = "https://www.staffsmoorlands.gov.uk/article/758/Search-and-track-planning-applications";
+ const PORTAL_HTML_MAX_BYTES = 5 * 1024 * 1024;
++const TLS_COMPATIBILITY_HOSTS = new Set([
++  "publicaccess.staffsmoorlands.gov.uk",
++  "www.staffsmoorlands.gov.uk"
++]);
