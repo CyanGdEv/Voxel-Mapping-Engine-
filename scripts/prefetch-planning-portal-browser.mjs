@@ -44,7 +44,7 @@ function collectorOnlyArgs(values) {
   // The original collector is intentionally limited to a tiny attachment probe.
   // The balanced stage owns the real 150 MB download budget.
   setOption(result, "--max-documents", 1);
-  setOption(result, "--max-mb", 1);
+  setOption(result, "--max-mb", 25);
   return result;
 }
 
