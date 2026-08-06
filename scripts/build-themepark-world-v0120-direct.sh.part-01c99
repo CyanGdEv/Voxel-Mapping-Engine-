@@ -1,0 +1,121 @@
+  PHASE28_B64="$ROOT/.phase28-automatic-planning-pipeline.patch.gz.b64"
+  PHASE28_PATCH="$ROOT/.phase28-automatic-planning-pipeline.patch"
+  PHASE28_PARTS=("$ROOT"/patches/v0120-phase28/v0120-phase28-automatic-planning-pipeline.patch.gz.b64.part-*)
+  PHASE28_EXPECTED_BLOBS=(
+    f5f3b93a57440e4115007a3d1c964cec467b91d4
+    efabed309713c930cade791051ae3ff2c59bbb4e
+    f15c555171a8835fca18da9226c03bba6150845c
+    55d678f541af22a5547349a9818e4e9948153693
+  )
+  EXPECTED_PHASE28_BUNDLE_SHA="615da2286d7e7874ce7ada5ba05526976a278bf81ee8177f4d09e21c2219a9e0"
+  EXPECTED_PHASE28_PATCH_SHA="55bdf7d2ddb742b45657e82c7b7d4949b53ad344742df66c7c0cb26d7b4b243b"
+  [[ ${#PHASE28_PARTS[@]} -eq ${#PHASE28_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 28 automatic planning patch part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE28_B64"
+  : > "$DIAG/phase28-patch-checksum.txt"
+  for (( phase28_index=0; phase28_index<${#PHASE28_PARTS[@]}; phase28_index++ )); do
+    phase28_part="${PHASE28_PARTS[$phase28_index]}"
+    phase28_expected_blob="${PHASE28_EXPECTED_BLOBS[$phase28_index]}"
+    phase28_actual_blob="$(git hash-object "$phase28_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase28_part")" "$phase28_expected_blob" "$phase28_actual_blob" \
+      | tee -a "$DIAG/phase28-patch-checksum.txt"
+    [[ "$phase28_actual_blob" == "$phase28_expected_blob" ]] || {
+      echo "Phase 28 automatic planning patch chunk mismatch: $(basename "$phase28_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase28_part" >> "$PHASE28_B64"
+  done
+  ACTUAL_PHASE28_BUNDLE_SHA="$(sha256sum "$PHASE28_B64" | cut -d' ' -f1)"
+  printf 'bundle_expected=%s\nbundle_actual=%s\n' \
+    "$EXPECTED_PHASE28_BUNDLE_SHA" "$ACTUAL_PHASE28_BUNDLE_SHA" \
+    | tee -a "$DIAG/phase28-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE28_BUNDLE_SHA" == "$EXPECTED_PHASE28_BUNDLE_SHA" ]] || {
+    echo "Phase 28 automatic planning patch assembled bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  base64 --decode "$PHASE28_B64" | gzip -dc > "$PHASE28_PATCH"
+  ACTUAL_PHASE28_PATCH_SHA="$(sha256sum "$PHASE28_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE28_PATCH_SHA" "$ACTUAL_PHASE28_PATCH_SHA" \
+    | tee -a "$DIAG/phase28-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE28_PATCH_SHA" == "$EXPECTED_PHASE28_PATCH_SHA" ]] || {
+    echo "Phase 28 automatic planning patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE28_PATCH" \
+    2>&1 | tee "$DIAG/phase28-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 28 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  find "$GEN/src" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase28-syntax-check.log"
+  python3 -m py_compile "$GEN/src/tools/planning_auto_register.py" \
+    2>&1 | tee "$DIAG/phase28-python-syntax-check.log"
+  if python3 -c 'import cv2' >/dev/null 2>&1; then
+    python3 "$GEN/src/tools/planning_auto_register.py" --self-test \
+      2>&1 | tee "$DIAG/phase28-opencv-selftest.log"
+  else
+    echo "OpenCV not present in patch-chain environment; production installer will provide python3-opencv." \
+      | tee "$DIAG/phase28-opencv-selftest.log"
+  fi
+
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+    test/planning-auto-registration.test.mjs \
+    test/planning-georeference.test.mjs \
+    test/planning-documents.test.mjs \
+    test/planning-coverage.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    2>&1 | tee "$DIAG/phase28-automatic-planning-tests.log"
+
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+    test/planning-auto-registration.test.mjs \
+    test/planning-georeference.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    test/planning-coverage.test.mjs \
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase28-compatibility-tests.log"
+
+  # Player-facing builds are fully automatic and use a broader, still bounded,
+  # official planning evidence budget. Repository variables may raise these
+  # limits, but an old low value must not silently reduce Phase 28 coverage.
+  phase28_max_int() {
+    local current="${1:-0}" minimum="$2"
+    if [[ "$current" =~ ^[0-9]+$ ]] && (( current >= minimum )); then printf '%s' "$current"; else printf '%s' "$minimum"; fi
+  }
+  export TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS="$(phase28_max_int "${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS:-0}" 300)"
+  export TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS="$(phase28_max_int "${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS:-0}" 800)"
+  export TPMAP_PLANNING_DOCUMENT_MAX_MB="$(phase28_max_int "${TPMAP_PLANNING_DOCUMENT_MAX_MB:-0}" 200)"
+  export TPMAP_PLANNING_DOCUMENT_MAX_PAGES="$(phase28_max_int "${TPMAP_PLANNING_DOCUMENT_MAX_PAGES:-0}" 8)"
+  export TPMAP_PLANNING_DOCUMENT_MAX_PER_APPLICATION="$(phase28_max_int "${TPMAP_PLANNING_DOCUMENT_MAX_PER_APPLICATION:-0}" 32)"
+  export TPMAP_PLANNING_REGISTRATION_WORKSPACE_MODE="off"
+  printf 'applications=%s\ndocuments=%s\nmegabytes=%s\npages=%s\nper_application=%s\nmanual_workspace=%s\n' \
+    "$TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS" \
+    "$TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS" \
+    "$TPMAP_PLANNING_DOCUMENT_MAX_MB" \
+    "$TPMAP_PLANNING_DOCUMENT_MAX_PAGES" \
+    "$TPMAP_PLANNING_DOCUMENT_MAX_PER_APPLICATION" \
+    "$TPMAP_PLANNING_REGISTRATION_WORKSPACE_MODE" \
+    | tee "$DIAG/phase28-planning-budget.txt"
+
+  if [[ "${GITHUB_WORKFLOW:-}" == "Build Minecraft Theme Park World" ]] && ! python3 -c 'import cv2' >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends python3-opencv python3-numpy
+  fi
+  if [[ "${GITHUB_WORKFLOW:-}" == "Build Minecraft Theme Park World" ]]; then
+    python3 -c 'import cv2; print("opencv=" + cv2.__version__)' \
+      2>&1 | tee "$DIAG/phase28-opencv-runtime.txt"
+  fi
+
