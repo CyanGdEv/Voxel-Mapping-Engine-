@@ -145,14 +145,14 @@ function fetchHttp(value, options) {
       });
       response.on("end", () => resolve({ data: Buffer.concat(chunks), transportUrl: url.toString(), finalTransportUrl: url.toString(), transport: "node-http", tlsVerification: "legacy-http-official-host" }));
     });
-    request.on("timeout", () => request.destroy(new Error("HTTP request timed out"));
+    request.on("timeout", () => request.destroy(new Error("HTTP request timed out")));
     request.on("error", reject);
   });
 }
 
 function extractApplications(html, base) {
   const found = new Map();
-  for (const row of String(tml).matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+  for (const row of String(html).matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const text = strip(row[1]);
     if (!PARK.test(text)) continue;
     const link = links(row[1], base).find((item) => APP.test(item.transportUrl));
@@ -167,7 +167,7 @@ function extractDocuments(html, base) {
   const found = new Map();
   for (const link of links(html, base)) {
     if (!DOWNLOADABLE.test(link.transportUrl)) continue;
-    const text = `${link.text} ${safeDecode(path.basename(new URL(link.transportUrl).pathname))}`replace(/[_+.-]+/g, " ");
+    const text = `${link.text} ${safeDecode(path.basename(new URL(link.transportUrl).pathname))}`.replace(/[_+.-]+/g, " ");
     const rejected = REJECT.test(text);
     const role = roleFor(text);
     const score = roleScore(role) + (/approved/i.test(text) ? 25 : 0) + (/as[- ]?built|implemented|completion/i.test(text) ? 35 : 0) - (rejected ? 100 : 0);
