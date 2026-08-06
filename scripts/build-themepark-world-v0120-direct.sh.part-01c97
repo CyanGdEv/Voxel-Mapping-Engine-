@@ -1,0 +1,41 @@
+  PHASE26B_PATCH="$ROOT/patches/v0120-phase26/v0120-phase26b-planning-prefetch-manifest-bridge.patch"
+  EXPECTED_PHASE26B_PATCH_SHA="9f17ac0508674b494f8956a8c040c456ea2cd79f42e2c36ea4ce0ae7f3182f83"
+  [[ -f "$PHASE26B_PATCH" ]] || {
+    echo "Phase 26B planning prefetch manifest bridge patch is missing." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  ACTUAL_PHASE26B_PATCH_SHA="$(sha256sum "$PHASE26B_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE26B_PATCH_SHA" "$ACTUAL_PHASE26B_PATCH_SHA" \
+    | tee "$DIAG/phase26b-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE26B_PATCH_SHA" == "$EXPECTED_PHASE26B_PATCH_SHA" ]] || {
+    echo "Phase 26B planning prefetch manifest bridge checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE26B_PATCH" \
+    2>&1 | tee "$DIAG/phase26b-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 26B produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  node --check "$GEN/src/lib/planning-documents.mjs" \
+    2>&1 | tee "$DIAG/phase26b-syntax-check.log"
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+    test/planning-documents.test.mjs \
+    test/planning-coverage.test.mjs \
+    2>&1 | tee "$DIAG/phase26b-prefetch-manifest-bridge-tests.log"
+
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+    test/planning-georeference.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    test/planning-coverage.test.mjs \
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase26b-compatibility-tests.log"
