@@ -1,0 +1,98 @@
+name: Validate Phase 26 Cross-platform Planning Prefetch
+
+on:
+  push:
+    branches:
+      - agent/phase26-cross-platform-planning-prefetch
+  pull_request:
+    paths:
+      - "scripts/prefetch-planning-portal.mjs"
+      - "scripts/select-planning-prefetch.mjs"
+      - "patches/v0120-phase26/**"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-*"
+      - ".github/workflows/build-themepark-world.yml"
+      - ".github/workflows/validate-phase26-prefetch.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prefetch:
+    name: Live portal test (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: linux-gnutls
+          - os: windows-2025
+            label: windows-schannel
+          - os: macos-15
+            label: macos-native
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install GnuTLS wget
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget ca-certificates
+      - name: Run deterministic client checks
+        shell: bash
+        run: node scripts/prefetch-planning-portal.mjs --self-test
+      - name: Run live bounded prefetch
+        continue-on-error: true
+        shell: bash
+        run: |
+          node scripts/prefetch-planning-portal.mjs \
+            --output planning-prefetch-output \
+            --runner "${{ matrix.label }}" \
+            --max-applications 20 \
+            --max-documents 20 \
+            --max-mb 10
+      - name: Upload candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planning-prefetch-${{ matrix.label }}
+          path: planning-prefetch-output/**
+          if-no-files-found: warn
+          retention-days: 3
+
+  select:
+    name: Require one usable native TLS stack
+    needs: prefetch
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: planning-prefetch-*
+          path: planning-prefetch-candidates
+          merge-multiple: false
+      - name: Run selector checks
+        run: node scripts/select-planning-prefetch.mjs --self-test
+      - name: Select a live planning artifact
+        run: |
+          node scripts/select-planning-prefetch.mjs \
+            --input planning-prefetch-candidates \
+            --output planning-prefetch-selected \
+            --required true
+      - name: Upload selected live artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase26-selected-planning-prefetch
+          path: planning-prefetch-selected/**
+          if-no-files-found: warn
+          retention-days: 3
