@@ -12,7 +12,7 @@ const OFFICIAL_HOSTS = new Set([
 const SEEDS = [
   "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/MajorContentiousDevelopmentservlet",
   "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet",
-  "https://www.staffsmoorlands.gov.uk/article/758/Search-and-track-planning-applications"
+  "https://www.staffsmoorlands.gov.uk/article/568/Search-and-track-planning-applications"
 ];
 const REFERER = SEEDS[2];
 const PARK_ROW = /\b(alton towers|farley lane|st10\s*4db|st10\s*4bz)\b/i;
@@ -44,6 +44,7 @@ async function main() {
   await rm(output, { recursive: true, force: true });
   await mkdir(path.join(output, "files"), { recursive: true });
   const session = path.join(output, "session-cookies.txt");
+  await writeFile(session, "# Netscape HTTP Cookie File\n", { flag: "a" });
   const manifest = {
     schemaVersion: 1,
     status: "no-live-data",
@@ -71,8 +72,7 @@ async function main() {
         session,
         maxBytes: 5 * 1024 * 1024
       });
-      const entry = await storeEntry(output, seed, fetched, "seed-page", entryUrls);
-      manifest.entries.push(entry);
+      pushEntry(manifest, await storeEntry(output, seed, fetched, "seed-page", entryUrls));
       manifest.attempts.push(...fetched.attempts.map((attempt) => ({ url: seed, ...attempt })));
       const html = fetched.data.toString("utf8");
       for (const application of extractApplications(html, fetched.finalUrl || seed)) {
@@ -93,7 +93,7 @@ async function main() {
         session,
         maxBytes: 5 * 1024 * 1024
       });
-      manifest.entries.push(await storeEntry(output, application.url, fetched, "application-page", entryUrls, application.reference));
+      pushEntry(manifest, await storeEntry(output, application.url, fetched, "application-page", entryUrls, application.reference));
       manifest.attempts.push(...fetched.attempts.map((attempt) => ({ url: application.url, ...attempt })));
       application.documents = extractDocumentLinks(fetched.data.toString("utf8"), fetched.finalUrl || application.url)
         .filter((document) => document.score >= 35 && !document.rejected)
@@ -112,7 +112,8 @@ async function main() {
           const mime = sniffMime(downloaded.data, document.url);
           if (!isAllowedMime(mime)) throw new Error(`unsupported MIME ${mime}`);
           const entry = await storeEntry(output, document.url, downloaded, "document", entryUrls, application.reference, mime);
-          manifest.entries.push(entry);
+          if (!entry) continue;
+          pushEntry(manifest, entry);
           manifest.attempts.push(...downloaded.attempts.map((attempt) => ({ url: document.url, ...attempt })));
           manifest.documentsDownloaded += 1;
           manifest.totalBytes += downloaded.data.length;
@@ -150,6 +151,7 @@ async function nativeFetch(url, options) {
       const result = process.platform === "linux"
         ? await wgetFetch(url, options, insecure)
         : await curlFetch(url, options, insecure);
+      validateOfficialUrl(result.finalUrl || url);
       validatePayload(result.data, options.accept);
       attempts.push({ transport: result.transport, ok: true, bytes: result.data.length, tlsVerification: insecure ? "bypassed-allowlisted" : "verified-native" });
       return { ...result, attempts, tlsVerification: insecure ? "bypassed-allowlisted" : "verified-native" };
@@ -164,7 +166,7 @@ async function nativeFetch(url, options) {
 
 async function wgetFetch(url, options, insecure) {
   const args = [
-    "--quiet", "--server-response", "--max-redirect=8", "--timeout=30", "--tries=3",
+    "--quiet", "--server-response", "--max-redirect=0", "--timeout=30", "--tries=3",
     "--load-cookies", options.session, "--save-cookies", options.session, "--keep-session-cookies",
     `--header=Accept: ${options.accept}`, "--header=Accept-Language: en-GB,en;q=0.9",
     "--header=Cache-Control: no-cache", "--output-document=-"
@@ -179,7 +181,7 @@ async function wgetFetch(url, options, insecure) {
 async function curlFetch(url, options, insecure) {
   const command = process.platform === "win32" ? "curl.exe" : "/usr/bin/curl";
   const args = [
-    "--fail-with-body", "--location", "--max-redirs", "8", "--proto", "=https", "--proto-redir", "=https",
+    "--fail-with-body", "--max-redirs", "0", "--proto", "=https", "--proto-redir", "=https",
     "--retry", "3", "--retry-all-errors", "--connect-timeout", "30", "--max-time", "180",
     "--compressed", "--silent", "--show-error", "--cookie-jar", options.session, "--cookie", options.session,
     "--header", `Accept: ${options.accept}`, "--header", "Accept-Language: en-GB,en;q=0.9", "--header", "Cache-Control: no-cache"
@@ -217,7 +219,7 @@ function extractDocumentLinks(html, baseUrl) {
     const text = `${decodeSafe(path.basename(new URL(link.url).pathname))} ${link.text}`.replace(/[_+.-]+/g, " ");
     const rejected = REJECT.test(text);
     const role = inferRole(text);
-    let score = roleScore(role) + 5 + (GEOMETRY.test(text) ? 12 : 0) + (/approved/i.test(text) ? 25 : 0) + (/as[- ]?built|implemented|completion/i.test(text) ? 35 : 0) - (rejected ? 100 : 0);
+    const score = roleScore(role) + 5 + (GEOMETRY.test(text) ? 12 : 0) + (/approved/i.test(text) ? 25 : 0) + (/as[- ]?built|implemented|completion/i.test(text) ? 35 : 0) - (rejected ? 100 : 0);
     return { url: link.url, text: link.text, role, score, rejected };
   }), (item) => item.url).sort((a, b) => b.score - a.score);
 }
@@ -242,6 +244,9 @@ function extractLinks(html, baseUrl) {
 async function storeEntry(output, url, fetched, kind, seen, reference = null, explicitMime = null) {
   if (seen.has(url)) return null;
   seen.add(url);
+  const finalUrl = fetched.finalUrl || url;
+  validateOfficialUrl(url);
+  validateOfficialUrl(finalUrl);
   const digest = sha256(fetched.data);
   const mime = explicitMime || (kind === "document" ? sniffMime(fetched.data, url) : "text/html");
   const extension = extensionForMime(mime);
@@ -249,7 +254,7 @@ async function storeEntry(output, url, fetched, kind, seen, reference = null, ex
   await writeFile(path.join(output, relative), fetched.data);
   return {
     url,
-    finalUrl: fetched.finalUrl || url,
+    finalUrl,
     file: relative,
     kind,
     applicationReference: reference,
@@ -261,6 +266,7 @@ async function storeEntry(output, url, fetched, kind, seen, reference = null, ex
   };
 }
 
+function pushEntry(manifest, entry) { if (entry) manifest.entries.push(entry); }
 function validateOfficialUrl(value) {
   const url = new URL(value);
   if (url.protocol !== "https:" || !OFFICIAL_HOSTS.has(url.hostname.toLowerCase())) throw new Error(`URL outside official planning host allowlist: ${value}`);
@@ -311,11 +317,15 @@ function spawnBytes(command, args, maxBytes, timeoutMs) {
 }
 
 function selfTest() {
+  if (REFERER !== "https://www.staffsmoorlands.gov.uk/article/568/Search-and-track-planning-applications") throw new Error("official planning guide self-test failed");
   const html = `<table><tr><td><a href="/portal/servlets/ApplicationSearchServlet?PKID=42">SMD/2022/0556</a></td><td>Alton Towers, Farley Lane</td><td>Approved ride layout and landscaping</td></tr></table>`;
   const apps = extractApplications(html, SEEDS[0]);
   if (apps.length !== 1 || apps[0].reference !== "SMD/2022/0556") throw new Error("application parser self-test failed");
   const docs = extractDocumentLinks(`<a href="/portal/servlets/AttachmentShowServlet?ImageName=9">Approved Site Plan</a><a href="/comment.pdf">Neighbour comment</a>`, apps[0].url);
   if (docs.length !== 2 || docs[0].role !== "site-plan" || docs[0].rejected) throw new Error("document classifier self-test failed");
+  const manifest = { entries: [] };
+  pushEntry(manifest, null);
+  if (manifest.entries.length !== 0) throw new Error("empty entry guard self-test failed");
   console.log("planning prefetch self-test passed");
 }
 
