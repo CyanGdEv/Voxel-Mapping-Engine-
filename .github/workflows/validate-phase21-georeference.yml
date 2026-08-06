@@ -66,7 +66,7 @@ jobs:
           path = Path(sys.argv[1])
           text = path.read_text(encoding="utf-8")
           marker = '  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"\n)\n\nSOURCE_ARGS=('
-          replacement = '  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"\n)\n\necho "Planning patch-chain validation complete; world generation intentionally skipped."\nexit 0\n\nSOURCE_ARGS=('
+          replacement = '  unset TPMAP_PLANNING_PREFETCH_DIR\n  node src/cli.mjs doctor 2>&1 | tee "$DIAG/doctor.log"\n)\n\necho "Planning patch-chain validation complete; world generation intentionally skipped."\nexit 0\n\nSOURCE_ARGS=('
           if marker not in text:
               raise SystemExit("Could not locate the post-compatibility validation boundary")
           path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
@@ -74,9 +74,11 @@ jobs:
           chmod +x "$RUNNER_TEMP/planning-chain-validation.sh"
           bash -n "$RUNNER_TEMP/planning-chain-validation.sh"
 
-      - name: Apply patch chain and run tests
+      - name: Apply patch chain and run tests with production prefetch sentinel
         shell: bash
-        run: bash "$RUNNER_TEMP/planning-chain-validation.sh"
+        run: |
+          TPMAP_PLANNING_PREFETCH_DIR="$RUNNER_TEMP/production-prefetch-sentinel" \
+            bash "$RUNNER_TEMP/planning-chain-validation.sh"
 
       - name: Upload applied planning source
         if: always()
