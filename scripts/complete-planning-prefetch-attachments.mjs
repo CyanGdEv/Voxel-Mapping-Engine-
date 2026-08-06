@@ -3,13 +3,16 @@ import process from "node:process";
 import path from "node:path";
 import http from "node:http";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const HOST = "publicaccess.staffsmoorlands.gov.uk";
 const HTTP_ORIGIN = `http://${HOST}`;
 const HTTPS_ORIGIN = `https://${HOST}`;
+const SEARCH_PATH = "/portal/servlets/ApplicationSearchServlet";
+const SEARCH = `${HTTP_ORIGIN}${SEARCH_PATH}`;
 const ATTACHMENT_PATH = "/portal/servlets/AttachmentShowServlet";
-const REJECT = /\b(comment|representation|neighbour|consultation|application form|ownership certificate|fee|validation checklist|covering letter|email|correspondence|public notice|press notice|privacy|redact|superseded|withdrawn|obsolete|economic benefits|planning statement|heritage impact|transport statement)\b/i;
+const REQUEST_TIMEOUT_MS = 12000;
+const REJECT = /\b(comment|representation|neighbour|consultation|application form|ownership certificate|fee|validation checklist|cover(?:ing)? letter|email|correspondence|public notice|press notice|privacy|redact|superseded|withdrawn|obsolete|economic benefits|planning statement|heritage impact|transport statement)\b/i;
 
 function parseArgs(argv) {
   const result = { directory: "planning-prefetch-output", maxDocuments: 240, maxBytes: 25 * 1024 * 1024, selfTest: false };
@@ -34,11 +37,15 @@ async function main() {
   await mkdir(path.join(directory, "files"), { recursive: true });
   const entryByApplication = new Map(manifest.entries.filter((entry) => entry.kind === "application-page" && entry.applicationReference).map((entry) => [entry.applicationReference, entry]));
   const seenUrls = new Set(manifest.entries.map((entry) => entry.url));
+  const cookies = new Map();
+  const primedApplications = new Set();
   let documentsDownloaded = Number(manifest.documentsDownloaded || 0);
   let totalBytes = Number(manifest.totalBytes || 0);
+  let attachmentFailures = 0;
+  const maxAttachmentFailures = Math.max(8, Math.min(20, options.maxDocuments));
 
   for (const application of manifest.applications) {
-    if (documentsDownloaded >= options.maxDocuments || totalBytes >= options.maxBytes) break;
+    if (documentsDownloaded >= options.maxDocuments || totalBytes >= options.maxBytes || attachmentFailures >= maxAttachmentFailures) break;
     const pageEntry = entryByApplication.get(application.reference);
     if (!pageEntry) continue;
     const pagePath = safePath(directory, pageEntry.file);
@@ -49,13 +56,18 @@ async function main() {
     application.documents = mergeByUrl(application.documents || [], candidates.map(publicCandidate));
     application.downloadedDocuments ||= [];
 
+    if (candidates.length && !primedApplications.has(application.reference || application.transportUrl)) {
+      await primeOfficialSession(cookies, pageEntry.transportUrl || application.transportUrl, manifest);
+      primedApplications.add(application.reference || application.transportUrl);
+    }
+
     for (const candidate of candidates) {
-      if (documentsDownloaded >= options.maxDocuments || totalBytes >= options.maxBytes) break;
+      if (documentsDownloaded >= options.maxDocuments || totalBytes >= options.maxBytes || attachmentFailures >= maxAttachmentFailures) break;
       const publicUrl = canonical(candidate.transportUrl);
       if (seenUrls.has(publicUrl)) continue;
       try {
         const remaining = options.maxBytes - totalBytes;
-        const fetched = await fetchAttachment(candidate.transportUrl, remaining, pageEntry.transportUrl || application.transportUrl);
+        const fetched = await fetchAttachment(candidate.transportUrl, remaining, pageEntry.transportUrl || application.transportUrl, cookies);
         const mime = sniffMime(fetched.data);
         if (!allowedMime(mime)) throw new Error(`unsupported MIME ${mime}`);
         const digest = sha256(fetched.data);
@@ -71,7 +83,7 @@ async function main() {
           bytes: fetched.data.length,
           sha256: digest,
           mime,
-          transport: "node-http-appblobimage",
+          transport: "node-http-appblobimage-session",
           tlsVerification: "legacy-http-official-host"
         };
         manifest.entries.push(entry);
@@ -82,9 +94,10 @@ async function main() {
         totalBytes += entry.bytes;
         seenUrls.add(publicUrl);
       } catch (error) {
+        attachmentFailures += 1;
         candidate.failure = error.message;
         manifest.attempts ||= [];
-        manifest.attempts.push({ url: publicUrl, transportUrl: candidate.transportUrl, transport: "node-http-appblobimage", ok: false, error: error.message, tlsVerification: "legacy-http-official-host" });
+        manifest.attempts.push({ url: publicUrl, transportUrl: candidate.transportUrl, transport: "node-http-appblobimage-session", ok: false, error: error.message, tlsVerification: "legacy-http-official-host" });
       }
     }
   }
@@ -94,14 +107,33 @@ async function main() {
   manifest.liveApplications = manifest.applications.filter((application) => !application.failure).length;
   manifest.status = manifest.liveApplications > 0 && documentsDownloaded > 0 ? "usable" : "no-live-data";
   manifest.attachmentExtraction = {
-    method: "legacy-AppBlobImage",
+    method: "legacy-AppBlobImage-session",
     completedAt: new Date().toISOString(),
     documentsDownloaded,
+    failedAttempts: attachmentFailures,
+    failureLimit: maxAttachmentFailures,
+    sessionCookiesObserved: cookies.size,
     exactHostOnly: true,
-    redirectsAllowed: false
+    exactAttachmentPathOnly: true,
+    redirectsAllowed: false,
+    requestTimeoutMs: REQUEST_TIMEOUT_MS
   };
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-  console.log(JSON.stringify({ status: manifest.status, applications: manifest.liveApplications, documents: documentsDownloaded, bytes: totalBytes }));
+  console.log(JSON.stringify({ status: manifest.status, applications: manifest.liveApplications, documents: documentsDownloaded, bytes: totalBytes, failedAttachments: attachmentFailures, sessionCookies: cookies.size }));
+}
+
+async function primeOfficialSession(cookies, applicationUrl, manifest) {
+  const targets = [SEARCH, applicationUrl].filter(Boolean);
+  let referer = `${HTTPS_ORIGIN}/`;
+  for (const target of targets) {
+    try {
+      await fetchPortalPage(target, cookies, referer);
+      referer = target;
+    } catch (error) {
+      manifest.warnings ||= [];
+      manifest.warnings.push(`attachment session prime ${canonicalHostUrl(target)}: ${error.message}`);
+    }
+  }
 }
 
 export function extractBlobAttachments(html) {
@@ -121,22 +153,47 @@ export function extractBlobAttachments(html) {
   return [...found.values()].sort((a, b) => b.score - a.score);
 }
 
-function fetchAttachment(value, maxBytes, referer) {
+function fetchPortalPage(value, cookies, referer) {
+  const url = exactOfficialHttp(value);
+  return requestOfficial(url, {
+    cookies,
+    referer,
+    accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+    maxBytes: 2 * 1024 * 1024,
+    attachmentOnly: false
+  });
+}
+
+function fetchAttachment(value, maxBytes, referer, cookies) {
   const url = exactHttp(value);
+  return requestOfficial(url, {
+    cookies,
+    referer,
+    accept: "application/pdf,image/png,image/jpeg,image/tiff;q=0.9,*/*;q=0.1",
+    maxBytes,
+    attachmentOnly: true
+  });
+}
+
+function requestOfficial(url, options) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (fn, value) => { if (settled) return; settled = true; fn(value); };
+    const headers = {
+      Host: HOST,
+      Accept: options.accept,
+      "Accept-Encoding": "identity",
+      "Accept-Language": "en-GB,en;q=0.9",
+      Connection: "close",
+      Referer: options.referer || SEARCH,
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+    };
+    const cookie = cookieHeader(options.cookies);
+    if (cookie) headers.Cookie = cookie;
     const request = http.get({
-      protocol: "http:", hostname: HOST, port: 80, path: `${url.pathname}${url.search}`, timeout: 60000,
-      headers: {
-        Host: HOST,
-        Accept: "application/pdf,image/png,image/jpeg,image/tiff;q=0.9,*/*;q=0.1",
-        "Accept-Encoding": "identity",
-        Connection: "close",
-        Referer: referer || `${HTTP_ORIGIN}/portal/servlets/ApplicationSearchServlet`,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
-      }
+      protocol: "http:", hostname: HOST, port: 80, path: `${url.pathname}${url.search}`, timeout: REQUEST_TIMEOUT_MS, headers
     }, (response) => {
+      captureCookies(response.headers["set-cookie"] || [], options.cookies);
       if (response.statusCode >= 300 && response.statusCode < 400) {
         response.resume();
         finish(reject, new Error(`HTTP ${response.statusCode} redirect refused`));
@@ -147,24 +204,42 @@ function fetchAttachment(value, maxBytes, referer) {
         finish(reject, new Error(`HTTP ${response.statusCode}`));
         return;
       }
-      const chunks = []; let bytes = 0;
+      const chunks = [];
+      let bytes = 0;
       response.on("data", (chunk) => {
         bytes += chunk.length;
-        if (bytes > maxBytes) request.destroy(new Error(`attachment exceeded ${maxBytes} bytes`));
+        if (bytes > options.maxBytes) request.destroy(new Error(`response exceeded ${options.maxBytes} bytes`));
         else chunks.push(chunk);
       });
       response.on("end", () => finish(resolve, { data: Buffer.concat(chunks) }));
       response.on("error", (error) => finish(reject, error));
     });
-    request.on("timeout", () => request.destroy(new Error("attachment request timed out")));
+    request.on("timeout", () => request.destroy(new Error("official portal request timed out")));
     request.on("error", (error) => finish(reject, error));
   });
 }
 
+function captureCookies(values, cookies) {
+  for (const value of values) {
+    const pair = String(value).split(";", 1)[0];
+    const index = pair.indexOf("=");
+    if (index <= 0) continue;
+    const name = pair.slice(0, index).trim();
+    const cookieValue = pair.slice(index + 1).trim();
+    if (/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,80}$/.test(name) && cookieValue.length <= 4096) cookies.set(name, cookieValue);
+  }
+}
+
+function cookieHeader(cookies) {
+  return [...cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
 function publicCandidate(candidate) { return { url: candidate.url, transportUrl: candidate.transportUrl, text: candidate.text, role: candidate.role, score: candidate.score, rejected: candidate.rejected }; }
 function mergeByUrl(first, second) { const map = new Map(); for (const item of [...first, ...second]) map.set(item.url || item.transportUrl, item); return [...map.values()]; }
-function exactHttp(value) { const url = new URL(value); if (url.protocol !== "http:" || url.hostname.toLowerCase() !== HOST || (url.port && url.port !== "80") || url.pathname !== ATTACHMENT_PATH) throw new Error(`attachment URL outside exact legacy endpoint: ${value}`); return url; }
+function exactOfficialHttp(value) { const url = new URL(value); if (url.protocol !== "http:" || url.hostname.toLowerCase() !== HOST || (url.port && url.port !== "80")) throw new Error(`portal URL outside exact official host: ${value}`); return url; }
+function exactHttp(value) { const url = exactOfficialHttp(value); if (url.pathname !== ATTACHMENT_PATH) throw new Error(`attachment URL outside exact legacy endpoint: ${value}`); return url; }
 function canonical(value) { const url = exactHttp(value); url.protocol = "https:"; return url.toString(); }
+function canonicalHostUrl(value) { const url = exactOfficialHttp(value); url.protocol = "https:"; return url.toString(); }
 function safePath(directory, relative) { if (!relative || path.isAbsolute(relative)) throw new Error("artifact path must be relative"); const filename = path.resolve(directory, relative); const rel = path.relative(directory, filename); if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("artifact path escapes directory"); return filename; }
 function bounded(value, min, max) { const number = Number(value); if (!Number.isInteger(number) || number < min || number > max) throw new Error(`value must be between ${min} and ${max}`); return number; }
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
