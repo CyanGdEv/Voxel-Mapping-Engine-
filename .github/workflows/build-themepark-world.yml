@@ -151,8 +151,120 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  planning-prefetch:
+    name: Planning portal prefetch (${{ matrix.label }})
+    if: ${{ inputs.preset == 'alton-towers' && inputs.england_open_data && inputs.planning_document_mode != 'off' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: linux-gnutls
+          - os: windows-2025
+            label: windows-schannel
+          - os: macos-15
+            label: macos-native
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install GnuTLS wget
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget ca-certificates
+
+      - name: Validate prefetch client
+        shell: bash
+        run: node scripts/prefetch-planning-portal.mjs --self-test
+
+      - name: Prefetch bounded official planning records
+        continue-on-error: true
+        shell: bash
+        run: |
+          node scripts/prefetch-planning-portal.mjs \
+            --output planning-prefetch-output \
+            --runner "${{ matrix.label }}" \
+            --max-applications "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}" \
+            --max-documents "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}" \
+            --max-mb "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}"
+
+      - name: Upload platform planning prefetch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planning-prefetch-${{ matrix.label }}
+          path: planning-prefetch-output/**
+          if-no-files-found: warn
+          retention-days: 2
+
+  select-planning-prefetch:
+    name: Select verified planning prefetch
+    if: always()
+    needs: planning-prefetch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download platform candidates
+        if: ${{ inputs.preset == 'alton-towers' && inputs.england_open_data && inputs.planning_document_mode != 'off' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: planning-prefetch-*
+          path: planning-prefetch-candidates
+          merge-multiple: false
+
+      - name: Validate selector
+        run: node scripts/select-planning-prefetch.mjs --self-test
+
+      - name: Select strongest usable artifact
+        shell: bash
+        run: |
+          required=false
+          if [[ "${{ inputs.preset }}" == "alton-towers" && "${{ inputs.england_open_data }}" == "true" && "${{ inputs.planning_document_mode }}" != "off" ]]; then
+            required=true
+          fi
+          node scripts/select-planning-prefetch.mjs \
+            --input planning-prefetch-candidates \
+            --output planning-prefetch-selected \
+            --required "$required"
+
+      - name: Upload selected planning prefetch
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planning-prefetch-selected
+          path: planning-prefetch-selected/**
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload prefetch selection diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planning-prefetch-selection-diagnostics
+          path: planning-prefetch-selected/**
+          if-no-files-found: warn
+          retention-days: 14
+
   build-world:
     name: Generate Bedrock .mcworld
+    needs: select-planning-prefetch
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -170,6 +282,7 @@ jobs:
       TPMAP_PLANNING_DOCUMENT_MAX_PAGES: ${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_PAGES || '5' }}
       TPMAP_PLANNING_DOCUMENT_MIN_SCORE: ${{ vars.TPMAP_PLANNING_DOCUMENT_MIN_SCORE || '35' }}
       TPMAP_PLANNING_DOCUMENT_LICENSE: ${{ vars.TPMAP_PLANNING_DOCUMENT_LICENSE }}
+      TPMAP_PLANNING_PREFETCH_DIR: ${{ github.workspace }}/planning-prefetch-selected
       TPMAP_PLANNING_OVERRIDE_MODE: ${{ inputs.planning_override_mode }}
       TPMAP_PLANNING_GEOMETRY_PATH: ${{ inputs.planning_geometry_path }}
       TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE: ${{ inputs.planning_override_min_confidence }}
@@ -198,6 +311,12 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Download selected planning prefetch
+        uses: actions/download-artifact@v4
+        with:
+          name: planning-prefetch-selected
+          path: planning-prefetch-selected
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -236,6 +355,10 @@ jobs:
             printf '%s\n' "- Successful build strategy: ${SUMMARY_STRATEGY:-none}"
             printf '%s\n' "- England open data: $TPMAP_ENGLAND_OPEN_DATA"
             printf '%s\n' "- Planning document mode: $TPMAP_PLANNING_DOCUMENT_MODE"
+            printf '%s\n' "- Planning prefetch directory: $TPMAP_PLANNING_PREFETCH_DIR"
+            if [[ -f "$TPMAP_PLANNING_PREFETCH_DIR/manifest.json" ]]; then
+              node -e 'const m=require(process.argv[1]); console.log(`- Planning prefetch runner: ${m.runner}; applications: ${m.liveApplications}; documents: ${m.documentsDownloaded}; TLS: ${m.tlsVerification}`)' "$TPMAP_PLANNING_PREFETCH_DIR/manifest.json"
+            fi
             printf '%s\n' "- Planning document caps: ${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS} applications, ${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS} documents, ${TPMAP_PLANNING_DOCUMENT_MAX_MB} MB"
             printf '%s\n' "- Planning override mode: $TPMAP_PLANNING_OVERRIDE_MODE"
             printf '%s\n' "- Planning geometry file: ${TPMAP_PLANNING_GEOMETRY_PATH:-none}"
@@ -253,7 +376,7 @@ jobs:
               printf '%s\n' '- Download the mcworld artifact below, unzip it in the iOS Files app, then tap the .mcworld file.'
             else
               printf '\n%s\n' '## Failure details'
-              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/planning-authority-config.txt ci-diagnostics/planning-document-config.txt ci-diagnostics/phase18-* ci-diagnostics/phase19-* ci-diagnostics/build-*.log; do
+              for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/planning-authority-config.txt ci-diagnostics/planning-document-config.txt ci-diagnostics/phase18-* ci-diagnostics/phase19-* ci-diagnostics/phase2*-* ci-diagnostics/build-*.log; do
                 [[ -f "$LOG" ]] || continue
                 printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
                 printf '%s\n' '```text'
