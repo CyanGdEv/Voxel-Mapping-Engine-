@@ -1,10 +1,9 @@
 name: Validate Phase 26 Cross-platform Planning Prefetch
 
 on:
-  push:
-    branches:
-      - agent/phase26-cross-platform-planning-prefetch
+  workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "scripts/prefetch-planning-portal.mjs"
       - "scripts/prefetch-planning-portal-browser.mjs"
@@ -24,8 +23,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deterministic:
+    name: Validate deterministic prefetch clients
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run deterministic client checks
+        shell: bash
+        run: |
+          node scripts/prefetch-planning-portal-http.mjs --self-test
+          node scripts/complete-planning-prefetch-attachments.mjs --self-test
+          node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/prefetch-planning-portal.mjs --self-test
+          node scripts/select-planning-prefetch.mjs --self-test
+
   prefetch:
     name: Live portal test (${{ matrix.label }})
+    needs: deterministic
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +56,7 @@ jobs:
           - os: macos-15
             label: macos-native
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,22 +68,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wget ca-certificates
-      - name: Install Chromium portal transport
-        shell: bash
-        run: |
-          npm install --no-save playwright@1.55.0
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            npx playwright install --with-deps chromium
-          else
-            npx playwright install chromium
-          fi
-
-      - name: Run deterministic client checks
-        shell: bash
-        run: |
-          node scripts/prefetch-planning-portal-browser.mjs --self-test
-          node scripts/complete-planning-prefetch-attachments.mjs --self-test
-          node scripts/prefetch-planning-portal.mjs --self-test
       - name: Run live bounded prefetch
         continue-on-error: true
         shell: bash
@@ -73,7 +76,7 @@ jobs:
           mkdir -p planning-prefetch-output
           node scripts/prefetch-planning-portal-browser.mjs \
             --output planning-prefetch-output/browser \
-            --runner "${{ matrix.label }}-chromium" \
+            --runner "${{ matrix.label }}-legacy-http" \
             --max-applications 20 \
             --max-documents 8 \
             --max-mb 10 || true
@@ -94,8 +97,8 @@ jobs:
 
   select:
     name: Require one usable planning transport
-    needs: prefetch
-    if: always()
+    needs: [deterministic, prefetch]
+    if: ${{ always() && needs.deterministic.result == 'success' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -117,10 +120,18 @@ jobs:
             --output planning-prefetch-selected \
             --required true
       - name: Upload selected live artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: phase26-selected-planning-prefetch
           path: planning-prefetch-selected/**
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 3
+      - name: Upload selection diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase26-planning-prefetch-diagnostics
+          path: planning-prefetch-selected/**
+          if-no-files-found: warn
+          retention-days: 14
