@@ -1,0 +1,86 @@
+  PHASE27_B64="$ROOT/.phase27-planning-registration-workspace.patch.gz.b64"
+  PHASE27_PATCH="$ROOT/.phase27-planning-registration-workspace.patch"
+  PHASE27_PARTS=("$ROOT"/patches/v0120-phase27/v0120-phase27-planning-registration-workspace.patch.gz.b64.part-*)
+  PHASE27_EXPECTED_BLOBS=(
+    dfc6e6b96ea78fd192b00dcb3bf9bf84dcc7a95a
+    75177f6ed3a57fb6c951a0a5d3812ca2e8a750a1
+  )
+  EXPECTED_PHASE27_BUNDLE_SHA="d001b498a21da2d282473c3e53b92b84049aa4417ac99da88a78041c873f4650"
+  EXPECTED_PHASE27_PATCH_SHA="e8a5fc450bb47d3b2fd9ba827dd27ee6b47055beeef033a52887650ca32b0bb3"
+  [[ ${#PHASE27_PARTS[@]} -eq ${#PHASE27_EXPECTED_BLOBS[@]} ]] || {
+    echo "Phase 27 planning registration workspace part count mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE27_B64"
+  : > "$DIAG/phase27-patch-checksum.txt"
+  for (( phase27_index=0; phase27_index<${#PHASE27_PARTS[@]}; phase27_index++ )); do
+    phase27_part="${PHASE27_PARTS[$phase27_index]}"
+    phase27_expected_blob="${PHASE27_EXPECTED_BLOBS[$phase27_index]}"
+    phase27_actual_blob="$(git hash-object "$phase27_part")"
+    printf 'part=%s expected_blob=%s actual_blob=%s\n' \
+      "$(basename "$phase27_part")" "$phase27_expected_blob" "$phase27_actual_blob" \
+      | tee -a "$DIAG/phase27-patch-checksum.txt"
+    [[ "$phase27_actual_blob" == "$phase27_expected_blob" ]] || {
+      echo "Phase 27 planning registration workspace chunk mismatch: $(basename "$phase27_part")" | tee -a "$DIAG/source-error.txt" >&2
+      exit 2
+    }
+    cat "$phase27_part" >> "$PHASE27_B64"
+  done
+  ACTUAL_PHASE27_BUNDLE_SHA="$(sha256sum "$PHASE27_B64" | cut -d' ' -f1)"
+  printf 'bundle_expected=%s\nbundle_actual=%s\n' \
+    "$EXPECTED_PHASE27_BUNDLE_SHA" "$ACTUAL_PHASE27_BUNDLE_SHA" \
+    | tee -a "$DIAG/phase27-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE27_BUNDLE_SHA" == "$EXPECTED_PHASE27_BUNDLE_SHA" ]] || {
+    echo "Phase 27 planning registration workspace assembled bundle mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  base64 --decode "$PHASE27_B64" | gzip -dc > "$PHASE27_PATCH"
+  ACTUAL_PHASE27_PATCH_SHA="$(sha256sum "$PHASE27_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n' \
+    "$EXPECTED_PHASE27_PATCH_SHA" "$ACTUAL_PHASE27_PATCH_SHA" \
+    | tee -a "$DIAG/phase27-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE27_PATCH_SHA" == "$EXPECTED_PHASE27_PATCH_SHA" ]] || {
+    echo "Phase 27 planning registration workspace patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE27_PATCH" \
+    2>&1 | tee "$DIAG/phase27-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 27 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  if [[ -f "$ROOT/data/planning-control-points.json" ]]; then
+    mkdir -p "$GEN/data"
+    cp "$ROOT/data/planning-control-points.json" "$GEN/data/planning-control-points.json"
+    echo "Loaded data/planning-control-points.json for Phase 27 registration." \
+      | tee "$DIAG/phase27-control-points.txt"
+  else
+    echo "No committed planning control manifest; automatic alignment and review workspace remain active." \
+      | tee "$DIAG/phase27-control-points.txt"
+  fi
+
+  find "$GEN/src" "$GEN/test" -type f -name '*.mjs' -print0 \
+    | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase27-syntax-check.log"
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+    test/planning-georeference.test.mjs \
+    test/planning-documents.test.mjs \
+    test/planning-coverage.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    2>&1 | tee "$DIAG/phase27-registration-workspace-tests.log"
+
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+    test/planning-georeference.test.mjs \
+    test/planning-vectorize.test.mjs \
+    test/planning-vector-fusion.test.mjs \
+    test/planning-coverage.test.mjs \
+    test/path-geometry.test.mjs \
+    test/supplemental-sources.test.mjs \
+    test/appearance-vegetation.test.mjs \
+    test/lidar.test.mjs \
+    test/accuracy-source-upgrades.test.mjs \
+    test/planning-authority.test.mjs \
+    test/planning-documents.test.mjs \
+    2>&1 | tee "$DIAG/phase27-compatibility-tests.log"
+
