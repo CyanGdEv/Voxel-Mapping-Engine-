@@ -1,0 +1,89 @@
+-async function curlPortalBinary({ url, headers, timeoutMs, maxBytes, cookieJar }) {
++async function curlPortalBinary({ url, headers, timeoutMs, maxBytes, cookieJar, tlsMode = "standard" }) {
+   await ensureDir(path.dirname(cookieJar));
+   await writeFile(cookieJar, "", { flag: "a" });
+   const timeoutSeconds = Math.max(10, Math.ceil(timeoutMs / 1_000));
+   const args = [
+-    "--fail-with-body", "--location", "--retry", "4", "--retry-all-errors",
++    "--fail-with-body", "--location", "--max-redirs", "8",
++    "--proto", "=https", "--proto-redir", "=https",
++    "--retry", tlsMode === "standard" ? "4" : "2", "--retry-all-errors",
+     "--connect-timeout", "30", "--max-time", String(timeoutSeconds),
+     "--compressed", "--ipv4", "--silent", "--show-error",
+     "--cookie-jar", cookieJar, "--cookie", cookieJar
+   ];
++  if (tlsMode === "legacy" || tlsMode === "insecure-allowlisted") {
++    args.push("--tlsv1.2", "--ciphers", "DEFAULT:@SECLEVEL=1");
++  }
++  if (tlsMode === "insecure-allowlisted") args.push("--insecure");
+   for (const [name, value] of Object.entries(headers || {})) args.push("--header", `${name}: ${value}`);
+   args.push(url);
+   return spawnBinary("curl", args, maxBytes || 25 * 1024 * 1024, timeoutMs + 5_000);
+ }
+ 
++function portalTlsCompatibilityAllowed(url, runtime, attempts = []) {
++  if (runtime.planningPortalTlsCompatibility === false) return false;
++  let parsed;
++  try { parsed = new URL(url); } catch { return false; }
++  if (parsed.protocol !== "https:" || !TLS_COMPATIBILITY_HOSTS.has(parsed.hostname.toLowerCase())) return false;
++  if (!attempts.length) return true;
++  return attempts.some((attempt) => !attempt.ok && TLS_ERROR_PATTERN.test([
++    attempt.error?.code,
++    attempt.error?.name,
++    attempt.error?.message
++  ].filter(Boolean).join(" ")));
++}
++
++function validatePortalCompatibilityPayload(data, options = {}) {
++  if (!data?.length) throw new Error("portal returned an empty response");
++  if (!String(options.accept || "").includes("text/html")) return;
++  const sample = data.subarray(0, Math.min(data.length, 32 * 1024)).toString("utf8");
++  if (!/<(?:!doctype|html|head|body|table|form|a)\b/i.test(sample) || !/planning|application|document|council|search|plan|drawing|attachment|landscape/i.test(sample)) {
++    const error = new Error("portal TLS compatibility response failed HTML/content validation");
++    error.code = "PLANNING_PORTAL_CONTENT_INVALID";
++    throw error;
++  }
++}
++
+ function spawnBinary(command, args, maxBytes, timeoutMs) {
+   return new Promise((resolve, reject) => {
+     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+@@ -734,9 +784,10 @@
+ }
+ 
+ function formatAttempt(attempt) {
+-  if (attempt.ok) return `${attempt.transport}=ok(${attempt.bytes} bytes)`;
++  const tls = attempt.tlsVerification ? `,tls=${attempt.tlsVerification}` : "";
++  if (attempt.ok) return `${attempt.transport}=ok(${attempt.bytes} bytes${tls})`;
+   const error = attempt.error || {};
+-  return `${attempt.transport}=failed(${[error.code, error.syscall, error.hostname, error.message].filter(Boolean).join(": ")})`;
++  return `${attempt.transport}=failed(${[error.code, error.syscall, error.hostname, error.message].filter(Boolean).join(": ")}${tls})`;
+ }
+ 
+ function formatTransportError(error) {
+@@ -1069,6 +1120,8 @@
+   portalApplicationPriority,
+   snapshotApplicationsForProvider,
+   fetchPortalBinary,
++  portalTlsCompatibilityAllowed,
++  validatePortalCompatibilityPayload,
+   evaluatePlanningCoverage,
+   normalizeCoveragePolicy,
+   formatTransportError,
+diff -ruN phase25_base/test/planning-coverage.test.mjs phase25_work/test/planning-coverage.test.mjs
+--- phase25_base/test/planning-coverage.test.mjs	1970-01-01 00:00:00.000000000 +0000
++++ phase25_work/test/planning-coverage.test.mjs	2026-08-06 06:34:25.705226843 +0000
+@@ -0,0 +1,26 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { enforcePlanningCoverage } from "../src/lib/planning-coverage.mjs";
++
++function sources(policy, passed = false) {
++  return { supplemental: { evidence: { "planning-documents": { coverage: {
++    policy, passed, message: "Planning coverage failed: live applications 0/1"
++  } } } } };
++}
++
++test("resolved fail policy is enforced when the CLI flag was implicit", () => {
++  assert.throws(() => enforcePlanningCoverage(sources("fail"), {}), (error) => {
++    assert.equal(error.code, "PLANNING_COVERAGE_FAILED");
