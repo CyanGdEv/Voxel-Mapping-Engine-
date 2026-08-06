@@ -19,6 +19,7 @@ on:
       - "patches/v0120-phase25/**"
       - "patches/v0120-phase26/**"
       - "scripts/prefetch-planning-portal.mjs"
+      - "scripts/prefetch-planning-portal-browser.mjs"
       - "scripts/select-planning-prefetch.mjs"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
       - ".github/workflows/validate-phase21-georeference.yml"

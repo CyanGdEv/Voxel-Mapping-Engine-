@@ -2,7 +2,7 @@
 import process from "node:process";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 
 const OFFICIAL_HOSTS = new Set(["publicaccess.staffsmoorlands.gov.uk", "www.staffsmoorlands.gov.uk"]);
 
@@ -79,7 +79,7 @@ async function validateCandidate(manifestPath) {
     if (data.length !== entry.bytes) throw new Error(`byte mismatch ${entry.url}`);
     if (sha256(data) !== entry.sha256) throw new Error(`hash mismatch ${entry.url}`);
   }
-  const tlsScore = manifest.tlsVerification === "verified-native" ? 100000 : manifest.tlsVerification === "bypassed-allowlisted" ? 10000 : 0;
+  const tlsScore = manifest.tlsVerification === "verified-browser" ? 110000 : manifest.tlsVerification === "verified-native" ? 100000 : manifest.tlsVerification === "bypassed-allowlisted" ? 10000 : 0;
   const platformScore = String(manifest.runner).includes("windows") ? 300 : String(manifest.runner).includes("macos") ? 200 : 100;
   const score = tlsScore + Number(manifest.documentsDownloaded || 0) * 100 + Number(manifest.liveApplications || 0) * 10 + platformScore;
   return { valid: true, manifestPath, directory, manifest, score };

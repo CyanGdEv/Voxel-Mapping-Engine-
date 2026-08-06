@@ -182,20 +182,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wget ca-certificates
 
+      - name: Install Chromium portal transport
+        shell: bash
+        run: |
+          npm install --no-save playwright@1.55.0
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+
       - name: Validate prefetch client
         shell: bash
-        run: node scripts/prefetch-planning-portal.mjs --self-test
+        run: |
+          node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/prefetch-planning-portal.mjs --self-test
 
       - name: Prefetch bounded official planning records
         continue-on-error: true
         shell: bash
         run: |
-          node scripts/prefetch-planning-portal.mjs \
+          node scripts/prefetch-planning-portal-browser.mjs \
             --output planning-prefetch-output \
-            --runner "${{ matrix.label }}" \
+            --runner "${{ matrix.label }}-chromium" \
             --max-applications "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}" \
             --max-documents "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}" \
-            --max-mb "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}"
+            --max-mb "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}" || true
+          node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' ? 0 : 1)" || \
+            node scripts/prefetch-planning-portal.mjs \
+              --output planning-prefetch-output \
+              --runner "${{ matrix.label }}" \
+              --max-applications "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS || '80' }}" \
+              --max-documents "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS || '240' }}" \
+              --max-mb "${{ vars.TPMAP_PLANNING_DOCUMENT_MAX_MB || '25' }}"
 
       - name: Upload platform planning prefetch
         if: always()

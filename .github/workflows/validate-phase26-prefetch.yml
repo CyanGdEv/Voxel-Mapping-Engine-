@@ -42,19 +42,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wget ca-certificates
+      - name: Install Chromium portal transport
+        shell: bash
+        run: |
+          npm install --no-save playwright@1.55.0
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+
       - name: Run deterministic client checks
         shell: bash
-        run: node scripts/prefetch-planning-portal.mjs --self-test
+        run: |
+          node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/prefetch-planning-portal.mjs --self-test
       - name: Run live bounded prefetch
         continue-on-error: true
         shell: bash
         run: |
-          node scripts/prefetch-planning-portal.mjs \
+          node scripts/prefetch-planning-portal-browser.mjs \
             --output planning-prefetch-output \
-            --runner "${{ matrix.label }}" \
+            --runner "${{ matrix.label }}-chromium" \
             --max-applications 20 \
             --max-documents 20 \
-            --max-mb 10
+            --max-mb 10 || true
+          node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' ? 0 : 1)" || \
+            node scripts/prefetch-planning-portal.mjs \
+              --output planning-prefetch-output \
+              --runner "${{ matrix.label }}" \
+              --max-applications 20 \
+              --max-documents 20 \
+              --max-mb 10
       - name: Upload candidate
         if: always()
         uses: actions/upload-artifact@v4
