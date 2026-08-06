@@ -1,0 +1,61 @@
+  PHASE28_B64="$ROOT/.phase28-one-click-auto-planning.patch.gz.b64"
+  PHASE28_PATCH="$ROOT/.phase28-one-click-auto-planning.patch"
+  PHASE28_PARTS=("$ROOT"/patches/v0120-phase28/v0120-phase28-one-click-auto-planning.patch.gz.b64.part-*)
+  EXPECTED_PHASE28_BUNDLE_SHA="4f9fecc76f30f8759624db51df858d532bf667a38b1d7addbd16f9597b61e67e"
+  EXPECTED_PHASE28_PATCH_SHA="2c81bde94a238ba3c4062cc474001651de3e5695877f70703bb4ac3615d92956"
+  [[ -e "${PHASE28_PARTS[0]}" ]] || {
+    echo "Phase 28 one-click automatic planning patch bundle is missing." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  : > "$PHASE28_B64"
+  : > "$DIAG/phase28-patch-checksum.txt"
+  for phase28_part in "${PHASE28_PARTS[@]}"; do
+    printf 'part=%s blob=%s\n' "$(basename "$phase28_part")" "$(git hash-object "$phase28_part")"       | tee -a "$DIAG/phase28-patch-checksum.txt"
+    cat "$phase28_part" >> "$PHASE28_B64"
+  done
+  ACTUAL_PHASE28_BUNDLE_SHA="$(sha256sum "$PHASE28_B64" | cut -d' ' -f1)"
+  printf 'bundle_expected=%s\nbundle_actual=%s\n'     "$EXPECTED_PHASE28_BUNDLE_SHA" "$ACTUAL_PHASE28_BUNDLE_SHA"     | tee -a "$DIAG/phase28-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE28_BUNDLE_SHA" == "$EXPECTED_PHASE28_BUNDLE_SHA" ]] || {
+    echo "Phase 28 assembled patch bundle checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  base64 --decode "$PHASE28_B64" | gzip -dc > "$PHASE28_PATCH"
+  ACTUAL_PHASE28_PATCH_SHA="$(sha256sum "$PHASE28_PATCH" | cut -d' ' -f1)"
+  printf 'patch_expected=%s\npatch_actual=%s\n'     "$EXPECTED_PHASE28_PATCH_SHA" "$ACTUAL_PHASE28_PATCH_SHA"     | tee -a "$DIAG/phase28-patch-checksum.txt"
+  [[ "$ACTUAL_PHASE28_PATCH_SHA" == "$EXPECTED_PHASE28_PATCH_SHA" ]] || {
+    echo "Phase 28 decoded patch checksum mismatch." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+  patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE28_PATCH"     2>&1 | tee "$DIAG/phase28-patch-apply.log"
+  find "$GEN" -name '*.rej' -print -quit | grep -q . && {
+    echo "Phase 28 produced a reject file." | tee -a "$DIAG/source-error.txt" >&2
+    exit 2
+  }
+
+  find "$GEN/src" "$GEN/test" -type f -name '*.mjs' -print0     | xargs -0 -n1 node --check 2>&1 | tee "$DIAG/phase28-syntax-check.log"
+  python3 -m py_compile "$GEN/src/tools/planning_auto_register.py"     2>&1 | tee "$DIAG/phase28-python-check.log"
+  if python3 -c 'import cv2; print(cv2.__version__)' > "$DIAG/phase28-opencv-version.txt" 2>&1; then
+    python3 "$GEN/src/tools/planning_auto_register.py" --self-test       2>&1 | tee "$DIAG/phase28-opencv-self-test.log"
+  else
+    echo "OpenCV is unavailable during source assembly; production workflow installs python3-opencv before generation."       | tee "$DIAG/phase28-opencv-self-test.log"
+  fi
+
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test     test/planning-auto-registration.test.mjs     test/planning-georeference.test.mjs     test/planning-documents.test.mjs     test/planning-coverage.test.mjs     test/planning-vectorize.test.mjs     test/planning-vector-fusion.test.mjs     2>&1 | tee "$DIAG/phase28-auto-planning-tests.log"
+
+  env -u TPMAP_PLANNING_PREFETCH_DIR node --test     test/planning-auto-registration.test.mjs     test/planning-georeference.test.mjs     test/planning-vectorize.test.mjs     test/planning-vector-fusion.test.mjs     test/planning-coverage.test.mjs     test/path-geometry.test.mjs     test/supplemental-sources.test.mjs     test/appearance-vegetation.test.mjs     test/lidar.test.mjs     test/accuracy-source-upgrades.test.mjs     test/planning-authority.test.mjs     test/planning-documents.test.mjs     2>&1 | tee "$DIAG/phase28-compatibility-tests.log"
+
+  # Phase 28 production defaults: collect broad planning history, then balance
+  # high-value downloads across applications instead of allowing one case to
+  # consume the entire evidence budget.
+  export TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS="$(( ${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS:-0} < 300 ? 300 : ${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS} ))"
+  export TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS="$(( ${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS:-0} < 1200 ? 1200 : ${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS} ))"
+  export TPMAP_PLANNING_DOCUMENT_MAX_MB="$(( ${TPMAP_PLANNING_DOCUMENT_MAX_MB:-0} < 150 ? 150 : ${TPMAP_PLANNING_DOCUMENT_MAX_MB} ))"
+
+  if [[ "${GITHUB_WORKFLOW:-}" == "Build Minecraft Theme Park World" ]]; then
+    if ! python3 -c 'import cv2' >/dev/null 2>&1; then
+      sudo apt-get update
+      sudo apt-get install -y --no-install-recommends python3-opencv
+    fi
+    python3 -c 'import cv2; print(cv2.__version__)'       | tee "$DIAG/phase28-production-opencv-version.txt"
+  fi
+
