@@ -1,0 +1,8 @@
+
+  SURFACE_MATERIAL_PREHOOK="$ROOT/scripts/prepare-surface-material-hook.mjs"
+  [[ -f "$SURFACE_MATERIAL_PREHOOK" ]] || {
+    echo "Missing Phase 30 surface material compatibility prehook." | tee "$DIAG/surface-material-prehook-error.txt" >&2
+    exit 2
+  }
+  node "$SURFACE_MATERIAL_PREHOOK" --self-test 2>&1 | tee "$DIAG/surface-material-prehook-self-test.log"
+  node "$SURFACE_MATERIAL_PREHOOK" --generator "$GEN" 2>&1 | tee "$DIAG/surface-material-prehook.log"
