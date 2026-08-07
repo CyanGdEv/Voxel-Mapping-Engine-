@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+import process from 'node:process';
+import path from 'node:path';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+
+const directory = path.dirname(fileURLToPath(import.meta.url));
+const bundle = path.join(directory, 'complete-chessington-jumanji-archive.impl.mjs.gz.b64');
+const encoded = readFileSync(bundle, 'utf8').replace(/\s+/g, '');
+verify(encoded, '9caffb660e84c1ccc3e644ecf563a9e3ed3d5bfb560f026c87c60a64eb312808', 'Jumanji archive completer bundle');
+const compressed = Buffer.from(encoded, 'base64');
+verify(compressed, 'c0d8ada40673ba57654be2d13c20dea2b946f5732dcb9b8046495bd15f561cd3', 'Jumanji archive completer compressed source');
+const decoded = gunzipSync(compressed);
+verify(decoded, '20a13f1a6249cf3574364c1f1dd4b38d9d8eacbbc8d16622c44155d6f9f31b0f', 'Jumanji archive completer source');
+
+const temporary = mkdtempSync(path.join(os.tmpdir(), 'tpmap-jumanji-plans-'));
+const implementation = path.join(temporary, 'complete-chessington-jumanji-archive.impl.mjs');
+writeFileSync(implementation, decoded);
+try {
+  const result = spawnSync(process.execPath, [implementation, ...process.argv.slice(2)], { stdio: 'inherit', env: process.env });
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`Jumanji archive completer terminated by ${result.signal}`);
+  process.exitCode = result.status ?? 1;
+} finally {
+  rmSync(temporary, { recursive: true, force: true });
+}
+
+function verify(value, expected, label) {
+  const actual = createHash('sha256').update(value).digest('hex');
+  if (actual !== expected) throw new Error(`${label} checksum mismatch: expected ${expected}, got ${actual}`);
+}
