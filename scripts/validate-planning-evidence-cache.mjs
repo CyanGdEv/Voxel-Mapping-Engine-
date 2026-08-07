@@ -4,6 +4,9 @@ import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 
+const REQUIRED_APPLICATION_POLICY = 'drawing-bearing-only';
+const REQUIRED_APPLICATION_CAP = 500;
+
 function parseArgs(argv) {
   const options = { maxAgeHours: 24, selfTest: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -29,6 +32,11 @@ function freshness(generatedAt, maxAgeHours, now = Date.now()) {
   return { ageHours, fresh: Number.isFinite(ageHours) && ageHours <= maxAgeHours };
 }
 
+function hasCurrentApplicationSelection(manifest) {
+  return manifest?.applicationSelection?.policy === REQUIRED_APPLICATION_POLICY
+    && Number(manifest?.applicationSelection?.maxApplications) >= REQUIRED_APPLICATION_CAP;
+}
+
 async function validate(options) {
   if (!options.input || !options.output) throw new Error('Usage: validate-planning-evidence-cache.mjs --input <dir> --output <dir> [--max-age-hours 24]');
   const input = path.resolve(options.input);
@@ -48,6 +56,11 @@ async function validate(options) {
     return 4;
   }
 
+  if (!hasCurrentApplicationSelection(manifest)) {
+    console.error(`planning cache uses superseded application selection; required policy=${REQUIRED_APPLICATION_POLICY} maxApplications>=${REQUIRED_APPLICATION_CAP}`);
+    return 7;
+  }
+
   const normalizer = path.resolve('scripts/prepare-planning-prefetch-runtime.mjs');
   const result = spawnSync(process.execPath, [normalizer, '--input', input, '--output', output], {
     cwd: process.cwd(),
@@ -65,6 +78,8 @@ async function validate(options) {
     sourceGeneratedAt: manifest.generatedAt,
     ageHours: Number(ageHours.toFixed(3)),
     maxAgeHours: options.maxAgeHours,
+    applicationSelectionPolicy: manifest.applicationSelection.policy,
+    applicationSelectionCap: Number(manifest.applicationSelection.maxApplications),
     applications: report.applications || 0,
     documents: report.documents || 0,
     duplicateEntriesRemoved: report.duplicateEntriesRemoved || 0,
@@ -83,7 +98,10 @@ function selfTest() {
   if (!recent.fresh || recent.ageHours !== 10) throw new Error('recent cache freshness test failed');
   if (stale.fresh || stale.ageHours !== 58) throw new Error('stale cache freshness test failed');
   if (invalid.fresh || Number.isFinite(invalid.ageHours)) throw new Error('invalid cache freshness test failed');
-  console.log('planning evidence cache freshness self-test passed');
+  if (!hasCurrentApplicationSelection({ applicationSelection: { policy: 'drawing-bearing-only', maxApplications: 500 } })) throw new Error('current drawing application selection test failed');
+  if (hasCurrentApplicationSelection({ applicationSelection: { policy: 'drawing-bearing-only', maxApplications: 300 } })) throw new Error('legacy application cap rejection test failed');
+  if (hasCurrentApplicationSelection({})) throw new Error('missing application selection rejection test failed');
+  console.log('planning evidence cache freshness and application-policy self-test passed');
 }
 
 const options = parseArgs(process.argv.slice(2));
