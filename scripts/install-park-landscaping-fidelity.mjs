@@ -3,7 +3,6 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const MARKER = "TPMAP_PARK_LANDSCAPING_FIDELITY_V1";
-const EXCLUDED_STREET_FURNITURE = Object.freeze(["benches", "drains", "lamps", "bins"]);
 
 function parse(argv) {
   const out = { selfTest: false, generator: null, library: null, diagnostics: null };
@@ -52,7 +51,6 @@ async function selfTest() {
   for (const required of [MARKER, "tryCompileParkLandscapingVegetation(arguments[0]", "tryCompileParkLandscapingTerrainDetail(arguments[0]", "parkLandscapeBarrier || compileParkBarrierRun"]) {
     if (!once.includes(required)) throw new Error(`landscaping installer missing ${required}`);
   }
-  if (EXCLUDED_STREET_FURNITURE.join(",") !== "benches,drains,lamps,bins") throw new Error("street furniture exclusion contract changed");
   process.stdout.write("park_landscaping_installer_self_test=PASS\n");
 }
 
@@ -67,7 +65,7 @@ async function install(args) {
   const report = {
     schemaVersion: 1, marker: MARKER, layer: "park-landscaping-fidelity-v1", rasterPatched: after !== before,
     capabilities: ["flowerbeds", "ferns", "long-grass", "fallen-logs", "planter-edges", "retaining-walls", "kerbs", "terrain-aware-slab-stair-wall-edging"],
-    excluded: [...EXCLUDED_STREET_FURNITURE]
+    excluded: ["benches", "drains", "lamps", "bins"]
   };
   if (args.diagnostics) {
     await mkdir(dirname(resolve(args.diagnostics)), { recursive: true });
