@@ -1,0 +1,116 @@
+name: Validate Phase 30C Chessington Planning
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/prefetch-planning-kingston.mjs'
+      - 'scripts/prefetch-planning-kingston.impl.mjs.gz.b64.part-*'
+      - 'scripts/prefetch-planning-portal-browser.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzz-phase30c'
+      - 'scripts/prepare-planning-prefetch-runtime.mjs'
+      - '.github/workflows/validate-phase30c-chessington-planning.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-chessington-planning:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TPMAP_PRESET: chessington
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate collector bundle and deterministic targets
+        shell: bash
+        run: |
+          node --check scripts/prefetch-planning-kingston.mjs
+          node --check scripts/prefetch-planning-portal-browser.mjs
+          node scripts/prefetch-planning-kingston.mjs --self-test
+          TPMAP_PRESET=chessington node scripts/prefetch-planning-portal-browser.mjs --self-test
+
+      - name: Validate production runner syntax with Phase 30C
+        shell: bash
+        run: |
+          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/phase30c-production-runner.sh"
+          bash -n "$RUNNER_TEMP/phase30c-production-runner.sh"
+          grep -q 'World of Jumanji 21/02435/FUL' "$RUNNER_TEMP/phase30c-production-runner.sh"
+          grep -q 'Tiger Rock/Land of the Tiger 17/10262/FUL' "$RUNNER_TEMP/phase30c-production-runner.sh"
+          grep -q 'TPMAP_CHESSINGTON_PLANNING_REQUIRED' "$RUNNER_TEMP/phase30c-production-runner.sh"
+
+      - name: Acquire live Kingston Chessington planning evidence
+        shell: bash
+        run: |
+          rm -rf phase30c-live phase30c-selected
+          timeout --signal=TERM --kill-after=30s 10m \
+            node scripts/prefetch-planning-kingston.mjs \
+              --output phase30c-live \
+              --runner github-phase30c-live-validation \
+              --max-applications 300 \
+              --max-documents 1200 \
+              --max-mb 150
+          node scripts/prepare-planning-prefetch-runtime.mjs \
+            --input phase30c-live \
+            --output phase30c-selected
+
+      - name: Enforce Jumanji and Tiger Rock geometry coverage
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('phase30c-selected/manifest.json', 'utf8'));
+          const geometryRoles = new Set([
+            'ride-layout','access-plan','site-plan','block-plan','landscape-plan',
+            'terrain-or-drainage','floor-plan','elevation','section','lighting-plan'
+          ]);
+          const expected = [
+            ['21/02435/FUL', 'World of Jumanji'],
+            ['17/10262/FUL', 'Tiger Rock / Land of the Tiger']
+          ];
+          const targets = expected.map(([reference, name]) => {
+            const application = (manifest.applications || []).find((item) => item.reference === reference);
+            const documents = (application?.downloadedDocuments || []).filter((document) => geometryRoles.has(document.role));
+            return {
+              reference,
+              name,
+              applicationPresent: Boolean(application),
+              geometryDocuments: documents.length,
+              roles: [...new Set(documents.map((document) => document.role))],
+              provenance: [...new Set(documents.map((document) => document.provenanceClass || 'unknown'))]
+            };
+          });
+          const report = {
+            schemaVersion: 1,
+            manifestStatus: manifest.status,
+            liveApplications: manifest.liveApplications || 0,
+            documentsDownloaded: manifest.documentsDownloaded || 0,
+            targets,
+            passed: manifest.status === 'usable' && targets.every((target) => target.applicationPresent && target.geometryDocuments > 0)
+          };
+          writeFileSync('phase30c-target-coverage.json', JSON.stringify(report, null, 2) + '\n');
+          console.log(JSON.stringify(report, null, 2));
+          if (!report.passed) {
+            throw new Error('Phase 30C requires geometry-bearing planning evidence for both World of Jumanji and Tiger Rock; a missing target must fail rather than produce another incomplete Chessington world.');
+          }
+          NODE
+
+      - name: Upload Phase 30C evidence diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase30c-chessington-planning-validation
+          path: |
+            phase30c-live/**
+            phase30c-selected/**
+            phase30c-target-coverage.json
+          if-no-files-found: warn
+          retention-days: 14
