@@ -1,0 +1,542 @@
+diff --git a/src/lib/planning-vector-fusion.mjs b/src/lib/planning-vector-fusion.mjs
+index f3a9985..54f68c8 100644
+--- a/src/lib/planning-vector-fusion.mjs
++++ b/src/lib/planning-vector-fusion.mjs
+@@ -34,11 +34,11 @@ export function preparePlanningVectorFusion(options = {}, catalogue = {}) {
+     mode,
+     policy: {
+       promotion: "Only semantically supported, provenance-complete, accurately georeferenced planning vectors are promoted into the existing planning-authority fusion layer.",
+-      currentLayout: "Implemented, existing and as-built geometry may fill gaps. Approved-only geometry may repair a matching OSM feature but cannot create a missing feature in gated mode.",
++      currentLayout: "Accepted planning drawing geometry is the primary geometry authority after provenance, georeference, confidence and status gates. Approved, implemented, existing and as-built layouts may replace OSM and fill missing geometry; refused, withdrawn, superseded and unresolved proposals remain withheld.",
+       licensing: mode === "private"
+         ? "Unknown document reuse status is allowed only as private-use-restricted evidence and is explicitly marked non-redistributable."
+         : "Automatic promotion requires a declared reusable/open licence. Public portal visibility alone is not treated as a reuse licence.",
+-      authority: "Promotion is not acceptance. The existing planning-authority matcher still applies confidence, overlap, displacement and ambiguity gates before changing the normalized map."
++      authority: "Promotion is not acceptance. Provenance, georeference, confidence and status gates still apply, but accepted planning drawing geometry supersedes conflicting OSM geometry and is retained even when OSM is equivalent."
+     },
+     configuration: config,
+     considered: 0,
+@@ -144,6 +144,9 @@ export function preparePlanningVectorFusion(options = {}, catalogue = {}) {
+         planning_implemented: state.implemented,
+         planning_requires_existing_osm_target: state.requiresExistingTarget,
+         planning_allow_gap_fill: state.gapFillAllowed,
++        planning_authoritative: true,
++        planning_qa: true,
++        planning_qa_block: "minecraft:pink_wool",
+         planning_confidence: confidence,
+         planning_reference: reference,
+         planning_document_id: properties.document_id || document.id || null,
+@@ -226,7 +229,7 @@ function planningState(applicationStatus, documentState, mode) {
+     return { allowed: true, role: /as[- ]?built/i.test(combined) ? "as-built" : "implemented-layout", status: "implemented", implemented: true, requiresExistingTarget: false, gapFillAllowed: true };
+   }
+   if (APPROVED_STATUS.test(combined)) {
+-    const authoritative = mode === "authoritative";
++    const authoritative = !["off", "review"].includes(mode);
+     return { allowed: true, role: "approved-layout", status: "approved", implemented: false, requiresExistingTarget: !authoritative, gapFillAllowed: authoritative };
+   }
+   return { allowed: false };
+diff --git a/src/lib/raster.mjs b/src/lib/raster.mjs
+index b793199..e8a7f94 100644
+--- a/src/lib/raster.mjs
++++ b/src/lib/raster.mjs
+@@ -16,6 +16,16 @@ const SURFACES = [
+   "minecraft:coarse_dirt"
+ ];
+ 
++const PLANNING_QA_BLOCK = "minecraft:pink_wool";
++const PLANNING_QA_SURFACE_STYLE = {
++  schemaVersion: 1,
++  role: "planning-provenance-qa",
++  primaryBlock: PLANNING_QA_BLOCK,
++  secondaryBlock: PLANNING_QA_BLOCK,
++  pattern: "solid",
++  appearanceStatus: "planning-authority-pink-qa"
++};
++
+ const BASE_SURFACE_STYLES = SURFACES.map((block, code) => ({
+   schemaVersion: 1,
+   role: "base-surface",
+@@ -638,17 +648,17 @@ function compileVerticalFeatures(context) {
+           for (const [x1, x2] of maskedSubspans(rawX1, rawX2, z, mask, minX, minZ, width, height)) {
+             const terrainY = terrainAt(Math.round((x1 + x2) / 2), z, mask, elevationY, minX, minZ, width, height);
+             if (feature.kind === "barrier") add(4, x1, terrainY + 1, z, x2, terrainY + 2, z, barrierBlock(feature));
+-            else if (feature.kind === "rail") add(3, x1, terrainY + 1, z, x2, terrainY + 1, z, "minecraft:iron_block");
+-            else if (feature.kind === "ride_support") add(3, x1, terrainY + 1, z, x2, terrainY + 3, z, "minecraft:iron_bars");
++            else if (feature.kind === "rail") add(3, x1, terrainY + 1, z, x2, terrainY + 1, z, planningQaBlock(feature, "minecraft:iron_block"));
++            else if (feature.kind === "ride_support") add(3, x1, terrainY + 1, z, x2, terrainY + 3, z, planningQaBlock(feature, "minecraft:iron_bars"));
+             else {
+               const verifiedY = feature.vertical.elevationM !== null
+                 ? Math.round(feature.vertical.elevationM - minDatum)
+                 : null;
+               if (verifiedY === null) {
+-                add(3, x1, terrainY + 2, z, x2, terrainY + 2, z, "minecraft:orange_concrete");
++                add(3, x1, terrainY + 2, z, x2, terrainY + 2, z, planningQaBlock(feature, "minecraft:orange_concrete"));
+                 stats.groundPlanRideTracks += 1;
+               } else {
+-                add(3, x1, verifiedY, z, x2, verifiedY, z, "minecraft:red_concrete");
++                add(3, x1, verifiedY, z, x2, verifiedY, z, planningQaBlock(feature, "minecraft:red_concrete"));
+                 stats.verticallyTaggedRideTracks += 1;
+               }
+             }
+@@ -659,6 +669,10 @@ function compileVerticalFeatures(context) {
+     }
+ 
+     if (feature.kind === "vegetation") {
++      if (isPlanningQaFeature(feature)) {
++        compilePlanningQaGeometry({ add, feature, mask, elevationY, minX, minZ, width, height });
++        continue;
++      }
+       const maximumModels = options.maxVegetationModels ?? 15_000;
+       const usedModels = stats.treeModels + stats.shrubModels;
+       const tree = compileVegetationFeature({
+@@ -687,6 +701,10 @@ function compileVerticalFeatures(context) {
+     }
+ 
+     if (feature.kind === "terrain_detail") {
++      if (isPlanningQaFeature(feature)) {
++        compilePlanningQaGeometry({ add, feature, mask, elevationY, minX, minZ, width, height });
++        continue;
++      }
+       if (stats.terrainDetailMode === "off") continue;
+       const maxModels = options.maxTerrainRocks ?? 2_000;
+       const result = compileMappedTerrainDetail({
+@@ -1094,17 +1112,21 @@ function compileBridgeFeature(context) {
+       : Math.max(elevationY[cell.index] + 1, inferredY);
+ 
+   for (const cell of deck.values()) {
+-    const block = planOnly
+-      ? "minecraft:orange_concrete"
+-      : blockForSurfaceStyle(feature.surfaceStyle, cell.x, cell.z, seed);
++    const block = isPlanningQaFeature(feature)
++      ? PLANNING_QA_BLOCK
++      : planOnly
++        ? "minecraft:orange_concrete"
++        : blockForSurfaceStyle(feature.surfaceStyle, cell.x, cell.z, seed);
+     add(3, cell.x, deckYAt(cell), cell.z, cell.x, deckYAt(cell), cell.z, block);
+   }
+ 
+   let railBlocks = 0, supportBlocks = 0;
+   if (!planOnly) {
+-    const railBlock = ["boardwalk", "covered"].includes(evidence.structure)
+-      ? "minecraft:oak_fence"
+-      : "minecraft:iron_bars";
++    const railBlock = isPlanningQaFeature(feature)
++      ? PLANNING_QA_BLOCK
++      : ["boardwalk", "covered"].includes(evidence.structure)
++        ? "minecraft:oak_fence"
++        : "minecraft:iron_bars";
+     const railCells = new Map();
+     for (const cell of deck.values()) {
+       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+@@ -1131,14 +1153,14 @@ function compileBridgeFeature(context) {
+       if (sample++ % 6) continue;
+       const deckY = deckYAt(cell), terrainY = elevationY[cell.index];
+       if (deckY - terrainY <= 1) continue;
+-      add(3, cell.x, terrainY + 1, cell.z, cell.x, deckY - 1, cell.z, "minecraft:iron_bars");
++      add(3, cell.x, terrainY + 1, cell.z, cell.x, deckY - 1, cell.z, planningQaBlock(feature, "minecraft:iron_bars"));
+       supportBlocks += Math.max(0, deckY - terrainY - 1);
+     }
+ 
+     if (evidence.covered) {
+       for (const cell of deck.values()) {
+         const roofY = deckYAt(cell) + 4;
+-        add(4, cell.x, roofY, cell.z, cell.x, roofY, cell.z, "minecraft:spruce_planks");
++        add(4, cell.x, roofY, cell.z, cell.x, roofY, cell.z, planningQaBlock(feature, "minecraft:spruce_planks"));
+       }
+     }
+   }
+@@ -1535,15 +1557,16 @@ function compileRideProfileTrack(context) {
+   }
+ 
+   for (const key of tunnelInterior) tunnelLining.delete(key);
+-  emitVoxelRuns(add, 6, tunnelLining, "minecraft:tuff");
++  const planningQa = isPlanningQaFeature(feature);
++  emitVoxelRuns(add, 6, tunnelLining, planningQa ? PLANNING_QA_BLOCK : "minecraft:tuff");
+   emitVoxelRuns(add, 7, tunnelInterior, "minecraft:air");
+-  emitVoxelRuns(add, 8, portalVoxels, "minecraft:stone_bricks");
+-  emitVoxelRuns(add, 8, supportVoxels, "minecraft:iron_bars");
+-  emitVoxelRuns(add, 8, supportFootingVoxels, "minecraft:yellow_concrete");
++  emitVoxelRuns(add, 8, portalVoxels, planningQa ? PLANNING_QA_BLOCK : "minecraft:stone_bricks");
++  emitVoxelRuns(add, 8, supportVoxels, planningQa ? PLANNING_QA_BLOCK : "minecraft:iron_bars");
++  emitVoxelRuns(add, 8, supportFootingVoxels, planningQa ? PLANNING_QA_BLOCK : "minecraft:yellow_concrete");
+ 
+   let flatBlocks = 0;
+   for (const voxel of voxels.values()) {
+-    add(9, voxel.x, voxel.y, voxel.z, voxel.x, voxel.y, voxel.z, voxel.block);
++    add(9, voxel.x, voxel.y, voxel.z, voxel.x, voxel.y, voxel.z, planningQa ? PLANNING_QA_BLOCK : voxel.block);
+     evidenceBlocks[voxel.evidence] = (evidenceBlocks[voxel.evidence] || 0) + 1;
+     if (voxel.flat) flatBlocks += 1;
+   }
+@@ -2129,7 +2152,7 @@ function compileBuildingMarker(context) {
+     for (const [rawX1, rawX2, z] of groupCells(lineCells(ring, 1))) {
+       for (const [x1, x2] of maskedSubspans(rawX1, rawX2, z, mask, minX, minZ, width, height)) {
+         for (const run of valueRuns(x1, x2, (x) => terrainAt(x, z, mask, elevationY, minX, minZ, width, height))) {
+-          add(2, run.x1, run.value, z, run.x2, run.value, z, "minecraft:yellow_concrete");
++          add(2, run.x1, run.value, z, run.x2, run.value, z, planningQaBlock(feature, "minecraft:yellow_concrete"));
+           cells += run.x2 - run.x1 + 1;
+         }
+       }
+@@ -2163,7 +2186,7 @@ function compilePointBuildingMarker(context) {
+   const index = cellIndex(x, z, minX, minZ, width, height);
+   if (index < 0 || !mask[index]) return { cells: 0, sign: null };
+   const terrainY = elevationY[index];
+-  add(2, x, terrainY, z, x, terrainY, z, "minecraft:yellow_concrete");
++  add(2, x, terrainY, z, x, terrainY, z, planningQaBlock(feature, "minecraft:yellow_concrete"));
+   const signCell = usedSignCells.has(`${x},${z}`) ? null : {
+     x,
+     z,
+@@ -2200,7 +2223,7 @@ function placeBuildingSign(context) {
+     role: "building"
+   };
+   // A solid one-block plinth keeps labels valid even for footprints over water.
+-  add(5, sign.x, terrainY, sign.z, sign.x, terrainY, sign.z, "minecraft:yellow_concrete");
++  add(5, sign.x, terrainY, sign.z, sign.x, terrainY, sign.z, planningQaBlock(feature, "minecraft:yellow_concrete"));
+   add(5, sign.x, sign.y, sign.z, sign.x, sign.y, sign.z, "minecraft:standing_sign");
+   signs.push(sign);
+   return sign;
+@@ -2356,7 +2379,10 @@ function paintFeatureSurface(
+   const accessCode = feature.kind === "path" ? 1 : feature.kind === "road" ? 2 : 0;
+   const bridge = accessCode && isBridgeFeature(feature);
+   const discovered = feature.tags?.["orthophoto:discovered"] === "yes";
+-  const code = accessCode ? registerSurfaceStyle(feature.surfaceStyle) : baseCode;
++  const planningQa = isPlanningQaFeature(feature);
++  const code = planningQa
++    ? registerSurfaceStyle(PLANNING_QA_SURFACE_STYLE)
++    : accessCode ? registerSurfaceStyle(feature.surfaceStyle) : baseCode;
+   const pathWidthM = feature.fidelity?.path?.rasterWidthM;
+   const edgeStyle = accessCode && feature.fidelity?.path?.edgeStyle?.enabled &&
+     (["Polygon", "MultiPolygon"].includes(feature.localGeometry?.type) || Number(pathWidthM) >= 3)
+@@ -2859,25 +2885,66 @@ function inferredHeight(feature) {
+   return 5;
+ }
+ 
++function isPlanningQaFeature(feature) {
++  const tags = feature?.tags || {};
++  const dataset = String(feature?.source?.dataset || tags.source_dataset || "").toLowerCase();
++  return tags.planning_qa === true || String(tags.planning_qa).toLowerCase() === "true" ||
++    dataset === "planning-drawing-vector";
++}
++
++function planningQaBlock(feature, fallback) {
++  return isPlanningQaFeature(feature) ? PLANNING_QA_BLOCK : fallback;
++}
++
++function compilePlanningQaGeometry({ add, feature, mask, elevationY, minX, minZ, width, height }) {
++  let blocks = 0;
++  const place = (x, z, top = 1) => {
++    const index = cellIndex(x, z, minX, minZ, width, height);
++    if (index < 0 || !mask[index]) return;
++    const y = elevationY[index];
++    add(4, x, y + 1, z, x, y + top, z, PLANNING_QA_BLOCK);
++    blocks += top;
++  };
++  if (feature.localGeometry?.type === "Point") {
++    place(Math.round(feature.localGeometry.coordinates[0]), Math.round(feature.localGeometry.coordinates[1]), 3);
++    return blocks;
++  }
++  for (const line of lineStrings(feature.localGeometry)) {
++    for (const [x, z] of lineCells(line, 1)) place(x, z, 2);
++  }
++  for (const polygon of polygonParts(feature.localGeometry)) {
++    for (const [x1, x2, z] of polygonScanlineSpans(polygon)) {
++      for (let x = x1; x <= x2; x += 1) place(x, z, 1);
++    }
++  }
++  return blocks;
++}
++
+ function buildingBlock(feature) {
++  if (isPlanningQaFeature(feature)) return PLANNING_QA_BLOCK;
+   if (feature.tags?.material === "wood" || feature.tags?.["building:material"] === "wood") return "minecraft:spruce_planks";
+   if (feature.tags?.["building:material"] === "brick") return "minecraft:brick_block";
+   return feature.vertical.heightM === null ? "minecraft:yellow_concrete" : "minecraft:stone_bricks";
+ }
+ 
+ function roofBlock(feature) {
++  if (isPlanningQaFeature(feature)) return PLANNING_QA_BLOCK;
+   if (feature.tags?.["roof:material"] === "glass") return "minecraft:glass";
+   return feature.vertical.heightM === null ? "minecraft:yellow_concrete" : "minecraft:deepslate_tiles";
+ }
+ 
+ function buildingFloorBlock(feature) {
++  if (isPlanningQaFeature(feature)) return PLANNING_QA_BLOCK;
+   if (feature.tags?.material === "wood" || feature.tags?.["building:material"] === "wood") return "minecraft:spruce_planks";
+   return "minecraft:smooth_stone";
+ }
+ 
+ function barrierBlock(feature) {
++  if (isPlanningQaFeature(feature)) return PLANNING_QA_BLOCK;
+   return feature.subtype === "wall" ? "minecraft:stone_bricks" : "minecraft:oak_fence";
+ }
+ 
+ function detailMarkerBlock(feature) {
++  if (isPlanningQaFeature(feature)) return PLANNING_QA_BLOCK;
+   if (feature.kind === "attraction") return "minecraft:gold_block";
+   if (feature.kind === "vegetation") return "minecraft:lime_concrete";
+   if (feature.kind === "detail" && feature.subtype.startsWith("entrance:")) return "minecraft:blue_concrete";
+diff --git a/src/lib/source-fusion.mjs b/src/lib/source-fusion.mjs
+index 5bf38cc..bcf0a48 100644
+--- a/src/lib/source-fusion.mjs
++++ b/src/lib/source-fusion.mjs
+@@ -31,7 +31,7 @@ export async function fuseAdditionalMapSources(features, projector, options = {})
+     policy: {
+       overture: "gap-fill only: clear duplicates and partially overlapping lines are withheld",
+       publicData: "provenance-complete GeoJSON is retained; `replaces` is required to supersede a named feature",
+-      planningAuthority: "planning geometry may fill gaps or replace OSM only after role, status, confidence, overlap and ambiguity gates",
++      planningAuthority: "accepted planning drawing geometry is the primary geometry authority after provenance, georeference, confidence and status gates; it replaces compatible OSM geometry and fills missing geometry",
+       planningOverride: planningConfig,
+       precedence: [
+         "verified replacement observations",
+@@ -245,28 +245,29 @@ function planningAuthorityMergeDecision(feature, existing, accepted, config) {
+   }
+ 
+   const best = candidates[0];
+-  const second = candidates[1];
+-  if (second && second.metrics.score >= Math.max(config.minOverlap, best.metrics.score * 0.9)) {
+-    return {
+-      action: "ambiguous-withheld", accept: false, policy,
+-      targetId: best.candidate.id,
+-      alternateTargetId: second.candidate.id,
+-      metrics: best.metrics
+-    };
+-  }
+-
+-  if (best.metrics.equivalent) {
+-    attachPlanningCorroboration(best.candidate, feature, policy, best.metrics);
+-    return { action: "corroborated", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
+-  }
+   if (config.mode === "off" || !policy.overrideEligible) {
+     return { action: "conflict-withheld", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
+   }
+ 
+-  const index = existing.indexOf(best.candidate);
+-  if (index < 0) return { action: "conflict-withheld", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
+-  existing.splice(index, 1);
++  // Once a planning drawing has passed provenance, georeference, confidence and
++  // status gates it is the geometry authority. Remove every compatible OSM
++  // candidate that materially matches this planning feature instead of keeping
++  // equivalent or multiple OSM alternatives as the authoritative geometry.
++  const replaced = [];
++  for (const entry of candidates) {
++    const index = existing.indexOf(entry.candidate);
++    if (index < 0) continue;
++    existing.splice(index, 1);
++    replaced.push(entry);
++  }
++  if (!replaced.length) return { action: "conflict-withheld", accept: false, policy, targetId: best.candidate.id, metrics: best.metrics };
++
+   inheritMissingFeatureEvidence(feature, best.candidate);
+-  feature.source.replaces = best.candidate.id;
++  feature.source.replaces = replaced.map((entry) => entry.candidate.id).join(",");
+   feature.source.replacedSource = compactReplacedSource(best.candidate);
++  feature.source.replacedSources = replaced.map((entry) => compactReplacedSource(entry.candidate));
+   feature.source.planningDecision = {
+     action: "override-osm",
+     confidence: policy.confidence,
+     status: policy.status,
+     role: policy.role,
++    equivalent: Boolean(best.metrics.equivalent),
++    replacedCount: replaced.length,
+     metrics: compactMatchMetrics(best.metrics)
+   };
+   feature.verification.plan = "planning-authority-override";
+   feature.tags.planning_override = "yes";
+-  return { action: "override-osm", accept: true, policy, targetId: best.candidate.id, metrics: best.metrics };
++  feature.tags.planning_authoritative = "yes";
++  return {
++    action: "override-osm", accept: true, policy,
++    targetId: best.candidate.id,
++    replacedTargetIds: replaced.map((entry) => entry.candidate.id),
++    metrics: best.metrics
++  };
+ }
+ 
+ function planningFeaturePolicy(feature, config) {
+@@ -300,15 +301,17 @@ function planningFeaturePolicy(feature, config) {
+     : booleanTag(tags.planning_allow_gap_fill);
+   const privateUseOnly = booleanTag(tags.planning_private_use_only);
+   const roleAllows = ["authoritative-feature", "as-built", "implemented-layout", "approved-layout"].includes(role);
++  const explicitlyAuthoritative = booleanTag(tags.planning_authoritative);
+   const approvedTargetRepair = planningVectorDataset && approvedStatus && requiresExistingTarget;
+   const statusAllowed = !blocked && (currentAuthorityDataset || implemented || implementedStatus || approvedTargetRepair ||
+-    (config.mode === "authoritative" && approvedStatus));
++    explicitlyAuthoritative || (config.mode === "authoritative" && approvedStatus));
+   const overrideEligible = roleAllows && statusAllowed &&
+-    (role !== "approved-layout" || implemented || implementedStatus || requiresExistingTarget || config.mode === "authoritative");
+-  const gapFillEligible = roleAllows && statusAllowed && explicitGapFill && !requiresExistingTarget;
++    (explicitlyAuthoritative || role !== "approved-layout" || implemented || implementedStatus || requiresExistingTarget || config.mode === "authoritative");
++  const gapFillEligible = roleAllows && statusAllowed && explicitGapFill &&
++    (explicitlyAuthoritative || !requiresExistingTarget);
+   return {
+     role, status, confidence, implemented, dataset, statusAllowed, overrideEligible, gapFillEligible,
+-    requiresExistingTarget, privateUseOnly, planningVectorDataset
++    requiresExistingTarget, privateUseOnly, planningVectorDataset, explicitlyAuthoritative
+   };
+ }
+ 
+diff --git a/test/planning-authority.test.mjs b/test/planning-authority.test.mjs
+index a9ae9c0..15d79ad 100644
+--- a/test/planning-authority.test.mjs
++++ b/test/planning-authority.test.mjs
+@@ -154,17 +154,17 @@ test("planning geometry fills missing mapped features", async () => {
+   assert.equal(summary.planningAuthority.gapFilled, 1);
+ });
+ 
+-test("equivalent planning geometry corroborates rather than duplicates OSM", async () => {
++test("equivalent accepted planning geometry replaces OSM as the geometry authority", async () => {
+   const geometry = polygon(-1.9001, 52.9799, -1.8999, 52.9801);
+   const existing = [osmFeature("osm:way:3", geometry, "building", "Tower")];
+   const summary = await fuseAdditionalMapSources(existing, projector, {
+     acquiredPublicData: acquiredPlanning([planningFeature({ geometry, name: "Tower" })])
+   });
+   assert.equal(existing.length, 1);
+-  assert.equal(existing[0].id, "osm:way:3");
+-  assert.equal(existing[0].verification.plan, "planning-corroborated-public-map");
+-  assert.equal(existing[0].source.planningCorroboration.length, 1);
+-  assert.equal(summary.planningAuthority.corroborated, 1);
++  assert.equal(existing[0].id, "planning:123");
++  assert.equal(existing[0].verification.plan, "planning-authority-override");
++  assert.equal(existing[0].source.replaces, "osm:way:3");
++  assert.equal(summary.planningAuthority.osmOverridden, 1);
+ });
+ 
+ test("planning geometry files require explicit provenance and implementation evidence", async () => {
+@@ -208,7 +208,7 @@ test("Planning Data application boundaries remain evidence-only and never replac
+   assert.equal(summary.planningAuthority.siteBoundaries, 1);
+ });
+ 
+-test("ambiguous planning geometry cannot delete multiple possible OSM targets", async () => {
++test("accepted planning geometry replaces all materially conflicting OSM targets", async () => {
+   const existing = [
+     osmFeature("osm:way:a", polygon(-1.90020, 52.9799, -1.90000, 52.9801), "building", "North wing"),
+     osmFeature("osm:way:b", polygon(-1.90000, 52.9799, -1.89980, 52.9801), "building", "South wing")
+@@ -220,7 +220,9 @@ test("ambiguous planning geometry cannot delete multiple possible OSM targets",
+   const summary = await fuseAdditionalMapSources(existing, projector, {
+     acquiredPublicData: acquiredPlanning([combined])
+   });
+-  assert.equal(existing.length, 2);
+-  assert.equal(summary.planningAuthority.osmOverridden, 0);
+-  assert.equal(summary.planningAuthority.ambiguousWithheld, 1);
++  assert.equal(existing.length, 1);
++  assert.equal(existing[0].id, "planning:ambiguous");
++  assert.match(existing[0].source.replaces, /osm:way:a/);
++  assert.match(existing[0].source.replaces, /osm:way:b/);
++  assert.equal(summary.planningAuthority.osmOverridden, 1);
+ });
+diff --git a/test/planning-vector-fusion.test.mjs b/test/planning-vector-fusion.test.mjs
+index eea5247..339aeec 100644
+--- a/test/planning-vector-fusion.test.mjs
++++ b/test/planning-vector-fusion.test.mjs
+@@ -130,12 +130,15 @@ test("implemented access geometry becomes a gap-fill eligible planning path", ()
+   assert.equal(promoted.properties.planning_requires_existing_osm_target, false);
+ });
+ 
+-test("approved-only geometry requires a matching OSM target in gated mode", async () => {
++test("approved planning geometry is authoritative and may fill gaps in gated mode", async () => {
+   const prepared = preparePlanningVectorFusion({ planningVectorFusionMode: "gated" }, catalogue());
+   const promoted = prepared.collection.features[0];
+   assert.equal(promoted.properties.planning_geometry_role, "approved-layout");
+-  assert.equal(promoted.properties.planning_requires_existing_osm_target, true);
+-  assert.equal(promoted.properties.planning_allow_gap_fill, false);
++  assert.equal(promoted.properties.planning_requires_existing_osm_target, false);
++  assert.equal(promoted.properties.planning_allow_gap_fill, true);
++  assert.equal(promoted.properties.planning_authoritative, true);
++  assert.equal(promoted.properties.planning_qa, true);
++  assert.equal(promoted.properties.planning_qa_block, "minecraft:pink_wool");
+ 
+   const missing = [];
+   const missingSummary = await fuseAdditionalMapSources(missing, projector, {
+@@ -144,8 +147,9 @@ test("approved-only geometry requires a matching OSM target in gated mode", asyn
+     planningOverrideMinConfidence: 0.86,
+     planningOverrideMaxOffsetM: 15
+   });
+-  assert.equal(missing.length, 0);
+-  assert.equal(missingSummary.planningAuthority.vector.withheld, 1);
++  assert.equal(missing.length, 1);
++  assert.equal(missing[0].id, "planning-vector:path:1");
++  assert.equal(missingSummary.planningAuthority.vector.gapFilled, 1);
+ 
+   const existing = [osmPath()];
+   const summary = await fuseAdditionalMapSources(existing, projector, {
+@@ -183,12 +187,13 @@ test("implemented missing path is added, while unsupported ambiguous site lines
+   assert.equal(withheld.evidence.rejectedRole, 1);
+ });
+ 
+-test("planning state keeps approved layouts target-only unless authoritative mode is explicit", () => {
++test("planning state makes approved layouts authoritative after normal acceptance gates", () => {
+   assert.deepEqual(__test.planningState("approved", "approved", "gated"), {
+     allowed: true, role: "approved-layout", status: "approved", implemented: false,
+-    requiresExistingTarget: true, gapFillAllowed: false
++    requiresExistingTarget: false, gapFillAllowed: true
+   });
+-  assert.equal(__test.planningState("approved", "approved", "authoritative").gapFillAllowed, true);
++  assert.equal(__test.planningState("approved", "approved", "private").gapFillAllowed, true);
++  assert.equal(__test.planningState("approved", "approved", "review").gapFillAllowed, false);
+ });
+ 
+ 
+diff --git a/test/planning-pink-qa.test.mjs b/test/planning-pink-qa.test.mjs
+new file mode 100644
+index 0000000..1fa1ac8
+--- /dev/null
++++ b/test/planning-pink-qa.test.mjs
+@@ -0,0 +1,59 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { compileMap } from "../src/lib/raster.mjs";
++
++function planningFeature(id, kind, geometry, extra = {}) {
++  return {
++    id,
++    name: id,
++    kind,
++    subtype: `planning-${kind}`,
++    tags: {
++      planning_qa: true,
++      planning_authoritative: true,
++      planning_reference: "APP/QA/1",
++      ...extra.tags
++    },
++    localGeometry: geometry,
++    vertical: { heightM: null, elevationM: null, explicit: false, ...extra.vertical },
++    verification: { plan: "planning-authority-override", vertical: "unknown" },
++    source: { provider: "Planning authority", dataset: "planning-drawing-vector" },
++    surfaceStyle: {
++      primaryBlock: "minecraft:stone",
++      secondaryBlock: "minecraft:stone",
++      pattern: "solid",
++      appearanceStatus: "source"
++    }
++  };
++}
++
++test("planning-derived paths, buildings, ride layouts and barriers render pink for provenance QA", () => {
++  const map = {
++    boundary: { localGeometry: { type: "Polygon", coordinates: [[[0,0],[20,0],[20,20],[0,20],[0,0]]] } },
++    features: [
++      planningFeature("plan:path", "path", { type: "LineString", coordinates: [[2,2],[18,2]] }, { tags: { highway: "footway", width: "3" } }),
++      planningFeature("plan:building", "building", { type: "Polygon", coordinates: [[[4,5],[9,5],[9,10],[4,10],[4,5]]] }),
++      planningFeature("plan:ride", "ride_track", { type: "LineString", coordinates: [[2,14],[18,14]] }),
++      planningFeature("plan:wall", "barrier", { type: "LineString", coordinates: [[2,18],[18,18]] }, { tags: { barrier: "wall" } })
++    ],
++    topology: {}, semantics: {}, fidelity: null, orthophoto: null, pathTopology: null, pathGeometry: null,
++    rideProfiles: null, terrainDetails: null
++  };
++  const sources = {
++    center: { lat: 0, lon: 0 },
++    elevation: { provider: "synthetic", minM: 0, points: [], sampleLocal: () => 0 }
++  };
++  const compilation = compileMap({
++    parkName: "Planning QA",
++    map,
++    sources,
++    accuracy: { score: 1, grade: "A", exact3d: false },
++    options: { maxCells: 10_000, buildings: "markers", noRideInfoSigns: true, accuracyMode: "verified" }
++  });
++  const pink = compilation.palette.indexOf("minecraft:pink_wool");
++  assert.ok(pink >= 0, "pink wool must be registered");
++  const pinkOperations = compilation.chunks.flatMap((chunk) => chunk.o).filter((operation) => operation[7] === pink);
++  assert.ok(pinkOperations.length >= 4, `expected multiple planning QA operations, got ${pinkOperations.length}`);
++  assert.equal(compilation.palette.includes("minecraft:orange_concrete"), false, "planning ride layout must not use normal orange QA track");
++  assert.equal(compilation.palette.includes("minecraft:yellow_concrete"), false, "planning building markers must not use normal yellow markers");
++});
