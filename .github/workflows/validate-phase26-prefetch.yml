@@ -2,6 +2,8 @@ name: Validate Cross-platform Planning Prefetch
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "43 2 * * *"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -12,11 +14,15 @@ on:
       - "scripts/complete-planning-prefetch-balanced.mjs"
       - "scripts/complete-planning-prefetch-balanced.impl.mjs.gz.b64.part-*"
       - "scripts/select-planning-prefetch.mjs"
+      - "scripts/prepare-planning-prefetch-runtime.mjs"
+      - "scripts/validate-planning-evidence-cache.mjs"
       - "patches/v0120-phase26/**"
       - "patches/v0120-phase27/**"
       - "patches/v0120-phase28/**"
       - "scripts/build-themepark-world-v0120-direct.sh.part-*"
       - ".github/workflows/build-themepark-world.yml"
+      - ".github/workflows/build-themepark-world-resilient.yml"
+      - ".github/workflows/warm-park-evidence-cache.yml"
       - ".github/workflows/validate-phase26-prefetch.yml"
 
 permissions:
@@ -45,11 +51,13 @@ jobs:
           node scripts/prefetch-planning-portal-browser.mjs --self-test
           node scripts/prefetch-planning-portal.mjs --self-test
           node scripts/select-planning-prefetch.mjs --self-test
+          node scripts/prepare-planning-prefetch-runtime.mjs --self-test
+          node scripts/validate-planning-evidence-cache.mjs --self-test
 
   prefetch:
     name: Live portal test (${{ matrix.label }})
     needs: deterministic
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
+    if: ${{ github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -103,7 +111,7 @@ jobs:
   select:
     name: Require one usable planning transport
     needs: [deterministic, prefetch]
-    if: ${{ always() && needs.deterministic.result == 'success' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false) }}
+    if: ${{ always() && github.event_name != 'pull_request' && needs.deterministic.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
