@@ -1,0 +1,61 @@
+  PHASE30B_DIR="$ROOT/patches/v0120-phase30b"
+  PHASE30B_PATCH_SHA="81d9a44cb869b07c858478e64f1077807c0d00bd87c51bb66e864e548a9494dc"
+  PHASE30B_B64="$(mktemp)"
+  PHASE30B_PATCH="$(mktemp)"
+  phase30b_cleanup() { rm -f "$PHASE30B_B64" "$PHASE30B_PATCH"; }
+  trap phase30b_cleanup RETURN
+
+  PHASE30B_PARTS=()
+  for index in 00 01 02 03 04 05 06 07; do
+    part="$PHASE30B_DIR/v0120-phase30b-site-semantics.b64.part-$index"
+    [[ -f "$part" ]] || {
+      echo "Missing Phase 30B semantic patch chunk $index." | tee "$DIAG/phase30b-error.txt" >&2
+      exit 2
+    }
+    PHASE30B_PARTS+=("$part")
+  done
+
+  # Whitespace is intentionally stripped before decode so repository text-file
+  # line wrapping cannot alter the payload. The decoded patch itself is still
+  # SHA-256 locked, so any non-whitespace corruption fails closed.
+  cat "${PHASE30B_PARTS[@]}" | tr -d '[:space:]' > "$PHASE30B_B64"
+  base64 --decode "$PHASE30B_B64" > "$PHASE30B_PATCH"
+  phase30b_actual_sha="$(sha256sum "$PHASE30B_PATCH" | cut -d' ' -f1)"
+  printf 'phase30b_patch_expected=%s\nphase30b_patch_actual=%s\n' \
+    "$PHASE30B_PATCH_SHA" "$phase30b_actual_sha" | tee "$DIAG/phase30b-patch-checksum.txt"
+  [[ "$phase30b_actual_sha" == "$PHASE30B_PATCH_SHA" ]] || {
+    echo "Phase 30B decoded patch checksum mismatch." | tee "$DIAG/phase30b-error.txt" >&2
+    exit 2
+  }
+
+  if grep -q 'PHASE30B_SEMANTIC_SITE_PLANS' "$GEN/src/lib/planning-vectorize.mjs"; then
+    echo "Phase 30B semantic site-plan extraction already present in prepared generator." \
+      | tee "$DIAG/phase30b-patch-apply.log"
+  else
+    patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE30B_PATCH" \
+      2>&1 | tee "$DIAG/phase30b-patch-apply.log"
+  fi
+
+  node --check "$GEN/src/lib/planning-vectorize.mjs"
+  node --check "$GEN/src/lib/planning-vector-fusion.mjs"
+  (
+    cd "$GEN"
+    node --test \
+      test/planning-vectorize.test.mjs \
+      test/planning-vector-fusion.test.mjs \
+      test/planning-site-semantics.test.mjs \
+      test/planning-pink-qa.test.mjs \
+      2>&1 | tee "$DIAG/phase30b-planning-site-semantics-tests.log"
+  )
+
+  printf '%s\n' \
+    'planning_site_semantics=enabled' \
+    'semantic_source=pdftotext-bbox-layout-plus-svg-vector-geometry' \
+    'supported=paths,path-materials,buildings,rides,walls,fences,bridges,raised-paths,tunnels,water,terrain-levels,trees,landscape,rockwork' \
+    'unlabelled_site_plan_geometry=withheld' \
+    'planning_geometry_authority=phase30a-primary-over-osm-after-gates' \
+    'planning_qa_block=minecraft:pink_wool' \
+    > "$DIAG/phase30b-runtime-policy.txt"
+
+  phase30b_cleanup
+  trap - RETURN
