@@ -2,6 +2,7 @@
   PHASE30B_PATCH_SHA="433069358a9ab0b0dcac44955379003710cd6534fb2c0ed540d676eda660d0b3"
   PHASE30B_B64="$(mktemp)"
   PHASE30B_PATCH="$(mktemp)"
+  PHASE30B_PROBE_LOG="$DIAG/phase30b-capability-probe.log"
   phase30b_cleanup() { rm -f "$PHASE30B_B64" "$PHASE30B_PATCH"; }
   trap phase30b_cleanup RETURN
 
@@ -28,12 +29,59 @@
     exit 2
   }
 
-  if grep -q 'PHASE30B_SEMANTIC_SITE_PLANS' "$GEN/src/lib/planning-vectorize.mjs"; then
-    echo "Phase 30B semantic site-plan extraction already present in prepared generator." \
+  # A marker is not proof that Phase 30B is complete. Older prepared-generator
+  # states could contain PHASE30B_SEMANTIC_SITE_PLANS while missing later hunks,
+  # leaving planning-vectorize.mjs.rej and silently breaking access-plan/site-plan
+  # vectorization. Prove the actual behavior before deciding to skip the patch.
+  phase30b_capability_probe() {
+    (
+      cd "$GEN"
+      node --test \
+        test/planning-vectorize.test.mjs \
+        test/planning-vector-fusion.test.mjs \
+        test/planning-site-semantics.test.mjs \
+        test/planning-pink-qa.test.mjs
+    ) > "$PHASE30B_PROBE_LOG" 2>&1
+  }
+
+  if phase30b_capability_probe; then
+    echo "Phase 30B semantic site-plan extraction is behavior-complete; checksum-locked patch not required." \
       | tee "$DIAG/phase30b-patch-apply.log"
   else
+    echo "Phase 30B marker/state is incomplete; applying missing hunks from checksum-locked patch." \
+      | tee "$DIAG/phase30b-patch-apply.log"
+    cat "$PHASE30B_PROBE_LOG" >> "$DIAG/phase30b-patch-apply.log"
+
+    # --forward skips hunks that are already present and continues through the
+    # patch, allowing a partially-applied historical Phase 30B state to receive
+    # the missing hunks. patch may still return non-zero because already-applied
+    # hunks are recorded as rejects, so behavior tests below are the authority.
+    set +e
     patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE30B_PATCH" \
-      2>&1 | tee "$DIAG/phase30b-patch-apply.log"
+      2>&1 | tee -a "$DIAG/phase30b-patch-apply.log"
+    phase30b_patch_status=${PIPESTATUS[0]}
+    set -e
+    printf 'phase30b_patch_exit=%s\n' "$phase30b_patch_status" \
+      | tee "$DIAG/phase30b-patch-exit.txt"
+
+    node --check "$GEN/src/lib/planning-vectorize.mjs"
+    node --check "$GEN/src/lib/planning-vector-fusion.mjs"
+
+    if ! phase30b_capability_probe; then
+      cat "$PHASE30B_PROBE_LOG" | tee "$DIAG/phase30b-repair-failure.log" >&2
+      echo "Phase 30B remained behavior-incomplete after checksum-locked completion attempt." \
+        | tee -a "$DIAG/phase30b-repair-failure.log" >&2
+      exit 2
+    fi
+
+    # Reject files are safe to remove only after the complete Phase 30B behavior
+    # suite passes. At this point they represent hunks that were already present,
+    # not missing functionality.
+    rm -f \
+      "$GEN/src/lib/planning-vectorize.mjs.rej" \
+      "$GEN/src/lib/planning-vector-fusion.mjs.rej"
+    echo "Phase 30B completion validated; stale already-applied reject files removed." \
+      | tee -a "$DIAG/phase30b-patch-apply.log"
   fi
 
   node --check "$GEN/src/lib/planning-vectorize.mjs"
@@ -48,8 +96,16 @@
       2>&1 | tee "$DIAG/phase30b-planning-site-semantics-tests.log"
   )
 
+  if find "$GEN/src/lib" -maxdepth 1 -type f -name 'planning-*.mjs.rej' -print -quit | grep -q .; then
+    echo "Phase 30B left planning reject files after behavior validation." | tee "$DIAG/phase30b-error.txt" >&2
+    find "$GEN/src/lib" -maxdepth 1 -type f -name 'planning-*.mjs.rej' -print | tee -a "$DIAG/phase30b-error.txt" >&2
+    exit 2
+  fi
+
   printf '%s\n' \
     'planning_site_semantics=enabled' \
+    'planning_site_semantics_validation=behavior-suite-not-marker-only' \
+    'planning_partial_patch_recovery=checksum-locked-forward-completion-plus-tests' \
     'semantic_source=pdftotext-bbox-layout-plus-svg-vector-geometry' \
     'supported=paths,path-materials,buildings,rides,walls,fences,bridges,raised-paths,tunnels,water,terrain-levels,trees,landscape,rockwork' \
     'unlabelled_site_plan_geometry=withheld' \
