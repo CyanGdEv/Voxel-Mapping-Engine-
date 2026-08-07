@@ -91,3 +91,61 @@
     'surface_material_patterns=deterministic-procedural' \
     'surface_material_industrial_service_paving_pattern=fine_noise-default' \
     > "$DIAG/surface-material-runtime-policy.txt"
+
+  PARK_SCENERY_LIBRARY="$ROOT/patches/v0120-phase30/park-scenery-fidelity.mjs"
+  PARK_SCENERY_LIBRARY_BLOB="0d7d1955068fce0b22334f9f9965c99cdf2f4365"
+  PARK_SCENERY_INSTALLER="$ROOT/scripts/install-park-scenery-fidelity.mjs"
+  PARK_SCENERY_INSTALLER_BLOB="38f2439c4a944510ffa68432288179a7c965e971"
+  [[ -f "$PARK_SCENERY_LIBRARY" && -f "$PARK_SCENERY_INSTALLER" ]] || {
+    echo "Missing park scenery fidelity phase." | tee "$DIAG/park-scenery-error.txt" >&2
+    exit 2
+  }
+  park_scenery_library_blob="$(git -C "$ROOT" hash-object "$PARK_SCENERY_LIBRARY")"
+  park_scenery_installer_blob="$(git -C "$ROOT" hash-object "$PARK_SCENERY_INSTALLER")"
+  printf 'park_scenery_library_blob_expected=%s\npark_scenery_library_blob_actual=%s\npark_scenery_installer_blob_expected=%s\npark_scenery_installer_blob_actual=%s\n' \
+    "$PARK_SCENERY_LIBRARY_BLOB" "$park_scenery_library_blob" \
+    "$PARK_SCENERY_INSTALLER_BLOB" "$park_scenery_installer_blob" \
+    | tee "$DIAG/park-scenery-checksum.txt"
+  [[ "$park_scenery_library_blob" == "$PARK_SCENERY_LIBRARY_BLOB" && "$park_scenery_installer_blob" == "$PARK_SCENERY_INSTALLER_BLOB" ]] || {
+    echo "Park scenery fidelity content hash mismatch." | tee "$DIAG/park-scenery-error.txt" >&2
+    exit 2
+  }
+
+  node --check "$PARK_SCENERY_LIBRARY"
+  node --check "$PARK_SCENERY_INSTALLER"
+  node "$PARK_SCENERY_INSTALLER" --self-test | tee "$DIAG/park-scenery-installer-self-test.log"
+  node "$PARK_SCENERY_INSTALLER" \
+    --generator "$GEN" \
+    --library "$PARK_SCENERY_LIBRARY" \
+    --diagnostics "$DIAG/park-scenery-fidelity.json" \
+    2>&1 | tee "$DIAG/park-scenery-install.log"
+
+  node --check "$GEN/src/lib/park-scenery-fidelity.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module -e '
+      import { tryCompileParkVegetation as tree, tryCompileParkTerrainDetail as rock, compileParkBarrierRun as barrier, sceneryShapeCapabilities as caps } from "./src/lib/park-scenery-fidelity.mjs";
+      const elevationY = new Array(400).fill(64), mask = new Array(400).fill(1);
+      const treeBlocks=[]; const addTree=(...a)=>treeBlocks.push(a.at(-1));
+      const t=tree({add:addTree,feature:{kind:"vegetation",localGeometry:{type:"Point",coordinates:[5,5]},tags:{species:"Quercus robur"},fidelity:{vegetation:{heightM:14}}},minX:0,minZ:0,width:20,height:20,elevationY,mask,seed:42});
+      if(!t?.enhancedScenery || !treeBlocks.some(b=>b.endsWith("_stairs"))) throw new Error("tree shape/root stair test failed");
+      const rockBlocks=[]; const r=rock({add:(...a)=>rockBlocks.push(a.at(-1)),feature:{kind:"terrain_detail",localGeometry:{type:"Point",coordinates:[8,8]},tags:{natural:"boulder",width:"5",height:"3"}},minX:0,minZ:0,width:20,height:20,elevationY,mask,seed:42});
+      if(!r || !rockBlocks.some(b=>/_slab$|_stairs$|_wall$/.test(b))) throw new Error("boulder slab/stair/wall test failed");
+      const fenceBlocks=[]; const handled=barrier({add:(...a)=>fenceBlocks.push(a.at(-1)),feature:{tags:{barrier:"wall",material:"stone"}},x1:0,x2:8,z:0,terrainY:64,seed:1});
+      if(!handled || !fenceBlocks.some(b=>b.endsWith("_wall")) || !fenceBlocks.some(b=>b.endsWith("_slab"))) throw new Error("masonry wall/slab test failed");
+      const c=caps(); if(!c.slabs||!c.stairs||!c.walls||!c.fences) throw new Error("scenery shape capability test failed");
+      console.log("park_scenery_runtime_test=PASS");
+    ' 2>&1 | tee "$DIAG/park-scenery-runtime-test.log"
+  )
+
+  printf '%s\n' \
+    'park_scenery_fidelity=park-scenery-fidelity-v1' \
+    'tree_height_authority=existing-tag-ea-vom-lidar-evidence' \
+    'tree_shapes=deciduous-birch-conifer-willow-ornamental' \
+    'foliage=layered-asymmetric-species-aware-plus-shrubs-hedges' \
+    'rock_geometry=dimensioned-evidence-with-irregular-core-and-shaped-edges' \
+    'barriers=typed-hedge-masonry-timber-metal' \
+    'shape_mix=full-blocks-slabs-stairs-walls-fences' \
+    'unknown_geometry_policy=fall-back-to-existing-compiler' \
+    > "$DIAG/park-scenery-runtime-policy.txt"
