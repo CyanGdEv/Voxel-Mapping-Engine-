@@ -6,6 +6,7 @@ on:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'scripts/prepare-surface-material-hook.mjs'
+      - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
   push:
@@ -14,6 +15,7 @@ on:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'scripts/prepare-surface-material-hook.mjs'
+      - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
 
 permissions:
@@ -32,17 +34,33 @@ jobs:
         run: |
           node patches/v0120-phase30/bedrock-palette-compatibility.mjs --self-test
           node scripts/prepare-surface-material-hook.mjs --self-test
-      - name: Validate concatenated direct runner syntax
+          node scripts/install-phase30a-authority.mjs --self-test
+      - name: Validate concatenated direct runner syntax and ordering
         shell: bash
         run: |
-          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/direct-runner.sh"
+          mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          printf '%s\n' "${parts[@]}" | tee "$RUNNER_TEMP/part-order.txt"
+          cat "${parts[@]}" > "$RUNNER_TEMP/direct-runner.sh"
           bash -n "$RUNNER_TEMP/direct-runner.sh"
+
           grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'deterministic-build-failure.marker' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'TPMAP_ATTEMPT_PREPARED=true' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'prepared-generator-integrity.log' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'Phase 30 current-semantics integration preflight passed' "$RUNNER_TEMP/direct-runner.sh"
           ! grep -q 'skipping redundant production test invocation' "$RUNNER_TEMP/direct-runner.sh"
+
+          test ! -e scripts/build-themepark-world-v0120-direct.sh.part-02zzz-fast-attempt-guard-close
+          test -e scripts/build-themepark-world-v0120-direct.sh.part-02zzzzzzzzzz-fast-attempt-guard-close
+
+          repair_line=$(grep -n 'part-02za-phase30a-repair' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          phase30b_line=$(grep -n 'part-02zz-phase30b' "$RUNNER_TEMP/part-order.txt" | head -1 | cut -d: -f1)
+          phase30d_line=$(grep -n 'part-02zzzz-phase30d' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          final_guard_line=$(grep -n 'part-02zzzzzzzzzz-fast-attempt-guard-close' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          test "$repair_line" -lt "$phase30b_line"
+          test "$phase30b_line" -lt "$phase30d_line"
+          test "$phase30d_line" -lt "$final_guard_line"
       - name: Verify resilient workflow budget policy
         shell: bash
         run: |
