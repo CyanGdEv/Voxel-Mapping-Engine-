@@ -76,6 +76,42 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Restore recent verified park evidence
+        id: planning_cache_restore
+        if: ${{ inputs.preset == 'alton-towers' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .park-evidence-cache/${{ inputs.preset }}/planning
+          key: park-evidence-planning-v1-${{ inputs.preset }}-probe-${{ github.run_id }}
+          restore-keys: |
+            park-evidence-planning-v1-${{ inputs.preset }}-
+
+      - name: Validate restored planning evidence
+        id: planning_cache
+        if: ${{ inputs.preset == 'alton-towers' }}
+        shell: bash
+        run: |
+          CACHE_DIR="$GITHUB_WORKSPACE/.park-evidence-cache/${{ inputs.preset }}/planning"
+          rm -rf planning-prefetch-selected
+          node scripts/validate-planning-evidence-cache.mjs --self-test
+          set +e
+          node scripts/validate-planning-evidence-cache.mjs \
+            --input "$CACHE_DIR" \
+            --output planning-prefetch-selected \
+            --max-age-hours 24
+          cache_status=$?
+          set -e
+          if [[ "$cache_status" -eq 0 ]]; then
+            echo "usable=true" >> "$GITHUB_OUTPUT"
+            echo "source=verified-cache" >> "$GITHUB_OUTPUT"
+            echo "Planning fast path: using a verified cache less than 24 hours old."
+          else
+            rm -rf planning-prefetch-selected
+            echo "usable=false" >> "$GITHUB_OUTPUT"
+            echo "source=live-refresh" >> "$GITHUB_OUTPUT"
+            echo "Planning cache missing, stale, or rejected; running bounded live refresh."
+          fi
+
       - name: Install build and automatic-registration tools
         shell: bash
         run: |
@@ -85,7 +121,7 @@ jobs:
           python3 -c 'import cv2; print("opencv=" + cv2.__version__)'
 
       - name: Validate planning clients
-        if: ${{ inputs.preset == 'alton-towers' }}
+        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -95,17 +131,17 @@ jobs:
           node scripts/prefetch-planning-portal-browser.mjs --self-test
           node scripts/prefetch-planning-portal.mjs --self-test
 
-      - name: Discover official planning evidence with bounded fallbacks
-        if: ${{ inputs.preset == 'alton-towers' }}
+      - name: Refresh official planning evidence when cache is unavailable
+        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' }}
         continue-on-error: true
         shell: bash
         run: |
           rm -rf planning-prefetch-output
           set +e
-          timeout --signal=TERM --kill-after=30s 30m \
+          timeout --signal=TERM --kill-after=30s 10m \
             node scripts/prefetch-planning-portal-browser.mjs \
               --output planning-prefetch-output \
-              --runner linux-resilient-expanded \
+              --runner linux-resilient-fast-refresh \
               --max-applications 300 \
               --max-documents 1200 \
               --max-mb 150
@@ -114,18 +150,18 @@ jobs:
 
           usable=false
           if [[ -f planning-prefetch-output/manifest.json ]]; then
-            node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' ? 0 : 1)" \
+            node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' && Number(m.liveApplications||0)>0 && Number(m.documentsDownloaded||0)>0 ? 0 : 1)" \
               && usable=true || true
           fi
 
           if [[ "$usable" != "true" ]]; then
-            echo "::warning::Expanded planning discovery did not produce usable evidence (exit $expanded_status); trying the bounded legacy fallback."
+            echo "::warning::Fast expanded planning refresh did not produce usable evidence (exit $expanded_status); trying five-minute legacy fallback."
             rm -rf planning-prefetch-output
             set +e
-            timeout --signal=TERM --kill-after=30s 15m \
+            timeout --signal=TERM --kill-after=30s 5m \
               node scripts/prefetch-planning-portal.mjs \
                 --output planning-prefetch-output \
-                --runner linux-resilient-fallback \
+                --runner linux-resilient-fast-fallback \
                 --max-applications 300 \
                 --max-documents 1200 \
                 --max-mb 150
@@ -135,10 +171,12 @@ jobs:
           fi
 
       - name: Prepare planning evidence or safe no-planning fallback
+        id: planning_policy
         if: always()
         shell: bash
         run: |
-          node - <<'NODE'
+          if [[ "${{ steps.planning_cache.outputs.usable }}" != "true" ]]; then
+            node - <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
 
@@ -187,22 +225,38 @@ jobs:
             console.log(JSON.stringify({ planningMode: 'fallback', applications: 0, documents: 0 }));
           }
           NODE
+          fi
 
           if node -e "const m=require('./planning-prefetch-selected/manifest.json'); process.exit(m.status === 'usable' && Number(m.liveApplications||0)>0 && Number(m.documentsDownloaded||0)>0 ? 0 : 1)"; then
             echo "TPMAP_PLANNING_DOCUMENT_MODE=extract" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_PREFETCH_DIR=$GITHUB_WORKSPACE/planning-prefetch-selected" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_OVERRIDE_MODE=gated" >> "$GITHUB_ENV"
+            echo "usable=true" >> "$GITHUB_OUTPUT"
             echo "planning_runtime=usable"
           else
-            # A disabled manifest is diagnostic evidence only. Do not leave the
-            # planning-document subsystem enabled, because doing so makes a
-            # planning outage capable of failing every terrain/world strategy.
             echo "TPMAP_PLANNING_DOCUMENT_MODE=off" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_PREFETCH_DIR=" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_OVERRIDE_MODE=off" >> "$GITHUB_ENV"
+            echo "usable=false" >> "$GITHUB_OUTPUT"
             echo "planning_runtime=disabled"
             echo "::warning::Planning evidence is unavailable. Planning-document ingestion and planning overrides are disabled for this build; remaining geospatial sources will continue."
           fi
+
+      - name: Stage refreshed evidence for future fast builds
+        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' && steps.planning_policy.outputs.usable == 'true' }}
+        shell: bash
+        run: |
+          CACHE_DIR="$GITHUB_WORKSPACE/.park-evidence-cache/${{ inputs.preset }}/planning"
+          rm -rf "$CACHE_DIR"
+          mkdir -p "$(dirname "$CACHE_DIR")"
+          cp -a planning-prefetch-selected "$CACHE_DIR"
+
+      - name: Save refreshed verified park evidence
+        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' && steps.planning_policy.outputs.usable == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .park-evidence-cache/${{ inputs.preset }}/planning
+          key: park-evidence-planning-v1-${{ inputs.preset }}-${{ github.run_id }}
 
       - name: Upload planning acquisition diagnostics
         if: always()
@@ -219,10 +273,11 @@ jobs:
         if: always()
         shell: bash
         run: |
-          printf 'planning_document_mode=%s\nplanning_prefetch_dir=%s\nplanning_override_mode=%s\n' \
+          printf 'planning_document_mode=%s\nplanning_prefetch_dir=%s\nplanning_override_mode=%s\nplanning_cache=%s\n' \
             "${TPMAP_PLANNING_DOCUMENT_MODE:-unset}" \
             "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
-            "${TPMAP_PLANNING_OVERRIDE_MODE:-unset}"
+            "${TPMAP_PLANNING_OVERRIDE_MODE:-unset}" \
+            "${{ steps.planning_cache.outputs.source || 'not-applicable' }}"
 
       - name: Generate and validate world
         id: build
@@ -239,6 +294,7 @@ jobs:
           SUMMARY_PRESET: ${{ inputs.preset }}
           SUMMARY_STRATEGY: ${{ steps.build.outputs.strategy || 'none' }}
           SUMMARY_MCWORLD: ${{ steps.build.outputs.mcworld || '' }}
+          SUMMARY_PLANNING_CACHE: ${{ steps.planning_cache.outputs.source || 'not-applicable' }}
         run: |
           {
             printf '%s\n' '# Voxel Mapping Engine — Resilient Automatic Theme Park World'
@@ -247,9 +303,10 @@ jobs:
             printf '%s\n' '- Player inputs: park selection only'
             printf '%s\n' '- Planning failure policy: fail closed for planning geometry, continue world generation with remaining sources'
             printf '%s\n' "- Successful strategy: ${SUMMARY_STRATEGY:-none}"
+            printf '%s\n' "- Planning evidence path: ${SUMMARY_PLANNING_CACHE:-unknown}"
             printf '%s\n' "- Effective planning document mode: ${TPMAP_PLANNING_DOCUMENT_MODE:-unset}"
             if [[ -f planning-prefetch-selected/manifest.json ]]; then
-              node -e 'const m=require(process.argv[1]); console.log(`- Planning evidence status: ${m.status||"unknown"}; ${m.liveApplications||0} applications; ${m.documentsDownloaded||0} documents; runner ${m.runner||"unknown"}`)' planning-prefetch-selected/manifest.json
+              node -e 'const m=require("./planning-prefetch-selected/manifest.json"); console.log(`- Planning evidence status: ${m.status||"unknown"}; ${m.liveApplications||0} applications; ${m.documentsDownloaded||0} documents; runner ${m.runner||"unknown"}`)'
             fi
             if [[ -n "$SUMMARY_MCWORLD" && -f "$SUMMARY_MCWORLD" ]]; then
               printf '\n%s\n' '## Generated world'
@@ -263,6 +320,9 @@ jobs:
                 ci-diagnostics/source-error.txt \
                 ci-diagnostics/phase28-patch-checksum.txt \
                 ci-diagnostics/phase28-patch-apply.log \
+                ci-diagnostics/planning-prefetch-runtime-selftest.log \
+                ci-diagnostics/planning-prefetch-runtime-normalization.log \
+                ci-diagnostics/planning-prefetch-runtime-policy.txt \
                 ci-diagnostics/doctor.log \
                 ci-diagnostics/build-01-ea-lidar-primary.log \
                 ci-diagnostics/build-02-ea-dtm-primary.log \
