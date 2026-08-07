@@ -40,7 +40,7 @@ if (requestedArgs.includes("--self-test")) {
   console.log("planning expanded search, bounded drawing-first refresh, balanced attachment, drawing-application filter, ride-evidence recovery, and internal fallback self-test passed");
 } else {
   const output = optionValue(completionArgsSource, "--output") || "planning-prefetch-output";
-  const collectorTimeoutMs = boundedWorldRefresh ? 55_000 : null;
+  const collectorTimeoutMs = boundedWorldRefresh ? 45_000 : null;
   const collectorStatus = runNodeStatus(collector, collectorArgs, { timeoutMs: collectorTimeoutMs });
   let primaryReady = collectorStatus === 0 || (boundedWorldRefresh && existsSync(path.join(output, "manifest.json")));
 
@@ -50,7 +50,7 @@ if (requestedArgs.includes("--self-test")) {
     copyOption(completionArgsSource, completionArgs, "--max-documents");
     copyOption(completionArgsSource, completionArgs, "--max-mb");
     if (boundedWorldRefresh) applyBoundedCompletionCaps(completionArgs);
-    const completionStatus = runNodeStatus(attachmentCompleter, completionArgs, { timeoutMs: boundedWorldRefresh ? 90_000 : null });
+    const completionStatus = runNodeStatus(attachmentCompleter, completionArgs, { timeoutMs: boundedWorldRefresh ? 75_000 : null });
     // A timeout during bounded attachment completion can still leave a useful
     // manifest and downloaded drawings. Preserve that work and let the drawing
     // filter/recovery stages decide whether it is usable instead of restarting
@@ -62,7 +62,7 @@ if (requestedArgs.includes("--self-test")) {
     console.error("Expanded planning collection failed; running the bounded legacy collector before applying the same drawing and ride-recovery policy.");
     const fallbackArgs = [...completionArgsSource];
     if (boundedWorldRefresh) applyBoundedCompletionCaps(fallbackArgs);
-    const fallbackStatus = runNodeStatus(fallbackCollector, fallbackArgs, { timeoutMs: boundedWorldRefresh ? 55_000 : null });
+    const fallbackStatus = runNodeStatus(fallbackCollector, fallbackArgs, { timeoutMs: boundedWorldRefresh ? 45_000 : null });
     if (fallbackStatus !== 0 && !existsSync(path.join(output, "manifest.json"))) process.exit(fallbackStatus || 1);
   }
 
@@ -71,13 +71,13 @@ if (requestedArgs.includes("--self-test")) {
   // time to inspect a smaller subset. retainedApplications records the actual
   // number, so this does not claim that 500 cases were downloaded.
   copyOption(completionArgsSource, filterArgs, "--max-applications");
-  requireSuccess(drawingApplicationFilter, filterArgs, { timeoutMs: boundedWorldRefresh ? 15_000 : null });
+  requireSuccess(drawingApplicationFilter, filterArgs, { timeoutMs: boundedWorldRefresh ? 10_000 : null });
 
   const recoveryArgs = ["--directory", output];
   copyOption(completionArgsSource, recoveryArgs, "--max-documents");
   copyOption(completionArgsSource, recoveryArgs, "--max-mb");
   if (boundedWorldRefresh) applyBoundedRecoveryCaps(recoveryArgs);
-  requireSuccess(rideEvidenceRecovery, recoveryArgs, { timeoutMs: boundedWorldRefresh ? 80_000 : null });
+  requireSuccess(rideEvidenceRecovery, recoveryArgs, { timeoutMs: boundedWorldRefresh ? 70_000 : null });
 }
 
 function productionCaps(values, active = production) {
