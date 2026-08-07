@@ -1,0 +1,85 @@
+
+# Resilient builds validate the selected planning cache against the stricter
+# generator bridge before enabling planning-document coverage. The acquisition
+# collectors can legitimately record the same official seed through HTTP and
+# HTTPS transports; the generator intentionally rejects duplicate canonical
+# URLs, so normalize those aliases rather than discarding the entire cache.
+if [[ "${GITHUB_WORKFLOW:-}" == "Build Minecraft Theme Park World (Resilient)" \
+      && -n "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
+      && "${TPMAP_PLANNING_DOCUMENT_MODE:-extract}" != "off" ]]; then
+  PLANNING_RUNTIME_INPUT="$TPMAP_PLANNING_PREFETCH_DIR"
+  PLANNING_RUNTIME_TMP="$ROOT/.planning-prefetch-runtime-normalized"
+  rm -rf "$PLANNING_RUNTIME_TMP"
+
+  node "$ROOT/scripts/prepare-planning-prefetch-runtime.mjs" --self-test \
+    2>&1 | tee "$DIAG/planning-prefetch-runtime-selftest.log"
+
+  PLANNING_RUNTIME_READY=false
+  if node "$ROOT/scripts/prepare-planning-prefetch-runtime.mjs" \
+      --input "$PLANNING_RUNTIME_INPUT" \
+      --output "$PLANNING_RUNTIME_TMP" \
+      2>&1 | tee "$DIAG/planning-prefetch-runtime-normalization.log"; then
+    PLANNING_RUNTIME_READY=true
+  fi
+
+  # Preserve the normalized/disabled manifest at the conventional workspace
+  # path so the generator and the Actions summary observe the same policy.
+  if [[ -f "$PLANNING_RUNTIME_TMP/manifest.json" ]]; then
+    rm -rf "$PLANNING_RUNTIME_INPUT"
+    mv "$PLANNING_RUNTIME_TMP" "$PLANNING_RUNTIME_INPUT"
+  fi
+
+  set_source_arg_value() {
+    local flag="$1" value="$2" index
+    for (( index=0; index<${#SOURCE_ARGS[@]}; index++ )); do
+      if [[ "${SOURCE_ARGS[$index]}" == "$flag" ]]; then
+        SOURCE_ARGS[$((index + 1))]="$value"
+        return 0
+      fi
+    done
+    SOURCE_ARGS+=("$flag" "$value")
+  }
+
+  if [[ "$PLANNING_RUNTIME_READY" == "true" ]]; then
+    export TPMAP_PLANNING_DOCUMENT_MODE=extract
+    export TPMAP_PLANNING_OVERRIDE_MODE=gated
+    set_source_arg_value --planning-document-mode extract
+    set_source_arg_value --planning-override-mode gated
+    PLANNING_RUNTIME_STATE=usable
+  else
+    export TPMAP_PLANNING_DOCUMENT_MODE=off
+    export TPMAP_PLANNING_PREFETCH_DIR=""
+    export TPMAP_PLANNING_OVERRIDE_MODE=off
+    set_source_arg_value --planning-document-mode off
+    set_source_arg_value --planning-override-mode off
+    FILTERED_SOURCE_ARGS=()
+    for planning_arg in "${SOURCE_ARGS[@]}"; do
+      [[ "$planning_arg" == "--planning-documents" ]] || FILTERED_SOURCE_ARGS+=("$planning_arg")
+    done
+    SOURCE_ARGS=("${FILTERED_SOURCE_ARGS[@]}")
+    unset FILTERED_SOURCE_ARGS
+    PLANNING_RUNTIME_STATE=disabled
+  fi
+  unset -f set_source_arg_value
+
+  printf 'state=%s\ndocument_mode=%s\nprefetch_dir=%s\noverride_mode=%s\n' \
+    "$PLANNING_RUNTIME_STATE" \
+    "${TPMAP_PLANNING_DOCUMENT_MODE:-off}" \
+    "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
+    "${TPMAP_PLANNING_OVERRIDE_MODE:-off}" \
+    > "$DIAG/planning-prefetch-runtime-policy.txt"
+
+  # Subsequent Actions steps run in a new process, so publish the effective
+  # policy as well. NODE_PATH also fixes the legacy summary's package-style
+  # require('planning-prefetch-selected/manifest.json') resolution.
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    {
+      printf 'TPMAP_PLANNING_DOCUMENT_MODE=%s\n' "${TPMAP_PLANNING_DOCUMENT_MODE:-off}"
+      printf 'TPMAP_PLANNING_PREFETCH_DIR=%s\n' "${TPMAP_PLANNING_PREFETCH_DIR:-}"
+      printf 'TPMAP_PLANNING_OVERRIDE_MODE=%s\n' "${TPMAP_PLANNING_OVERRIDE_MODE:-off}"
+      printf 'NODE_PATH=%s\n' "$ROOT"
+    } >> "$GITHUB_ENV"
+  fi
+
+  unset PLANNING_RUNTIME_INPUT PLANNING_RUNTIME_TMP PLANNING_RUNTIME_READY PLANNING_RUNTIME_STATE
+fi

@@ -89,26 +89,34 @@ async function validateCandidate(manifestPath) {
   const actualLiveApplications = manifest.applications.filter((application) => application && typeof application === "object" && !application.failure).length;
   if (liveApplications !== actualLiveApplications) throw new Error(`live application count mismatch (${liveApplications} != ${actualLiveApplications})`);
 
-  const urls = new Set();
-  let documentEntries = 0;
+  // The Staffordshire legacy portal accepts multiple POST searches at the same
+  // ApplicationSearchServlet URL. Those search/seed pages can legitimately
+  // have different response bodies even though their canonical URL is equal.
+  // Validate every cached file, but enforce URL uniqueness only for downloaded
+  // documents where ambiguity could affect planning geometry.
+  const documentUrls = new Map();
   for (const entry of manifest.entries) {
     if (!entry || typeof entry !== "object") throw new Error("manifest contains an empty entry");
     const url = new URL(entry.url);
     if (url.protocol !== "https:" || !OFFICIAL_HOSTS.has(url.hostname.toLowerCase())) throw new Error(`off-host entry ${entry.url}`);
-    if (urls.has(entry.url)) throw new Error(`duplicate URL ${entry.url}`);
-    urls.add(entry.url);
     if (!Number.isInteger(entry.bytes) || entry.bytes < 0) throw new Error(`invalid byte count ${entry.url}`);
     if (!/^[a-f0-9]{64}$/i.test(entry.sha256 || "")) throw new Error(`invalid hash ${entry.url}`);
-    if (entry.kind === "document") {
-      documentEntries += 1;
-      if (!DOCUMENT_MIMES.has(entry.mime)) throw new Error(`unsupported document MIME ${entry.mime || "missing"}`);
-    }
+    if (entry.kind === "document" && !DOCUMENT_MIMES.has(entry.mime)) throw new Error(`unsupported document MIME ${entry.mime || "missing"}`);
+
     const filename = safePath(directory, entry.file);
     const data = await readFile(filename);
     if (data.length !== entry.bytes) throw new Error(`byte mismatch ${entry.url}`);
     if (sha256(data) !== entry.sha256) throw new Error(`hash mismatch ${entry.url}`);
+
+    if (entry.kind === "document") {
+      const previous = documentUrls.get(entry.url);
+      if (previous && (previous.sha256 !== entry.sha256 || previous.bytes !== entry.bytes)) {
+        throw new Error(`conflicting duplicate document URL ${entry.url}`);
+      }
+      if (!previous) documentUrls.set(entry.url, entry);
+    }
   }
-  if (documentsDownloaded !== documentEntries) throw new Error(`downloaded document count mismatch (${documentsDownloaded} != ${documentEntries})`);
+  if (documentsDownloaded !== documentUrls.size) throw new Error(`downloaded document count mismatch (${documentsDownloaded} != ${documentUrls.size})`);
 
   const tlsTierValue = tlsTier(manifest.tlsVerification);
   if (tlsTierValue < 1) throw new Error(`unsupported transport verification ${manifest.tlsVerification || "none"}`);
@@ -173,10 +181,16 @@ async function selfTest() {
   try {
     const candidate = path.join(root, "planning-prefetch-windows");
     await mkdir(path.join(candidate, "files"), { recursive: true });
+    const seedA = Buffer.from("<html><body>Search form</body></html>");
+    const seedB = Buffer.from("<html><body>Search results for Alton Towers</body></html>");
     const page = Buffer.from("<html><body>Alton Towers planning application</body></html>");
     const document = Buffer.from("%PDF-1.4\nplanning drawing\n");
+    await writeFile(path.join(candidate, "files/seed-a.html"), seedA);
+    await writeFile(path.join(candidate, "files/seed-b.html"), seedB);
     await writeFile(path.join(candidate, "files/page.html"), page);
     await writeFile(path.join(candidate, "files/document.pdf"), document);
+    const searchUrl = "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet";
+    const documentUrl = "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=9";
     await writeFile(path.join(candidate, "manifest.json"), JSON.stringify({
       schemaVersion: 1,
       status: "usable",
@@ -187,12 +201,23 @@ async function selfTest() {
       documentsDownloaded: 1,
       applications: [{ reference: "SMD/2022/0556" }],
       entries: [
-        { url: "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet?PKID=42", file: "files/page.html", kind: "application-page", bytes: page.length, sha256: sha256(page), mime: "text/html" },
-        { url: "https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=9", file: "files/document.pdf", kind: "document", bytes: document.length, sha256: sha256(document), mime: "application/pdf" }
+        { url: searchUrl, file: "files/seed-a.html", kind: "seed-page", bytes: seedA.length, sha256: sha256(seedA), mime: "text/html" },
+        { url: searchUrl, file: "files/seed-b.html", kind: "search-results", bytes: seedB.length, sha256: sha256(seedB), mime: "text/html" },
+        { url: `${searchUrl}?PKID=42`, file: "files/page.html", kind: "application-page", bytes: page.length, sha256: sha256(page), mime: "text/html" },
+        { url: documentUrl, file: "files/document.pdf", kind: "document", bytes: document.length, sha256: sha256(document), mime: "application/pdf" }
       ]
     }));
     const result = await validateCandidate(path.join(candidate, "manifest.json"));
     if (!result.valid || result.tlsTierValue !== 3 || result.manifest.documentsDownloaded !== 1) throw new Error("selector self-test failed");
+
+    const conflicting = JSON.parse(await readFile(path.join(candidate, "manifest.json"), "utf8"));
+    const otherDocument = Buffer.from("%PDF-1.4\nconflicting drawing\n");
+    await writeFile(path.join(candidate, "files/document-other.pdf"), otherDocument);
+    conflicting.entries.push({ url: documentUrl, file: "files/document-other.pdf", kind: "document", bytes: otherDocument.length, sha256: sha256(otherDocument), mime: "application/pdf" });
+    await writeFile(path.join(candidate, "manifest-conflict.json"), JSON.stringify(conflicting));
+    let rejectedConflict = false;
+    try { await validateCandidate(path.join(candidate, "manifest-conflict.json")); } catch (error) { rejectedConflict = /conflicting duplicate document URL/.test(error.message); }
+    if (!rejectedConflict) throw new Error("selector self-test failed to reject conflicting document duplicate");
     console.log("planning prefetch selector self-test passed");
   } finally {
     await rm(root, { recursive: true, force: true });
