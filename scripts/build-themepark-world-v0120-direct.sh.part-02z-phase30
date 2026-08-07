@@ -1,14 +1,14 @@
   PHASE30A_PATCH="$ROOT/patches/v0120-phase30/v0120-phase30a-planning-authority-pink-qa.patch"
-  PHASE30A_PATCH_SHA="ad815789acc9a87e715384942b3cbb4e1a0954472702bc6753011e4b450ae7c7"
+  PHASE30A_PATCH_BLOB="fc77c24c6316a20f6eab75482a3c9db9eb001f34"
   [[ -f "$PHASE30A_PATCH" ]] || {
     echo "Missing Phase 30A planning authority/pink QA patch." | tee "$DIAG/phase30a-error.txt" >&2
     exit 2
   }
-  phase30a_actual_sha="$(sha256sum "$PHASE30A_PATCH" | cut -d' ' -f1)"
-  printf 'phase30a_patch_expected=%s\nphase30a_patch_actual=%s\n' \
-    "$PHASE30A_PATCH_SHA" "$phase30a_actual_sha" | tee "$DIAG/phase30a-patch-checksum.txt"
-  [[ "$phase30a_actual_sha" == "$PHASE30A_PATCH_SHA" ]] || {
-    echo "Phase 30A patch checksum mismatch." | tee "$DIAG/phase30a-error.txt" >&2
+  phase30a_actual_blob="$(git -C "$ROOT" hash-object "$PHASE30A_PATCH")"
+  printf 'phase30a_patch_blob_expected=%s\nphase30a_patch_blob_actual=%s\n' \
+    "$PHASE30A_PATCH_BLOB" "$phase30a_actual_blob" | tee "$DIAG/phase30a-patch-checksum.txt"
+  [[ "$phase30a_actual_blob" == "$PHASE30A_PATCH_BLOB" ]] || {
+    echo "Phase 30A patch content hash mismatch." | tee "$DIAG/phase30a-error.txt" >&2
     exit 2
   }
 
