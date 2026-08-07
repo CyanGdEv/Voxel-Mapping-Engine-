@@ -19,18 +19,34 @@ verify(compressed, '63946f357d6dfdee64cee1cf55d5ff4ffcc50e1b13f87e19d4836888119c
 const decoded = gunzipSync(compressed);
 verify(decoded, '126c2e94889d0c90d61ccb8c456d56fda03695990444ed19ec8cec84ce29e923', 'decoded Kingston planning implementation');
 
+const requestedArgs = process.argv.slice(2);
+const selfTest = requestedArgs.includes('--self-test');
 const temporary = mkdtempSync(path.join(os.tmpdir(), 'tpmap-kingston-planning-'));
 const implementation = path.join(temporary, 'prefetch-planning-kingston.impl.mjs');
 writeFileSync(implementation, decoded);
 try {
-  const result = spawnSync(process.execPath, [implementation, ...process.argv.slice(2)], { stdio: 'inherit', env: process.env });
+  const result = spawnSync(process.execPath, [implementation, ...requestedArgs], { stdio: 'inherit', env: process.env });
   if (result.error) throw result.error;
   if (result.signal) throw new Error(`Kingston planning collector terminated by ${result.signal}`);
-  process.exitCode = result.status ?? 1;
+  if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1);
+
+  const completer = path.join(directory, 'complete-chessington-jumanji-archive.mjs');
+  if (selfTest) {
+    runNode(completer, ['--self-test']);
+  } else {
+    runNode(completer, ['--directory', optionValue(requestedArgs, '--output') || 'planning-prefetch-output']);
+  }
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
 
+function runNode(script, args) {
+  const result = spawnSync(process.execPath, [script, ...args], { stdio: 'inherit', env: process.env });
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`${path.basename(script)} terminated by ${result.signal}`);
+  if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1);
+}
+function optionValue(values, name) { const index = values.indexOf(name); return index < 0 || index + 1 >= values.length ? null : values[index + 1]; }
 function verify(value, expected, label) {
   const actual = createHash('sha256').update(value).digest('hex');
   if (actual !== expected) throw new Error(`${label} checksum mismatch: expected ${expected}, got ${actual}`);
