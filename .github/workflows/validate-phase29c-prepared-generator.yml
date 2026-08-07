@@ -1,0 +1,71 @@
+name: Validate Phase 29C Prepared Generator Cache
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "scripts/prepare-fast-world-runner.mjs"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-*"
+      - "scripts/validate-park-runtime-cache.mjs"
+      - ".github/workflows/build-themepark-world-resilient.yml"
+      - ".github/workflows/validate-phase29c-prepared-generator.yml"
+      - "patches/**"
+      - "ThemePark_Map_v0.12.0_Supplemental_Source_Fusion_Source.zip"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase29c-prepared-generator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-prepared-runner:
+    name: Validate exact-fingerprint prepared generator fast path
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run deterministic helper checks
+        shell: bash
+        run: |
+          node scripts/prepare-fast-world-runner.mjs --self-test
+          node scripts/validate-park-runtime-cache.mjs --self-test
+
+      - name: Assemble production runner
+        shell: bash
+        run: |
+          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
+          chmod +x "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
+          bash -n "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
+
+      - name: Inject prepared-generator fast path
+        shell: bash
+        run: |
+          cp "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh" "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh"
+          node scripts/prepare-fast-world-runner.mjs \
+            --input "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh" \
+            --repo "$GITHUB_WORKSPACE"
+          bash -n "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh"
+          grep -q 'BEGIN PREPARED GENERATOR CACHE V1' "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh"
+          grep -q 'PREPARED_GENERATOR_FINGERPRINT=' "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh"
+          grep -q 'tar -xzf' "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh"
+
+      - name: Verify transformation is idempotent
+        shell: bash
+        run: |
+          before="$(sha256sum "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh" | cut -d' ' -f1)"
+          node scripts/prepare-fast-world-runner.mjs \
+            --input "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh" \
+            --repo "$GITHUB_WORKSPACE"
+          after="$(sha256sum "$RUNNER_TEMP/build-themepark-world-v0120-fast.sh" | cut -d' ' -f1)"
+          [[ "$before" == "$after" ]]
+          echo "prepared_runner_sha256=$after"

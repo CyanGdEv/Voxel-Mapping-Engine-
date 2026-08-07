@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Phase 29C fast path: the assembled production runner rewrites a temporary copy
+# of itself once so the checksum-locked source preparation section can be
+# restored from an exact source/patch/Node fingerprint. The transformed copy
+# sets TPMAP_PREPARED_RUNNER_TRANSFORMED to prevent recursion.
+if [[ "${TPMAP_PREPARED_RUNNER_TRANSFORMED:-false}" != "true" \
+      && -n "${TPMAP_SHARED_CACHE_DIR:-}" \
+      && -f "$(pwd)/scripts/prepare-fast-world-runner.mjs" ]]; then
+  FAST_RUNNER_TMP="${RUNNER_TEMP:-/tmp}/tpmap-prepared-runner-${BASHPID}.sh"
+  cp "$0" "$FAST_RUNNER_TMP"
+  node "$(pwd)/scripts/prepare-fast-world-runner.mjs" \
+    --input "$FAST_RUNNER_TMP" \
+    --repo "$(pwd)"
+  chmod +x "$FAST_RUNNER_TMP"
+  export TPMAP_PREPARED_RUNNER_TRANSFORMED=true
+  exec bash "$FAST_RUNNER_TMP"
+fi
+
 ROOT="$(pwd)"
 DIAG="$ROOT/ci-diagnostics"
 GEN="$ROOT/generator"
