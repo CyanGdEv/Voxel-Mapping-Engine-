@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 function parseArgs(argv) {
   const options = {};
@@ -35,7 +36,7 @@ export function transformFoundation(text) {
 async function selfTest() {
   const root = await mkdtemp(path.join(tmpdir(), 'tpmap-phase29g-'));
   try {
-    const sample = `const offsetToChunkBlockIndex=({x,y,z})=>y*256+z*16+x;\nconst WORLD_MIN_Y=-64;\n${OFFSET_ANCHOR}function floorDiv(a,b){return Math.floor(a/b)}\nfunction resolveMaterial(){return "minecraft:grass_block"}\nclass X { constructor(){this.baseY=64;this.registry={id:()=>1};this.subchunks=new Map();this.chunkX=0;this.chunkZ=0;this.paletteProfile="";this.seed=0;}\n${OLD_FOUNDATION}\n}\n`;
+    const sample = `const WORLD_MIN_Y=-64;\nconst WORLD_MAX_Y=319;\nconst offsetToChunkBlockIndex=({x,y,z})=>y*256+z*16+x;\n${OFFSET_ANCHOR}function floorDiv(a,b){return Math.floor(a/b)}\nfunction floorMod(a,b){return ((a%b)+b)%b}\nfunction resolveMaterial(source, profile, seed, x, y, z){return ((x+z+seed)&1)===0?source:"minecraft:moss_block"}\nclass Registry {\n  constructor(){this.blocks=[];this.indices=new Map();}\n  id(name){if(this.indices.has(name))return this.indices.get(name);const id=this.blocks.length;this.indices.set(name,id);this.blocks.push(name);return id;}\n}\nexport class X {\n  constructor(baseY){this.baseY=baseY;this.registry=new Registry();this.subchunks=new Map();this.chunkX=2;this.chunkZ=-3;this.paletteProfile="realistic";this.seed=11;}\n  set(x,y,z,blockId){if(y<WORLD_MIN_Y||y>WORLD_MAX_Y)return;const subChunkIndex=floorDiv(y,16);let blocks=this.subchunks.get(subChunkIndex);if(!blocks){blocks=new Uint16Array(4096);this.subchunks.set(subChunkIndex,blocks);}blocks[offsetToChunkBlockIndex({x,y:floorMod(y,16),z})]=blockId;}\n${OLD_FOUNDATION}\n  snapshot(){return {registry:[...this.registry.blocks],subchunks:[...this.subchunks.entries()].map(([index,blocks])=>[index,Array.from(blocks)])};}\n}\n`;
     const first = transformFoundation(sample);
     if (!first.changed) throw new Error('Phase 29G self-test expected a transformation');
     const second = transformFoundation(first.text);
@@ -43,11 +44,26 @@ async function selfTest() {
     for (const marker of ['CHUNK_LAYER_OFFSETS', 'blocks.fill(stone)', 'maxSubChunkIndex']) {
       if (!first.text.includes(marker)) throw new Error(`Phase 29G self-test missing ${marker}`);
     }
-    const transformedFile = path.join(root, 'mcworld.mjs');
+
+    const originalFile = path.join(root, 'original.mjs');
+    const transformedFile = path.join(root, 'transformed.mjs');
+    await writeFile(originalFile, sample);
     await writeFile(transformedFile, first.text);
     const check = spawnSync(process.execPath, ['--check', transformedFile], { encoding: 'utf8' });
     if (check.status !== 0) throw new Error(`Phase 29G transformed syntax failed: ${check.stderr || check.stdout}`);
-    console.log('Phase 29G foundation bulk-fill transform self-test passed');
+
+    const original = await import(pathToFileURL(originalFile).href + '?old=1');
+    const transformed = await import(pathToFileURL(transformedFile).href + '?new=1');
+    for (const baseY of [-1, 0, 1, 2, 4, 15, 16, 31, 32, 63, 64, 65, 127]) {
+      const before = new original.X(baseY);
+      const after = new transformed.X(baseY);
+      before.buildFoundation();
+      after.buildFoundation();
+      const expected = JSON.stringify(before.snapshot());
+      const actual = JSON.stringify(after.snapshot());
+      if (actual !== expected) throw new Error(`Phase 29G foundation equivalence failed at baseY=${baseY}`);
+    }
+    console.log('Phase 29G foundation bulk-fill transform self-test passed with exact foundation equivalence');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
