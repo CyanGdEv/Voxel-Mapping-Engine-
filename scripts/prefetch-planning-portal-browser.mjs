@@ -29,6 +29,7 @@ const collectorArgs = production ? collectorOnlyArgs(completionArgsSource) : [..
 runNode(collector, collectorArgs);
 
 if (requestedArgs.includes("--self-test")) {
+  selfTestProductionCaps();
   runNode(attachmentCompleter, ["--self-test"]);
   runNode(drawingApplicationFilter, ["--self-test"]);
   console.log("planning expanded search, balanced attachment, and drawing-application filter self-test passed");
@@ -45,8 +46,8 @@ if (requestedArgs.includes("--self-test")) {
   runNode(drawingApplicationFilter, filterArgs);
 }
 
-function productionCaps(values) {
-  if (!production) return [...values];
+function productionCaps(values, active = production) {
+  if (!active) return [...values];
   const result = [...values];
   enforceMinimum(result, "--max-applications", 500);
   enforceMinimum(result, "--max-documents", 1200);
@@ -73,6 +74,13 @@ function setOption(values, name, value) {
   const index = values.indexOf(name);
   if (index < 0) values.push(name, String(value));
   else if (index + 1 < values.length) values[index + 1] = String(value);
+}
+
+function selfTestProductionCaps() {
+  const result = productionCaps(["--max-applications", "300", "--max-documents", "240", "--max-mb", "25"], true);
+  if (optionValue(result, "--max-applications") !== "500") throw new Error("Alton production application cap self-test failed");
+  if (optionValue(result, "--max-documents") !== "1200") throw new Error("Alton production document cap self-test failed");
+  if (optionValue(result, "--max-mb") !== "150") throw new Error("Alton production byte cap self-test failed");
 }
 
 function runNode(script, childArgs) {
