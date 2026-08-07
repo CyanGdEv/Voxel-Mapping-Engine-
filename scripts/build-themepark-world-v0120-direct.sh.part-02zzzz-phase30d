@@ -1,0 +1,27 @@
+  PHASE30D_TRANSFORM="$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs"
+  [[ -f "$PHASE30D_TRANSFORM" ]] || {
+    echo "Missing Phase 30D raster planning transform." | tee "$DIAG/phase30d-error.txt" >&2
+    exit 2
+  }
+  node --check "$PHASE30D_TRANSFORM"
+  node "$PHASE30D_TRANSFORM" --self-test \
+    2>&1 | tee "$DIAG/phase30d-transform-self-test.log"
+  node "$PHASE30D_TRANSFORM" --root "$GEN" \
+    2>&1 | tee "$DIAG/phase30d-transform-apply.log"
+  node --check "$GEN/src/lib/planning-georeference.mjs"
+  node --check "$GEN/src/lib/planning-vectorize.mjs"
+  (
+    cd "$GEN"
+    node --test \
+      test/planning-georeference.test.mjs \
+      test/planning-vectorize.test.mjs \
+      2>&1 | tee "$DIAG/phase30d-planning-raster-regression-tests.log"
+  )
+  printf '%s\n' \
+    'planning_raster_georeference=png,jpeg,webp,tiff' \
+    'planning_raster_vectorization=opencv-linework-and-large-closed-outlines' \
+    'planning_raster_page_coordinates=scaled-to-accepted-georeference-page-points' \
+    'planning_raster_semantics=role-and-phase30b-gated' \
+    'planning_raster_ambiguous_site_linework=withheld-until-semantic-classification' \
+    'planning_qa_block=minecraft:pink_wool-after-authority-gates' \
+    > "$DIAG/phase30d-runtime-policy.txt"
