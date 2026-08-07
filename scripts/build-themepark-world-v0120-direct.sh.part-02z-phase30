@@ -151,7 +151,7 @@
     > "$DIAG/park-scenery-runtime-policy.txt"
 
   PARK_LANDSCAPING_LIBRARY="$ROOT/patches/v0120-phase30/park-landscaping-fidelity.mjs"
-  PARK_LANDSCAPING_LIBRARY_BLOB="4b1ce75b470c6013c895c8425102de2e6ea9befe"
+  PARK_LANDSCAPING_LIBRARY_BLOB="b0f93841553580a0ba6cd4713142e476c7f159b5"
   PARK_LANDSCAPING_INSTALLER="$ROOT/scripts/install-park-landscaping-fidelity.mjs"
   PARK_LANDSCAPING_INSTALLER_BLOB="af31721f08ad3903f36420ccc9af528b77aa2544"
   [[ -f "$PARK_LANDSCAPING_LIBRARY" && -f "$PARK_LANDSCAPING_INSTALLER" ]] || {
@@ -190,7 +190,7 @@
       const fernBlocks=[]; const fern=veg({...base,add:(...a)=>fernBlocks.push(a.at(-1)),feature:{kind:"vegetation",localGeometry:{type:"Point",coordinates:[12,12]},tags:{vegetation:"fern"}}});
       if(!fern || !fernBlocks.some(b=>["minecraft:fern","minecraft:tallgrass","minecraft:azalea"].includes(b))) throw new Error("fern groundcover test failed");
       const logBlocks=[]; const log=terrain({...base,add:(...a)=>logBlocks.push(a.at(-1)),feature:{kind:"terrain_detail",localGeometry:{type:"LineString",coordinates:[[15,15],[22,17]]},tags:{natural:"fallen_tree",diameter:"1.6"}}});
-      if(!log?.fallenLogBlocks || !logBlocks.some(b=>b.endsWith("_slab"))) throw new Error("fallen log shaping test failed");
+      if(!log?.fallenLogBlocks || log.rockModels!==1 || log.shrubModels!==0 || !logBlocks.some(b=>b.endsWith("_slab"))) throw new Error("fallen log shaping/accounting test failed");
       const wallBlocks=[]; const retaining=barrier({add:(...a)=>wallBlocks.push(a.at(-1)),feature:{tags:{barrier:"retaining_wall",material:"stone",height:"3"}},x1:2,x2:8,z:20,terrainY:64,seed:1});
       if(!retaining || !wallBlocks.some(b=>b.endsWith("_stairs")) || !wallBlocks.some(b=>b.endsWith("_slab"))) throw new Error("retaining wall shaping test failed");
       const kerbBlocks=[]; const kerb=barrier({add:(...a)=>kerbBlocks.push(a.at(-1)),feature:{tags:{barrier:"kerb"}},x1:2,x2:5,z:22,terrainY:64,seed:1});
@@ -209,6 +209,7 @@
     'planting_edges=only-when-explicitly-edged-raised-or-bordered' \
     'terrain_transitions=stairs-when-neighbouring-elevation-steps' \
     'fallen_logs=line-geometry-or-point-with-observed-length' \
+    'fallen_log_budget=terrain-detail-model' \
     'retaining_walls=observed-height-when-present-otherwise-one-block-conservative' \
     'kerbs=slab-profile' \
     'excluded=benches-drains-lamps-bins' \
