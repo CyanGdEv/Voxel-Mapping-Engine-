@@ -16,6 +16,7 @@ on:
       - "scripts/select-planning-prefetch.mjs"
       - "scripts/prepare-planning-prefetch-runtime.mjs"
       - "scripts/validate-planning-evidence-cache.mjs"
+      - "scripts/validate-park-runtime-cache.mjs"
       - "patches/v0120-phase26/**"
       - "patches/v0120-phase27/**"
       - "patches/v0120-phase28/**"
@@ -53,6 +54,7 @@ jobs:
           node scripts/select-planning-prefetch.mjs --self-test
           node scripts/prepare-planning-prefetch-runtime.mjs --self-test
           node scripts/validate-planning-evidence-cache.mjs --self-test
+          node scripts/validate-park-runtime-cache.mjs --self-test
 
   prefetch:
     name: Live portal test (${{ matrix.label }})
