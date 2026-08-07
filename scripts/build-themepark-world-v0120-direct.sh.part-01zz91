@@ -1,0 +1,17 @@
+  # Phase 29F: direct-world compiler throughput. This changes neither chunk
+  # coordinates nor block records: it batches complete LevelDB record sets and
+  # computes each chunk height map with one sorted subchunk scan.
+  node "$ROOT/patches/v0120-phase29f/world-compiler-throughput.mjs" --self-test \
+    2>&1 | tee "$DIAG/phase29f-world-compiler-selftest.log"
+  node "$ROOT/patches/v0120-phase29f/world-compiler-throughput.mjs" \
+    --file "$GEN/src/lib/mcworld.mjs" \
+    2>&1 | tee "$DIAG/phase29f-world-compiler-apply.log"
+  node --check "$GEN/src/lib/mcworld.mjs" \
+    2>&1 | tee "$DIAG/phase29f-world-compiler-syntax.log"
+  (
+    cd "$GEN"
+    env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+      test/direct-world-palette-compatibility.test.mjs \
+      2>&1 | tee "$DIAG/phase29f-world-compiler-tests.log"
+  )
+
