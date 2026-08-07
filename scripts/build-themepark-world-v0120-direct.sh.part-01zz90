@@ -1,0 +1,16 @@
+  # Phase 29E: parallelize only independent supplemental providers. Planning
+  # remains ordered because planning-document fusion consumes planning-data
+  # collections. Results from parallel providers are applied deterministically.
+  node "$ROOT/patches/v0120-phase29e/parallel-supplemental-sources.mjs" --self-test \
+    2>&1 | tee "$DIAG/phase29e-parallel-supplemental-selftest.log"
+  node "$ROOT/patches/v0120-phase29e/parallel-supplemental-sources.mjs" \
+    --file "$GEN/src/lib/supplemental-sources.mjs" \
+    2>&1 | tee "$DIAG/phase29e-parallel-supplemental-apply.log"
+  node --check "$GEN/src/lib/supplemental-sources.mjs" \
+    2>&1 | tee "$DIAG/phase29e-parallel-supplemental-syntax.log"
+  (
+    cd "$GEN"
+    env -u TPMAP_PLANNING_PREFETCH_DIR node --test test/supplemental-sources.test.mjs \
+      2>&1 | tee "$DIAG/phase29e-parallel-supplemental-tests.log"
+  )
+

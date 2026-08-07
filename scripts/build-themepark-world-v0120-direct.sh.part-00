@@ -18,6 +18,25 @@ if [[ "${TPMAP_PREPARED_RUNNER_TRANSFORMED:-false}" != "true" \
   exec bash "$FAST_RUNNER_TMP"
 fi
 
+# Phase 29H runs after Phase 29C has transformed the runner. It injects an
+# exact-evidence world-result restore before the prepared-generator boundary
+# and a post-validation store before outputs are published. This second
+# self-transform is syntax-checked before execution and is also recursion-safe.
+if [[ "${TPMAP_EXACT_WORLD_RUNNER_TRANSFORMED:-false}" != "true" \
+      && -n "${TPMAP_SHARED_CACHE_DIR:-}" \
+      && -f "$(pwd)/scripts/exact-world-result-cache.mjs" ]]; then
+  EXACT_WORLD_RUNNER_TMP="${RUNNER_TEMP:-/tmp}/tpmap-exact-world-runner-${BASHPID}.sh"
+  cp "$0" "$EXACT_WORLD_RUNNER_TMP"
+  node "$(pwd)/scripts/exact-world-result-cache.mjs" --self-test
+  node "$(pwd)/scripts/exact-world-result-cache.mjs" \
+    --inject-runner \
+    --input "$EXACT_WORLD_RUNNER_TMP"
+  bash -n "$EXACT_WORLD_RUNNER_TMP"
+  chmod +x "$EXACT_WORLD_RUNNER_TMP"
+  export TPMAP_EXACT_WORLD_RUNNER_TRANSFORMED=true
+  exec bash "$EXACT_WORLD_RUNNER_TMP"
+fi
+
 ROOT="$(pwd)"
 DIAG="$ROOT/ci-diagnostics"
 GEN="$ROOT/generator"

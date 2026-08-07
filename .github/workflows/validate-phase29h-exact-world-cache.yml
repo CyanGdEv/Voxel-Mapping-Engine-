@@ -1,0 +1,74 @@
+name: Validate Phase 29H Exact World Result Cache
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "scripts/exact-world-result-cache.mjs"
+      - "scripts/prepare-fast-world-runner.mjs"
+      - "scripts/validate-park-runtime-cache.mjs"
+      - "scripts/validate-planning-evidence-cache.mjs"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-*"
+      - ".github/workflows/validate-phase29h-exact-world-cache.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase29h-exact-world-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-exact-world-cache:
+    name: Validate exact evidence/world cache integrity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate cache integrity helpers
+        shell: bash
+        run: |
+          node scripts/validate-park-runtime-cache.mjs --self-test
+          node scripts/validate-planning-evidence-cache.mjs --self-test
+          node scripts/exact-world-result-cache.mjs --self-test
+
+      - name: Assemble real production runner
+        shell: bash
+        run: |
+          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/world-runner.sh"
+          chmod +x "$RUNNER_TEMP/world-runner.sh"
+          bash -n "$RUNNER_TEMP/world-runner.sh"
+
+      - name: Compose Phase 29C and Phase 29H runner transforms
+        shell: bash
+        run: |
+          cp "$RUNNER_TEMP/world-runner.sh" "$RUNNER_TEMP/world-runner-fast.sh"
+          node scripts/prepare-fast-world-runner.mjs \
+            --input "$RUNNER_TEMP/world-runner-fast.sh" \
+            --repo "$GITHUB_WORKSPACE"
+          node scripts/exact-world-result-cache.mjs \
+            --inject-runner \
+            --input "$RUNNER_TEMP/world-runner-fast.sh"
+          bash -n "$RUNNER_TEMP/world-runner-fast.sh"
+          grep -q 'BEGIN PREPARED GENERATOR CACHE V1' "$RUNNER_TEMP/world-runner-fast.sh"
+          grep -q 'BEGIN PHASE 29H EXACT WORLD RESULT RESTORE' "$RUNNER_TEMP/world-runner-fast.sh"
+          grep -q 'BEGIN PHASE 29H EXACT WORLD RESULT STORE' "$RUNNER_TEMP/world-runner-fast.sh"
+
+      - name: Verify exact-world transform is idempotent
+        shell: bash
+        run: |
+          before="$(sha256sum "$RUNNER_TEMP/world-runner-fast.sh" | cut -d' ' -f1)"
+          node scripts/exact-world-result-cache.mjs \
+            --inject-runner \
+            --input "$RUNNER_TEMP/world-runner-fast.sh"
+          after="$(sha256sum "$RUNNER_TEMP/world-runner-fast.sh" | cut -d' ' -f1)"
+          [[ "$before" == "$after" ]]
+          echo "combined_fast_runner_sha256=$after"

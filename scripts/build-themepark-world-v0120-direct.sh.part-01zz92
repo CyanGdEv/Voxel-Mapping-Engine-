@@ -1,0 +1,16 @@
+  # Phase 29G: replace per-block foundation set() calls with deterministic
+  # typed-array layer/subchunk fills while preserving exact top-material order.
+  node "$ROOT/patches/v0120-phase29g/foundation-bulk-fill.mjs" --self-test \
+    2>&1 | tee "$DIAG/phase29g-foundation-bulk-fill-selftest.log"
+  node "$ROOT/patches/v0120-phase29g/foundation-bulk-fill.mjs" \
+    --file "$GEN/src/lib/mcworld.mjs" \
+    2>&1 | tee "$DIAG/phase29g-foundation-bulk-fill-apply.log"
+  node --check "$GEN/src/lib/mcworld.mjs" \
+    2>&1 | tee "$DIAG/phase29g-foundation-bulk-fill-syntax.log"
+  (
+    cd "$GEN"
+    env -u TPMAP_PLANNING_PREFETCH_DIR node --test \
+      test/direct-world-palette-compatibility.test.mjs \
+      2>&1 | tee "$DIAG/phase29g-foundation-bulk-fill-tests.log"
+  )
+
