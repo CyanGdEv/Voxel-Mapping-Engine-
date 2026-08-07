@@ -12,10 +12,13 @@ import { fileURLToPath } from "node:url";
 // A final manifest pass keeps only applications proven to expose drawing or
 // geometry documents, so the Alton Towers 500-application cap is spent on
 // useful drawing-bearing cases rather than text-only planning records.
+// Ride evidence recovery then targets important Alton attractions whose useful
+// drawings can survive outside the current live attachment catalogue.
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(scriptDirectory, "prefetch-planning-portal-http.mjs");
 const attachmentCompleter = path.join(scriptDirectory, "complete-planning-prefetch-balanced.mjs");
 const drawingApplicationFilter = path.join(scriptDirectory, "filter-planning-drawing-applications.mjs");
+const rideEvidenceRecovery = path.join(scriptDirectory, "recover-alton-ride-evidence.mjs");
 const requestedArgs = process.argv.slice(2);
 const productionWorkflows = new Set([
   "Build Minecraft Theme Park World",
@@ -32,7 +35,8 @@ if (requestedArgs.includes("--self-test")) {
   selfTestProductionCaps();
   runNode(attachmentCompleter, ["--self-test"]);
   runNode(drawingApplicationFilter, ["--self-test"]);
-  console.log("planning expanded search, balanced attachment, and drawing-application filter self-test passed");
+  runNode(rideEvidenceRecovery, ["--self-test"]);
+  console.log("planning expanded search, balanced attachment, drawing-application filter, and ride-evidence recovery self-test passed");
 } else {
   const output = optionValue(completionArgsSource, "--output") || "planning-prefetch-output";
   const completionArgs = ["--directory", output];
@@ -44,6 +48,11 @@ if (requestedArgs.includes("--self-test")) {
   const filterArgs = ["--directory", output];
   copyOption(completionArgsSource, filterArgs, "--max-applications");
   runNode(drawingApplicationFilter, filterArgs);
+
+  const recoveryArgs = ["--directory", output];
+  copyOption(completionArgsSource, recoveryArgs, "--max-documents");
+  copyOption(completionArgsSource, recoveryArgs, "--max-mb");
+  runNode(rideEvidenceRecovery, recoveryArgs);
 }
 
 function productionCaps(values, active = production) {
