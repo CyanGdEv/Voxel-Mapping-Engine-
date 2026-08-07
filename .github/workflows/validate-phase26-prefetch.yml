@@ -13,6 +13,8 @@ on:
       - "scripts/complete-planning-prefetch-attachments.mjs"
       - "scripts/complete-planning-prefetch-balanced.mjs"
       - "scripts/complete-planning-prefetch-balanced.impl.mjs.gz.b64.part-*"
+      - "scripts/filter-planning-drawing-applications.mjs"
+      - "scripts/recover-alton-ride-evidence.mjs"
       - "scripts/select-planning-prefetch.mjs"
       - "scripts/prepare-planning-prefetch-runtime.mjs"
       - "scripts/validate-planning-evidence-cache.mjs"
@@ -49,6 +51,8 @@ jobs:
           node scripts/prefetch-planning-portal-http.mjs --self-test
           node scripts/complete-planning-prefetch-attachments.mjs --self-test
           node scripts/complete-planning-prefetch-balanced.mjs --self-test
+          node scripts/filter-planning-drawing-applications.mjs --self-test
+          node scripts/recover-alton-ride-evidence.mjs --self-test
           node scripts/prefetch-planning-portal-browser.mjs --self-test
           node scripts/prefetch-planning-portal.mjs --self-test
           node scripts/select-planning-prefetch.mjs --self-test
@@ -142,7 +146,7 @@ jobs:
           if (manifest.status !== 'usable') throw new Error(`selected manifest status is ${manifest.status}`);
           if ((manifest.documentsDownloaded || 0) < 1) throw new Error('selected manifest has no documents');
           const represented = (manifest.applications || []).filter((app) => (app.downloadedDocuments || []).length > 0).length;
-          console.log(JSON.stringify({ applications: manifest.liveApplications, documents: manifest.documentsDownloaded, representedApplications: represented }));
+          console.log(JSON.stringify({ applications: manifest.liveApplications, documents: manifest.documentsDownloaded, representedApplications: represented, rideEvidenceRecoveryPolicy: manifest.rideEvidenceRecoveryPolicy || null }));
           NODE
       - name: Upload selected live artifact
         if: success()
