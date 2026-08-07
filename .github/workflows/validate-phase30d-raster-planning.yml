@@ -1,0 +1,63 @@
+name: Validate Phase 30D Raster Planning Geometry
+
+on:
+  pull_request:
+    paths:
+      - 'patches/v0120-phase30d/**'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz-phase30d'
+      - '.github/workflows/validate-phase30d-raster-planning.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-raster-planning:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install geospatial and raster linework tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin python3-opencv
+          python3 - <<'PY'
+          import cv2
+          print('opencv=' + cv2.__version__)
+          PY
+
+      - name: Validate deterministic source transform
+        shell: bash
+        run: |
+          node --check patches/v0120-phase30d/raster-planning-vectorization.mjs
+          node patches/v0120-phase30d/raster-planning-vectorization.mjs --self-test
+          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/phase30d-production-runner.sh"
+          bash -n "$RUNNER_TEMP/phase30d-production-runner.sh"
+          grep -q 'PHASE30D_RASTER_PLANNING_GEOMETRY' patches/v0120-phase30d/raster-planning-vectorization.mjs
+          grep -q 'planning_raster_georeference=png,jpeg,webp,tiff' "$RUNNER_TEMP/phase30d-production-runner.sh"
+
+      - name: Exercise OpenCV linework extraction on synthetic raster plan
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import cv2, numpy as np, json
+          image=np.full((700,1000,3),255,np.uint8)
+          cv2.rectangle(image,(100,100),(450,350),(0,0,0),4)
+          cv2.line(image,(100,500),(850,500),(0,0,0),5)
+          cv2.circle(image,(700,250),120,(0,0,0),4)
+          cv2.imwrite('/tmp/phase30d-plan.png',image)
+          gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+          binary=cv2.adaptiveThreshold(cv2.GaussianBlur(gray,(3,3),0),255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV,31,11)
+          lines=cv2.HoughLinesP(binary,1,np.pi/180,threshold=25,minLineLength=24,maxLineGap=4)
+          if lines is None or len(lines) < 4:
+              raise SystemExit('synthetic planning raster did not yield linework')
+          print(json.dumps({'syntheticLines':len(lines)}))
+          PY
