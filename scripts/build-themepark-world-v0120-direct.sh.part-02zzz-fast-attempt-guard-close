@@ -1,0 +1,46 @@
+
+    TPMAP_ATTEMPT_PREPARED=true
+  fi
+
+  if [[ -f "$DIAG/deterministic-build-failure.marker" ]]; then
+    echo "strategy=$label skipped: prior source-independent build failure makes source fallback useless" | tee "$log"
+    return 64
+  fi
+  if [[ -f "$DIAG/world-runtime-budget-exhausted.marker" ]]; then
+    echo "strategy=$label skipped: world-generation runtime budget already exhausted" | tee "$log"
+    return 65
+  fi
+
+  # Wrap only the actual generator build. This keeps the existing runner intact
+  # while adding one wall-clock budget and source-independent failure detection.
+  node() {
+    if [[ "${1:-}" == "src/cli.mjs" && "${2:-}" == "build" ]]; then
+      local elapsed=$((SECONDS - TPMAP_WORLD_RUN_STARTED_AT))
+      local remaining=$((TPMAP_WORLD_RUN_BUDGET_SECONDS - elapsed))
+      local classifier_log="$DIAG/.build-failure-classifier-${label}.log"
+      if (( remaining < 60 )); then
+        printf 'World generation budget exhausted before strategy %s (elapsed=%ss budget=%ss).\n' \
+          "$label" "$elapsed" "$TPMAP_WORLD_RUN_BUDGET_SECONDS" | tee "$classifier_log" >&2
+        touch "$DIAG/world-runtime-budget-exhausted.marker"
+        return 124
+      fi
+
+      set +e
+      timeout --signal=TERM --kill-after=20s "${remaining}s" "$TPMAP_NODE_BIN" "$@" 2>&1 | tee "$classifier_log"
+      local status=${PIPESTATUS[0]}
+      set -e
+
+      if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
+        echo "World generator exceeded the bounded runtime budget." | tee -a "$classifier_log" >&2
+        touch "$DIAG/world-runtime-budget-exhausted.marker"
+      elif [[ "$status" -ne 0 ]] && grep -Eqi \
+        'unsupported Bedrock block identifier|direct-world palette contains an unsupported|ReferenceError:|SyntaxError:|ERR_MODULE_NOT_FOUND|checksum mismatch|content hash mismatch|changed unexpectedly' \
+        "$classifier_log"; then
+        echo "Source-independent generator failure detected; alternate terrain/Overpass strategies will not rebuild the park." | tee -a "$classifier_log" >&2
+        touch "$DIAG/deterministic-build-failure.marker"
+      fi
+      rm -f "$classifier_log.tmp" 2>/dev/null || true
+      return "$status"
+    fi
+    "$TPMAP_NODE_BIN" "$@"
+  }
