@@ -1,24 +1,9 @@
 
   # The source-strategy retries share one prepared generator. Patch application,
   # installer self-tests and phase regression tests are source-independent, so
-  # repeating them for every Overpass/terrain fallback only burns wall-clock.
+  # they run once before the first expensive world compile and are then reused.
   TPMAP_WORLD_RUN_STARTED_AT="${TPMAP_WORLD_RUN_STARTED_AT:-$SECONDS}"
   TPMAP_WORLD_RUN_BUDGET_SECONDS="${TPMAP_WORLD_RUN_BUDGET_SECONDS:-2040}"
   TPMAP_NODE_BIN="${TPMAP_NODE_BIN:-$(command -v node)}"
 
   if [[ "${TPMAP_ATTEMPT_PREPARED:-false}" != "true" ]]; then
-    # PR CI already runs the phase test suites. During production generation we
-    # still execute syntax checks, transforms and runtime smoke checks, but skip
-    # duplicate node --test / --self-test invocations inside each world attempt.
-    node() {
-      if [[ "${TPMAP_SKIP_REDUNDANT_RUNTIME_TESTS:-true}" == "true" ]]; then
-        local arg
-        for arg in "$@"; do
-          if [[ "$arg" == "--test" || "$arg" == "--self-test" ]]; then
-            echo "TPMAP fast build: skipping redundant production test invocation: node $*"
-            return 0
-          fi
-        done
-      fi
-      "$TPMAP_NODE_BIN" "$@"
-    }
