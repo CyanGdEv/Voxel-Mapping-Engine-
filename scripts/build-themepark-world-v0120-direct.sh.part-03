@@ -80,9 +80,10 @@ PY
     fi
   done
 
-  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm ea_vom=${TPMAP_EA_VOM:-true} park_bbox=$BBOX terrain_bbox=$TERRAIN_BBOX terrain_context_blocks=$WORLD_MARGIN expected_cells=$TERRAIN_EXPECTED_CELLS expected_chunks=$TERRAIN_EXPECTED_CHUNKS max_world_chunks=250000" | tee "$log"
-  printf 'park_bbox=%s\nterrain_bbox=%s\nterrain_context_blocks=%s\nterrain_area_km2=%s\nexpected_cells=%s\nexpected_chunks=%s\n' \
+  echo "strategy=$label elevation=$elevation overpass=$overpass dsm=$dsm ea_vom=${TPMAP_EA_VOM:-true} ea_tiled=true ea_tile_concurrency=${TPMAP_EA_TILE_CONCURRENCY:-4} park_bbox=$BBOX terrain_bbox=$TERRAIN_BBOX terrain_context_blocks=$WORLD_MARGIN expected_cells=$TERRAIN_EXPECTED_CELLS expected_chunks=$TERRAIN_EXPECTED_CHUNKS max_world_chunks=250000" | tee "$log"
+  printf 'park_bbox=%s\nterrain_bbox=%s\nterrain_context_blocks=%s\nterrain_area_km2=%s\nexpected_cells=%s\nexpected_chunks=%s\nea_tiled=true\nea_tile_concurrency=%s\nea_core_resolution_m=%s\nea_near_resolution_m=%s\nea_outer_resolution_m=%s\n' \
     "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" \
+    "${TPMAP_EA_TILE_CONCURRENCY:-4}" "${TPMAP_EA_CORE_RESOLUTION_M:-1}" "${TPMAP_EA_NEAR_RESOLUTION_M:-2}" "${TPMAP_EA_OUTER_RESOLUTION_M:-5}" \
     > "$DIAG/terrain-context.txt"
 
   local args=(
@@ -94,6 +95,20 @@ PY
     --accept-nominatim-policy
     --overpass-url "$overpass"
     --elevation "$elevation"
+    --ea-tiled
+    --ea-tile-size-m "${TPMAP_EA_TILE_SIZE_M:-1000}"
+    --ea-tile-concurrency "${TPMAP_EA_TILE_CONCURRENCY:-4}"
+    --ea-tile-min-coverage "${TPMAP_EA_TILE_MIN_COVERAGE:-0.85}"
+    --ea-tile-max-resolution-m "${TPMAP_EA_TILE_MAX_RESOLUTION_M:-2}"
+    --ea-tile-threshold-m "${TPMAP_EA_TILE_THRESHOLD_M:-1200}"
+    --ea-tile-fallback-single
+    --ea-resolution-blend
+    --ea-resolution-core-bbox "$BBOX"
+    --ea-core-resolution-m "${TPMAP_EA_CORE_RESOLUTION_M:-1}"
+    --ea-near-resolution-m "${TPMAP_EA_NEAR_RESOLUTION_M:-2}"
+    --ea-outer-resolution-m "${TPMAP_EA_OUTER_RESOLUTION_M:-5}"
+    --ea-near-distance-m "${TPMAP_EA_NEAR_DISTANCE_M:-750}"
+    --ea-resolution-feather-m "${TPMAP_EA_RESOLUTION_FEATHER_M:-64}"
     --buildings markers
     --path-width-mode inferred
     --path-terrain-mode "$PATH_TERRAIN_MODE"
@@ -163,8 +178,9 @@ console.log(`terrain passed provider=${elevation.provider} coverage=${Number.isF
 NODE
 
   cp "$log" "$GEN/$OUT_REL/build.log"
-  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0","parkBbox":"%s","terrainBbox":"%s","terrainContextBlocks":%s,"terrainAreaKm2":%s,"expectedCells":%s,"expectedChunks":%s,"eaVom":%s,"worldMargin":0,"maxWorldChunks":250000}\n' \
+  printf '{"strategy":"%s","elevation":"%s","overpass":"%s","dsm":"%s","version":"0.12.0","parkBbox":"%s","terrainBbox":"%s","terrainContextBlocks":%s,"terrainAreaKm2":%s,"expectedCells":%s,"expectedChunks":%s,"eaVom":%s,"eaTiled":true,"eaTileConcurrency":%s,"eaCoreResolutionM":%s,"eaNearResolutionM":%s,"eaOuterResolutionM":%s,"worldMargin":0,"maxWorldChunks":250000}\n' \
     "$label" "$elevation" "$overpass" "$dsm" "$BBOX" "$TERRAIN_BBOX" "$WORLD_MARGIN" "$TERRAIN_AREA_KM2" "$TERRAIN_EXPECTED_CELLS" "$TERRAIN_EXPECTED_CHUNKS" "${TPMAP_EA_VOM:-true}" \
+    "${TPMAP_EA_TILE_CONCURRENCY:-4}" "${TPMAP_EA_CORE_RESOLUTION_M:-1}" "${TPMAP_EA_NEAR_RESOLUTION_M:-2}" "${TPMAP_EA_OUTER_RESOLUTION_M:-5}" \
     > "$GEN/$OUT_REL/build-strategy.json"
   SUCCESS_STRATEGY="$label"
   return 0
