@@ -36,7 +36,9 @@ export function transformWorldCompiler(text) {
 async function selfTest() {
   const root = await mkdtemp(path.join(tmpdir(), 'tpmap-phase29f-'));
   try {
-    const sample = `const WORLD_MIN_Y=-64; const AIR='minecraft:air';\nclass X {\n  highestBlockAt(){return 1;}\n${OLD_HEIGHT_MAP}\n    return heightMap;\n  }\n}\nasync function y(){ let database={batch:async()=>{}}; let bounds={minChunkZ:0,maxChunkZ:-1,minChunkX:0,maxChunkX:-1}; let chunkCount=0, firstSample, spawnTopY, spawnTarget={}; let operationChunks=new Map(), signChunks=new Map(), compilation={palette:[]}, chunkVersion=1, completed=0; const ChunkVolume=class{}; const registry={},paletteProfile='',seed=0; const containsColumn=()=>false,floorMod=()=>0,chunkRecords=()=>[],progress=()=>{};\n${OLD_CHUNK_LOOP}\n}\nfunction offsetToChunkBlockIndex(){return 0;}\n`;
+    // Keep the fixture deliberately minimal, but do not predeclare identifiers
+    // introduced by NEW_CHUNK_LOOP; the transformation itself owns `completed`.
+    const sample = `const WORLD_MIN_Y=-64; const AIR='minecraft:air';\nclass X {\n  highestBlockAt(){return 1;}\n${OLD_HEIGHT_MAP}\n    return heightMap;\n  }\n}\nasync function y(){ let database={batch:async()=>{}}; let bounds={minChunkZ:0,maxChunkZ:-1,minChunkX:0,maxChunkX:-1}; let chunkCount=0, firstSample, spawnTopY, spawnTarget={}; let operationChunks=new Map(), signChunks=new Map(), compilation={palette:[]}, chunkVersion=1; const ChunkVolume=class{}; const registry={},paletteProfile='',seed=0; const containsColumn=()=>false,floorMod=()=>0,chunkRecords=()=>[],progress=()=>{};\n${OLD_CHUNK_LOOP}\n}\nfunction offsetToChunkBlockIndex(){return 0;}\n`;
     const first = transformWorldCompiler(sample);
     if (!first.changed) throw new Error('Phase 29F self-test expected a transformation');
     const second = transformWorldCompiler(first.text);
