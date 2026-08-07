@@ -1,0 +1,3 @@
+
+# Fragment boundary: intentionally begins with a newline so concatenation after
+# part-02 cannot merge the final local declaration with part-03.

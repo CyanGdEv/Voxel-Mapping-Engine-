@@ -11,6 +11,7 @@
 )
 
 SOURCE_ARGS=(
+  --cache "${TPMAP_SHARED_CACHE_DIR:-$GEN/.tpmap-cache}"
   --max-supplemental-features "${TPMAP_MAX_SUPPLEMENTAL_FEATURES:-50000}"
   --supplemental-page-size "${TPMAP_SUPPLEMENTAL_PAGE_SIZE:-5000}"
   --max-supplemental-download-mb "${TPMAP_MAX_SUPPLEMENTAL_DOWNLOAD_MB:-250}"

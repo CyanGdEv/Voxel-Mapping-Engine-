@@ -61,6 +61,7 @@ jobs:
       TPMAP_MAX_SUPPLEMENTAL_FEATURES: "50000"
       TPMAP_SUPPLEMENTAL_PAGE_SIZE: "5000"
       TPMAP_MAX_SUPPLEMENTAL_DOWNLOAD_MB: "250"
+      TPMAP_SHARED_CACHE_DIR: ${{ github.workspace }}/.park-runtime-cache/${{ inputs.preset }}/runtime
       NODE_OPTIONS: --max-old-space-size=6144
       npm_config_audit: "false"
       npm_config_fund: "false"
@@ -75,6 +76,40 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Restore recent shared geospatial source cache
+        id: runtime_cache_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .park-runtime-cache/${{ inputs.preset }}/runtime
+          key: park-runtime-v1-${{ inputs.preset }}-probe-${{ github.run_id }}
+          restore-keys: |
+            park-runtime-v1-${{ inputs.preset }}-
+
+      - name: Validate shared geospatial source cache
+        id: runtime_cache
+        shell: bash
+        run: |
+          CACHE_DIR="$GITHUB_WORKSPACE/.park-runtime-cache/${{ inputs.preset }}/runtime"
+          node scripts/validate-park-runtime-cache.mjs --self-test
+          set +e
+          node scripts/validate-park-runtime-cache.mjs \
+            --input "$CACHE_DIR" \
+            --park "${{ inputs.preset }}" \
+            --max-age-hours 24
+          cache_status=$?
+          set -e
+          if [[ "$cache_status" -eq 0 ]]; then
+            echo "usable=true" >> "$GITHUB_OUTPUT"
+            echo "source=verified-cache" >> "$GITHUB_OUTPUT"
+            echo "Shared source fast path: verified cache is less than 24 hours old."
+          else
+            rm -rf "$CACHE_DIR"
+            mkdir -p "$CACHE_DIR"
+            echo "usable=false" >> "$GITHUB_OUTPUT"
+            echo "source=live-fill" >> "$GITHUB_OUTPUT"
+            echo "Shared source cache missing, stale, or rejected; this build will refill it from authoritative providers."
+          fi
 
       - name: Restore recent verified park evidence
         id: planning_cache_restore
@@ -273,11 +308,13 @@ jobs:
         if: always()
         shell: bash
         run: |
-          printf 'planning_document_mode=%s\nplanning_prefetch_dir=%s\nplanning_override_mode=%s\nplanning_cache=%s\n' \
+          printf 'planning_document_mode=%s\nplanning_prefetch_dir=%s\nplanning_override_mode=%s\nplanning_cache=%s\nsource_cache=%s\nsource_cache_dir=%s\n' \
             "${TPMAP_PLANNING_DOCUMENT_MODE:-unset}" \
             "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
             "${TPMAP_PLANNING_OVERRIDE_MODE:-unset}" \
-            "${{ steps.planning_cache.outputs.source || 'not-applicable' }}"
+            "${{ steps.planning_cache.outputs.source || 'not-applicable' }}" \
+            "${{ steps.runtime_cache.outputs.source || 'unknown' }}" \
+            "${TPMAP_SHARED_CACHE_DIR:-unset}"
 
       - name: Generate and validate world
         id: build
@@ -287,6 +324,23 @@ jobs:
           chmod +x "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
           bash "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
 
+      - name: Seal newly acquired shared source cache
+        if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
+        shell: bash
+        run: |
+          rm -f "$TPMAP_SHARED_CACHE_DIR/supplemental/planning-portal-cookies.txt"
+          node scripts/validate-park-runtime-cache.mjs \
+            --seal \
+            --input "$TPMAP_SHARED_CACHE_DIR" \
+            --park "${{ inputs.preset }}"
+
+      - name: Save verified shared source cache
+        if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
+        uses: actions/cache/save@v4
+        with:
+          path: .park-runtime-cache/${{ inputs.preset }}/runtime
+          key: park-runtime-v1-${{ inputs.preset }}-${{ github.run_id }}
+
       - name: Write build summary
         if: always()
         shell: bash
@@ -295,6 +349,7 @@ jobs:
           SUMMARY_STRATEGY: ${{ steps.build.outputs.strategy || 'none' }}
           SUMMARY_MCWORLD: ${{ steps.build.outputs.mcworld || '' }}
           SUMMARY_PLANNING_CACHE: ${{ steps.planning_cache.outputs.source || 'not-applicable' }}
+          SUMMARY_RUNTIME_CACHE: ${{ steps.runtime_cache.outputs.source || 'unknown' }}
         run: |
           {
             printf '%s\n' '# Voxel Mapping Engine — Resilient Automatic Theme Park World'
@@ -304,6 +359,7 @@ jobs:
             printf '%s\n' '- Planning failure policy: fail closed for planning geometry, continue world generation with remaining sources'
             printf '%s\n' "- Successful strategy: ${SUMMARY_STRATEGY:-none}"
             printf '%s\n' "- Planning evidence path: ${SUMMARY_PLANNING_CACHE:-unknown}"
+            printf '%s\n' "- Shared geospatial source cache: ${SUMMARY_RUNTIME_CACHE:-unknown}"
             printf '%s\n' "- Effective planning document mode: ${TPMAP_PLANNING_DOCUMENT_MODE:-unset}"
             if [[ -f planning-prefetch-selected/manifest.json ]]; then
               node -e 'const m=require("./planning-prefetch-selected/manifest.json"); console.log(`- Planning evidence status: ${m.status||"unknown"}; ${m.liveApplications||0} applications; ${m.documentsDownloaded||0} documents; runner ${m.runner||"unknown"}`)'
@@ -323,6 +379,7 @@ jobs:
                 ci-diagnostics/planning-prefetch-runtime-selftest.log \
                 ci-diagnostics/planning-prefetch-runtime-normalization.log \
                 ci-diagnostics/planning-prefetch-runtime-policy.txt \
+                ci-diagnostics/prepared-generator-cache.txt \
                 ci-diagnostics/doctor.log \
                 ci-diagnostics/build-01-ea-lidar-primary.log \
                 ci-diagnostics/build-02-ea-dtm-primary.log \

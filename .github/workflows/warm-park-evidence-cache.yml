@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: warm-park-evidence-cache-alton-towers
@@ -121,3 +122,21 @@ jobs:
             planning-prefetch-normalized/**
           if-no-files-found: warn
           retention-days: 14
+
+  warm-alton-towers-geospatial:
+    name: Warm Alton Towers geospatial/world caches off-path
+    needs: warm-alton-towers-planning
+    if: ${{ needs.warm-alton-towers-planning.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch resilient cache-warming build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run build-themepark-world-resilient.yml \
+            --ref main \
+            -f preset=alton-towers
+          echo "Dispatched the full resilient build after refreshing planning evidence."
+          echo "That off-path build warms LiDAR, OSM, tree, building, Wikidata, Planning Data, OpenAerialMap and derived source caches for subsequent player builds."
