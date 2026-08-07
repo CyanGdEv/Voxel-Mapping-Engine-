@@ -149,3 +149,68 @@
     'shape_mix=full-blocks-slabs-stairs-walls-fences' \
     'unknown_geometry_policy=fall-back-to-existing-compiler' \
     > "$DIAG/park-scenery-runtime-policy.txt"
+
+  PARK_LANDSCAPING_LIBRARY="$ROOT/patches/v0120-phase30/park-landscaping-fidelity.mjs"
+  PARK_LANDSCAPING_LIBRARY_BLOB="4b1ce75b470c6013c895c8425102de2e6ea9befe"
+  PARK_LANDSCAPING_INSTALLER="$ROOT/scripts/install-park-landscaping-fidelity.mjs"
+  PARK_LANDSCAPING_INSTALLER_BLOB="af31721f08ad3903f36420ccc9af528b77aa2544"
+  [[ -f "$PARK_LANDSCAPING_LIBRARY" && -f "$PARK_LANDSCAPING_INSTALLER" ]] || {
+    echo "Missing park landscaping fidelity phase." | tee "$DIAG/park-landscaping-error.txt" >&2
+    exit 2
+  }
+  park_landscaping_library_blob="$(git -C "$ROOT" hash-object "$PARK_LANDSCAPING_LIBRARY")"
+  park_landscaping_installer_blob="$(git -C "$ROOT" hash-object "$PARK_LANDSCAPING_INSTALLER")"
+  printf 'park_landscaping_library_blob_expected=%s\npark_landscaping_library_blob_actual=%s\npark_landscaping_installer_blob_expected=%s\npark_landscaping_installer_blob_actual=%s\n' \
+    "$PARK_LANDSCAPING_LIBRARY_BLOB" "$park_landscaping_library_blob" \
+    "$PARK_LANDSCAPING_INSTALLER_BLOB" "$park_landscaping_installer_blob" \
+    | tee "$DIAG/park-landscaping-checksum.txt"
+  [[ "$park_landscaping_library_blob" == "$PARK_LANDSCAPING_LIBRARY_BLOB" && "$park_landscaping_installer_blob" == "$PARK_LANDSCAPING_INSTALLER_BLOB" ]] || {
+    echo "Park landscaping fidelity content hash mismatch." | tee "$DIAG/park-landscaping-error.txt" >&2
+    exit 2
+  }
+
+  node --check "$PARK_LANDSCAPING_LIBRARY"
+  node --check "$PARK_LANDSCAPING_INSTALLER"
+  node "$PARK_LANDSCAPING_INSTALLER" --self-test | tee "$DIAG/park-landscaping-installer-self-test.log"
+  node "$PARK_LANDSCAPING_INSTALLER" \
+    --generator "$GEN" \
+    --library "$PARK_LANDSCAPING_LIBRARY" \
+    --diagnostics "$DIAG/park-landscaping-fidelity.json" \
+    2>&1 | tee "$DIAG/park-landscaping-install.log"
+
+  node --check "$GEN/src/lib/park-landscaping-fidelity.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module -e '
+      import { tryCompileParkLandscapingVegetation as veg, tryCompileParkLandscapingTerrainDetail as terrain, compileParkLandscapingBarrierRun as barrier, landscapingCapabilities as caps } from "./src/lib/park-landscaping-fidelity.mjs";
+      const elevationY=new Array(1600).fill(64),mask=new Array(1600).fill(1),base={minX:0,minZ:0,width:40,height:40,elevationY,mask,seed:77};
+      const bedBlocks=[]; const bed=veg({...base,add:(...a)=>bedBlocks.push(a.at(-1)),feature:{kind:"vegetation",localGeometry:{type:"Polygon",coordinates:[[[4,4],[10,4],[10,9],[4,9],[4,4]]]},tags:{landuse:"flowerbed",edging:"yes",border_material:"brick"}}});
+      if(!bed?.landscapeCells || bed.groundPlants<1 || !bedBlocks.some(b=>b==="minecraft:brick_slab")) throw new Error("flowerbed planting/edging test failed");
+      const fernBlocks=[]; const fern=veg({...base,add:(...a)=>fernBlocks.push(a.at(-1)),feature:{kind:"vegetation",localGeometry:{type:"Point",coordinates:[12,12]},tags:{vegetation:"fern"}}});
+      if(!fern || !fernBlocks.some(b=>["minecraft:fern","minecraft:tallgrass","minecraft:azalea"].includes(b))) throw new Error("fern groundcover test failed");
+      const logBlocks=[]; const log=terrain({...base,add:(...a)=>logBlocks.push(a.at(-1)),feature:{kind:"terrain_detail",localGeometry:{type:"LineString",coordinates:[[15,15],[22,17]]},tags:{natural:"fallen_tree",diameter:"1.6"}}});
+      if(!log?.fallenLogBlocks || !logBlocks.some(b=>b.endsWith("_slab"))) throw new Error("fallen log shaping test failed");
+      const wallBlocks=[]; const retaining=barrier({add:(...a)=>wallBlocks.push(a.at(-1)),feature:{tags:{barrier:"retaining_wall",material:"stone",height:"3"}},x1:2,x2:8,z:20,terrainY:64,seed:1});
+      if(!retaining || !wallBlocks.some(b=>b.endsWith("_stairs")) || !wallBlocks.some(b=>b.endsWith("_slab"))) throw new Error("retaining wall shaping test failed");
+      const kerbBlocks=[]; const kerb=barrier({add:(...a)=>kerbBlocks.push(a.at(-1)),feature:{tags:{barrier:"kerb"}},x1:2,x2:5,z:22,terrainY:64,seed:1});
+      if(!kerb || !kerbBlocks.length || !kerbBlocks.every(b=>b.endsWith("_slab"))) throw new Error("kerb slab test failed");
+      const c=caps();
+      for(const key of ["flowerbeds","ferns","longGrass","fallenLogs","planterEdges","retainingWalls","kerbs","terrainAwareEdging"]) if(!c[key]) throw new Error(`missing landscaping capability ${key}`);
+      if(c.excludedStreetFurniture.join(",")!=="benches,drains,lamps,bins") throw new Error("street furniture exclusion policy failed");
+      console.log("park_landscaping_runtime_test=PASS");
+    ' 2>&1 | tee "$DIAG/park-landscaping-runtime-test.log"
+  )
+
+  printf '%s\n' \
+    'park_landscaping_fidelity=park-landscaping-fidelity-v1' \
+    'planting=flowerbeds-ferns-long-grass-shrubbery-ornamental' \
+    'planting_geometry=bounded-polygon-fill-with-deterministic-density' \
+    'planting_edges=only-when-explicitly-edged-raised-or-bordered' \
+    'terrain_transitions=stairs-when-neighbouring-elevation-steps' \
+    'fallen_logs=line-geometry-or-point-with-observed-length' \
+    'retaining_walls=observed-height-when-present-otherwise-one-block-conservative' \
+    'kerbs=slab-profile' \
+    'excluded=benches-drains-lamps-bins' \
+    'unknown_geometry_policy=fall-back-to-existing-scenery-compiler' \
+    > "$DIAG/park-landscaping-runtime-policy.txt"
