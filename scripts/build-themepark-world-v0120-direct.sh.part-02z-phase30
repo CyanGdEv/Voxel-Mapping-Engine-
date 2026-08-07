@@ -1,0 +1,41 @@
+  PHASE30A_PATCH="$ROOT/patches/v0120-phase30/v0120-phase30a-planning-authority-pink-qa.patch"
+  PHASE30A_PATCH_SHA="ad815789acc9a87e715384942b3cbb4e1a0954472702bc6753011e4b450ae7c7"
+  [[ -f "$PHASE30A_PATCH" ]] || {
+    echo "Missing Phase 30A planning authority/pink QA patch." | tee "$DIAG/phase30a-error.txt" >&2
+    exit 2
+  }
+  phase30a_actual_sha="$(sha256sum "$PHASE30A_PATCH" | cut -d' ' -f1)"
+  printf 'phase30a_patch_expected=%s\nphase30a_patch_actual=%s\n' \
+    "$PHASE30A_PATCH_SHA" "$phase30a_actual_sha" | tee "$DIAG/phase30a-patch-checksum.txt"
+  [[ "$phase30a_actual_sha" == "$PHASE30A_PATCH_SHA" ]] || {
+    echo "Phase 30A patch checksum mismatch." | tee "$DIAG/phase30a-error.txt" >&2
+    exit 2
+  }
+
+  if grep -q 'planning-provenance-qa' "$GEN/src/lib/raster.mjs"; then
+    echo "Phase 30A planning authority/pink QA already present in prepared generator." \
+      | tee "$DIAG/phase30a-patch-apply.log"
+  else
+    patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE30A_PATCH" \
+      2>&1 | tee "$DIAG/phase30a-patch-apply.log"
+  fi
+
+  node --check "$GEN/src/lib/planning-vector-fusion.mjs"
+  node --check "$GEN/src/lib/source-fusion.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --test \
+      test/planning-authority.test.mjs \
+      test/planning-vector-fusion.test.mjs \
+      test/planning-pink-qa.test.mjs \
+      2>&1 | tee "$DIAG/phase30a-planning-authority-pink-qa-tests.log"
+  )
+
+  printf '%s\n' \
+    'planning_geometry_authority=planning-drawing-vector' \
+    'planning_osm_policy=accepted-planning-overrides-compatible-osm' \
+    'planning_gap_fill=enabled-after-provenance-georeference-confidence-status-gates' \
+    'planning_qa_block=minecraft:pink_wool' \
+    'planning_ride_layouts=authoritative-when-accepted' \
+    > "$DIAG/phase30a-runtime-policy.txt"
