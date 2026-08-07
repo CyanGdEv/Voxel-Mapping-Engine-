@@ -89,7 +89,7 @@ async function filterManifest({ directory, maxApplications }) {
 }
 
 function applicationHasDrawing(application) {
-  return candidateDocuments(application).some(isDrawingDocument);
+  return downloadedDocuments(application).some(isDrawingDocument);
 }
 
 function candidateDocuments(application) {
