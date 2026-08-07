@@ -39,3 +39,179 @@
     'planning_qa_block=minecraft:pink_wool' \
     'planning_ride_layouts=authoritative-when-accepted' \
     > "$DIAG/phase30a-runtime-policy.txt"
+
+  SURFACE_MATERIAL_LIBRARY="$ROOT/patches/v0120-phase30/surface-material-library.mjs"
+  SURFACE_MATERIAL_LIBRARY_BLOB="c3f71fffd76898cf9e9f2a40c925b25fd32eefe8"
+  SURFACE_MATERIAL_INSTALLER="$ROOT/scripts/install-surface-material-library.mjs"
+  SURFACE_MATERIAL_INSTALLER_BLOB="fcd8341d85f8763d61ebc36ac00c5c562fd08e92"
+  [[ -f "$SURFACE_MATERIAL_LIBRARY" && -f "$SURFACE_MATERIAL_INSTALLER" ]] || {
+    echo "Missing theme park surface material library phase." | tee "$DIAG/surface-material-error.txt" >&2
+    exit 2
+  }
+  surface_material_library_blob="$(git -C "$ROOT" hash-object "$SURFACE_MATERIAL_LIBRARY")"
+  surface_material_installer_blob="$(git -C "$ROOT" hash-object "$SURFACE_MATERIAL_INSTALLER")"
+  printf 'surface_material_library_blob_expected=%s\nsurface_material_library_blob_actual=%s\nsurface_material_installer_blob_expected=%s\nsurface_material_installer_blob_actual=%s\n' \
+    "$SURFACE_MATERIAL_LIBRARY_BLOB" "$surface_material_library_blob" \
+    "$SURFACE_MATERIAL_INSTALLER_BLOB" "$surface_material_installer_blob" \
+    | tee "$DIAG/surface-material-checksum.txt"
+  [[ "$surface_material_library_blob" == "$SURFACE_MATERIAL_LIBRARY_BLOB" && "$surface_material_installer_blob" == "$SURFACE_MATERIAL_INSTALLER_BLOB" ]] || {
+    echo "Theme park surface material library content hash mismatch." | tee "$DIAG/surface-material-error.txt" >&2
+    exit 2
+  }
+
+  node "$SURFACE_MATERIAL_INSTALLER" --self-test | tee "$DIAG/surface-material-installer-self-test.log"
+  node "$SURFACE_MATERIAL_INSTALLER" \
+    --generator "$GEN" \
+    --library "$SURFACE_MATERIAL_LIBRARY" \
+    --diagnostics "$DIAG/surface-material-library.json" \
+    2>&1 | tee "$DIAG/surface-material-install.log"
+
+  node --check "$GEN/src/lib/surface-material-library.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module -e '
+      import { THEMEPARK_SURFACE_MATERIAL_PRESETS as p, resolveThemeParkSurfaceMaterial as r, blockForThemeParkSurfaceStyle as b } from "./src/lib/surface-material-library.mjs";
+      if (Object.keys(p).length !== 29) throw new Error("expected 29 surface material presets");
+      for (const preset of Object.values(p)) {
+        const sum = preset.palette.reduce((n,e)=>n+e.weight,0);
+        if (Math.abs(sum - 1) > 1e-9) throw new Error(`${preset.id} weights sum to ${sum}`);
+      }
+      if (p.red_block_paving.palette[0].block !== "minecraft:brick_block") throw new Error("Bedrock brick alias normalization failed");
+      if (r({material:"asphalt",observedColor:"#26282a"}).id !== "fresh_black_asphalt") throw new Error("dark asphalt resolver failed");
+      if (b({materialPreset:"weathered_asphalt"},17,-4,991) !== b({materialPreset:"weathered_asphalt"},17,-4,991)) throw new Error("surface sampling is not deterministic");
+      console.log("surface_material_runtime_test=PASS");
+    ' 2>&1 | tee "$DIAG/surface-material-runtime-test.log"
+  )
+
+  printf '%s\n' \
+    'surface_material_library=themepark-surface-materials-v1' \
+    'surface_material_presets=29' \
+    'surface_material_weights=exact-requested-percentages' \
+    'surface_material_patterns=deterministic-procedural' \
+    'surface_material_industrial_service_paving_pattern=fine_noise-default' \
+    > "$DIAG/surface-material-runtime-policy.txt"
+
+  PARK_SCENERY_LIBRARY="$ROOT/patches/v0120-phase30/park-scenery-fidelity.mjs"
+  PARK_SCENERY_LIBRARY_BLOB="0d7d1955068fce0b22334f9f9965c99cdf2f4365"
+  PARK_SCENERY_INSTALLER="$ROOT/scripts/install-park-scenery-fidelity.mjs"
+  PARK_SCENERY_INSTALLER_BLOB="38f2439c4a944510ffa68432288179a7c965e971"
+  [[ -f "$PARK_SCENERY_LIBRARY" && -f "$PARK_SCENERY_INSTALLER" ]] || {
+    echo "Missing park scenery fidelity phase." | tee "$DIAG/park-scenery-error.txt" >&2
+    exit 2
+  }
+  park_scenery_library_blob="$(git -C "$ROOT" hash-object "$PARK_SCENERY_LIBRARY")"
+  park_scenery_installer_blob="$(git -C "$ROOT" hash-object "$PARK_SCENERY_INSTALLER")"
+  printf 'park_scenery_library_blob_expected=%s\npark_scenery_library_blob_actual=%s\npark_scenery_installer_blob_expected=%s\npark_scenery_installer_blob_actual=%s\n' \
+    "$PARK_SCENERY_LIBRARY_BLOB" "$park_scenery_library_blob" \
+    "$PARK_SCENERY_INSTALLER_BLOB" "$park_scenery_installer_blob" \
+    | tee "$DIAG/park-scenery-checksum.txt"
+  [[ "$park_scenery_library_blob" == "$PARK_SCENERY_LIBRARY_BLOB" && "$park_scenery_installer_blob" == "$PARK_SCENERY_INSTALLER_BLOB" ]] || {
+    echo "Park scenery fidelity content hash mismatch." | tee "$DIAG/park-scenery-error.txt" >&2
+    exit 2
+  }
+
+  node --check "$PARK_SCENERY_LIBRARY"
+  node --check "$PARK_SCENERY_INSTALLER"
+  node "$PARK_SCENERY_INSTALLER" --self-test | tee "$DIAG/park-scenery-installer-self-test.log"
+  node "$PARK_SCENERY_INSTALLER" \
+    --generator "$GEN" \
+    --library "$PARK_SCENERY_LIBRARY" \
+    --diagnostics "$DIAG/park-scenery-fidelity.json" \
+    2>&1 | tee "$DIAG/park-scenery-install.log"
+
+  node --check "$GEN/src/lib/park-scenery-fidelity.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module -e '
+      import { tryCompileParkVegetation as tree, tryCompileParkTerrainDetail as rock, compileParkBarrierRun as barrier, sceneryShapeCapabilities as caps } from "./src/lib/park-scenery-fidelity.mjs";
+      const elevationY = new Array(400).fill(64), mask = new Array(400).fill(1);
+      const treeBlocks=[]; const addTree=(...a)=>treeBlocks.push(a.at(-1));
+      const t=tree({add:addTree,feature:{kind:"vegetation",localGeometry:{type:"Point",coordinates:[5,5]},tags:{species:"Quercus robur"},fidelity:{vegetation:{heightM:14}}},minX:0,minZ:0,width:20,height:20,elevationY,mask,seed:42});
+      if(!t?.enhancedScenery || !treeBlocks.some(b=>b.endsWith("_stairs"))) throw new Error("tree shape/root stair test failed");
+      const rockBlocks=[]; const r=rock({add:(...a)=>rockBlocks.push(a.at(-1)),feature:{kind:"terrain_detail",localGeometry:{type:"Point",coordinates:[8,8]},tags:{natural:"boulder",width:"5",height:"3"}},minX:0,minZ:0,width:20,height:20,elevationY,mask,seed:42});
+      if(!r || !rockBlocks.some(b=>/_slab$|_stairs$|_wall$/.test(b))) throw new Error("boulder slab/stair/wall test failed");
+      const fenceBlocks=[]; const handled=barrier({add:(...a)=>fenceBlocks.push(a.at(-1)),feature:{tags:{barrier:"wall",material:"stone"}},x1:0,x2:8,z:0,terrainY:64,seed:1});
+      if(!handled || !fenceBlocks.some(b=>b.endsWith("_wall")) || !fenceBlocks.some(b=>b.endsWith("_slab"))) throw new Error("masonry wall/slab test failed");
+      const c=caps(); if(!c.slabs||!c.stairs||!c.walls||!c.fences) throw new Error("scenery shape capability test failed");
+      console.log("park_scenery_runtime_test=PASS");
+    ' 2>&1 | tee "$DIAG/park-scenery-runtime-test.log"
+  )
+
+  printf '%s\n' \
+    'park_scenery_fidelity=park-scenery-fidelity-v1' \
+    'tree_height_authority=existing-tag-ea-vom-lidar-evidence' \
+    'tree_shapes=deciduous-birch-conifer-willow-ornamental' \
+    'foliage=layered-asymmetric-species-aware-plus-shrubs-hedges' \
+    'rock_geometry=dimensioned-evidence-with-irregular-core-and-shaped-edges' \
+    'barriers=typed-hedge-masonry-timber-metal' \
+    'shape_mix=full-blocks-slabs-stairs-walls-fences' \
+    'unknown_geometry_policy=fall-back-to-existing-compiler' \
+    > "$DIAG/park-scenery-runtime-policy.txt"
+
+  PARK_LANDSCAPING_LIBRARY="$ROOT/patches/v0120-phase30/park-landscaping-fidelity.mjs"
+  PARK_LANDSCAPING_LIBRARY_BLOB="b0f93841553580a0ba6cd4713142e476c7f159b5"
+  PARK_LANDSCAPING_INSTALLER="$ROOT/scripts/install-park-landscaping-fidelity.mjs"
+  PARK_LANDSCAPING_INSTALLER_BLOB="af31721f08ad3903f36420ccc9af528b77aa2544"
+  [[ -f "$PARK_LANDSCAPING_LIBRARY" && -f "$PARK_LANDSCAPING_INSTALLER" ]] || {
+    echo "Missing park landscaping fidelity phase." | tee "$DIAG/park-landscaping-error.txt" >&2
+    exit 2
+  }
+  park_landscaping_library_blob="$(git -C "$ROOT" hash-object "$PARK_LANDSCAPING_LIBRARY")"
+  park_landscaping_installer_blob="$(git -C "$ROOT" hash-object "$PARK_LANDSCAPING_INSTALLER")"
+  printf 'park_landscaping_library_blob_expected=%s\npark_landscaping_library_blob_actual=%s\npark_landscaping_installer_blob_expected=%s\npark_landscaping_installer_blob_actual=%s\n' \
+    "$PARK_LANDSCAPING_LIBRARY_BLOB" "$park_landscaping_library_blob" \
+    "$PARK_LANDSCAPING_INSTALLER_BLOB" "$park_landscaping_installer_blob" \
+    | tee "$DIAG/park-landscaping-checksum.txt"
+  [[ "$park_landscaping_library_blob" == "$PARK_LANDSCAPING_LIBRARY_BLOB" && "$park_landscaping_installer_blob" == "$PARK_LANDSCAPING_INSTALLER_BLOB" ]] || {
+    echo "Park landscaping fidelity content hash mismatch." | tee "$DIAG/park-landscaping-error.txt" >&2
+    exit 2
+  }
+
+  node --check "$PARK_LANDSCAPING_LIBRARY"
+  node --check "$PARK_LANDSCAPING_INSTALLER"
+  node "$PARK_LANDSCAPING_INSTALLER" --self-test | tee "$DIAG/park-landscaping-installer-self-test.log"
+  node "$PARK_LANDSCAPING_INSTALLER" \
+    --generator "$GEN" \
+    --library "$PARK_LANDSCAPING_LIBRARY" \
+    --diagnostics "$DIAG/park-landscaping-fidelity.json" \
+    2>&1 | tee "$DIAG/park-landscaping-install.log"
+
+  node --check "$GEN/src/lib/park-landscaping-fidelity.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module -e '
+      import { tryCompileParkLandscapingVegetation as veg, tryCompileParkLandscapingTerrainDetail as terrain, compileParkLandscapingBarrierRun as barrier, landscapingCapabilities as caps } from "./src/lib/park-landscaping-fidelity.mjs";
+      const elevationY=new Array(1600).fill(64),mask=new Array(1600).fill(1),base={minX:0,minZ:0,width:40,height:40,elevationY,mask,seed:77};
+      const bedBlocks=[]; const bed=veg({...base,add:(...a)=>bedBlocks.push(a.at(-1)),feature:{kind:"vegetation",localGeometry:{type:"Polygon",coordinates:[[[4,4],[10,4],[10,9],[4,9],[4,4]]]},tags:{landuse:"flowerbed",edging:"yes",border_material:"brick"}}});
+      if(!bed?.landscapeCells || bed.groundPlants<1 || !bedBlocks.some(b=>b==="minecraft:brick_slab")) throw new Error("flowerbed planting/edging test failed");
+      const fernBlocks=[]; const fern=veg({...base,add:(...a)=>fernBlocks.push(a.at(-1)),feature:{kind:"vegetation",localGeometry:{type:"Point",coordinates:[12,12]},tags:{vegetation:"fern"}}});
+      if(!fern || !fernBlocks.some(b=>["minecraft:fern","minecraft:tallgrass","minecraft:azalea"].includes(b))) throw new Error("fern groundcover test failed");
+      const logBlocks=[]; const log=terrain({...base,add:(...a)=>logBlocks.push(a.at(-1)),feature:{kind:"terrain_detail",localGeometry:{type:"LineString",coordinates:[[15,15],[22,17]]},tags:{natural:"fallen_tree",diameter:"1.6"}}});
+      if(!log?.fallenLogBlocks || log.rockModels!==1 || log.shrubModels!==0 || !logBlocks.some(b=>b.endsWith("_slab"))) throw new Error("fallen log shaping/accounting test failed");
+      const wallBlocks=[]; const retaining=barrier({add:(...a)=>wallBlocks.push(a.at(-1)),feature:{tags:{barrier:"retaining_wall",material:"stone",height:"3"}},x1:2,x2:8,z:20,terrainY:64,seed:1});
+      if(!retaining || !wallBlocks.some(b=>b.endsWith("_stairs")) || !wallBlocks.some(b=>b.endsWith("_slab"))) throw new Error("retaining wall shaping test failed");
+      const kerbBlocks=[]; const kerb=barrier({add:(...a)=>kerbBlocks.push(a.at(-1)),feature:{tags:{barrier:"kerb"}},x1:2,x2:5,z:22,terrainY:64,seed:1});
+      if(!kerb || !kerbBlocks.length || !kerbBlocks.every(b=>b.endsWith("_slab"))) throw new Error("kerb slab test failed");
+      const c=caps();
+      for(const key of ["flowerbeds","ferns","longGrass","fallenLogs","planterEdges","retainingWalls","kerbs","terrainAwareEdging"]) if(!c[key]) throw new Error(`missing landscaping capability ${key}`);
+      if(c.excludedStreetFurniture.join(",")!=="benches,drains,lamps,bins") throw new Error("street furniture exclusion policy failed");
+      console.log("park_landscaping_runtime_test=PASS");
+    ' 2>&1 | tee "$DIAG/park-landscaping-runtime-test.log"
+  )
+
+  printf '%s\n' \
+    'park_landscaping_fidelity=park-landscaping-fidelity-v1' \
+    'planting=flowerbeds-ferns-long-grass-shrubbery-ornamental' \
+    'planting_geometry=bounded-polygon-fill-with-deterministic-density' \
+    'planting_edges=only-when-explicitly-edged-raised-or-bordered' \
+    'terrain_transitions=stairs-when-neighbouring-elevation-steps' \
+    'fallen_logs=line-geometry-or-point-with-observed-length' \
+    'fallen_log_budget=terrain-detail-model' \
+    'retaining_walls=observed-height-when-present-otherwise-one-block-conservative' \
+    'kerbs=slab-profile' \
+    'excluded=benches-drains-lamps-bins' \
+    'unknown_geometry_policy=fall-back-to-existing-scenery-compiler' \
+    > "$DIAG/park-landscaping-runtime-policy.txt"
