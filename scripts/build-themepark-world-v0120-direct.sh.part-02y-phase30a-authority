@@ -1,19 +1,27 @@
 
   # Install Phase 30A deterministically before the historical unified patch
-  # stage. The installer writes the intended authority/pink-QA source and test
-  # state. part-02z-phase30 then sees its planning-provenance marker and skips
-  # the now-obsolete fragile patch application entirely.
+  # stage. The installers write the intended authority/pink-QA source and the
+  # matching regression-test state. part-02z-phase30 then sees its
+  # planning-provenance marker and skips the obsolete fragile patch entirely.
   PHASE30A_INSTALLER="$ROOT/scripts/install-phase30a-authority.mjs"
-  [[ -f "$PHASE30A_INSTALLER" ]] || {
-    echo "Missing deterministic Phase 30A authority installer." | tee "$DIAG/phase30a-installer-error.txt" >&2
+  PHASE30A_TEST_INSTALLER="$ROOT/scripts/install-phase30a-tests.mjs"
+  [[ -f "$PHASE30A_INSTALLER" && -f "$PHASE30A_TEST_INSTALLER" ]] || {
+    echo "Missing deterministic Phase 30A installers." | tee "$DIAG/phase30a-installer-error.txt" >&2
     exit 2
   }
   "$TPMAP_NODE_BIN" "$PHASE30A_INSTALLER" --self-test \
     2>&1 | tee "$DIAG/phase30a-installer-self-test.log"
+  "$TPMAP_NODE_BIN" "$PHASE30A_TEST_INSTALLER" --self-test \
+    2>&1 | tee "$DIAG/phase30a-test-installer-self-test.log"
   "$TPMAP_NODE_BIN" "$PHASE30A_INSTALLER" --generator "$GEN" \
     2>&1 | tee "$DIAG/phase30a-installer-apply.log"
+  "$TPMAP_NODE_BIN" "$PHASE30A_TEST_INSTALLER" --generator "$GEN" \
+    2>&1 | tee "$DIAG/phase30a-test-installer-apply.log"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vector-fusion.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/source-fusion.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/raster.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/test/planning-authority.test.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/test/planning-vector-fusion.test.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/test/planning-pink-qa.test.mjs"
   "$TPMAP_NODE_BIN" "$PHASE30A_INSTALLER" --generator "$GEN" --validate-only \
     2>&1 | tee "$DIAG/phase30a-installer-validation.log"
