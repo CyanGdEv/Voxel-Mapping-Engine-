@@ -39,3 +39,55 @@
     'planning_qa_block=minecraft:pink_wool' \
     'planning_ride_layouts=authoritative-when-accepted' \
     > "$DIAG/phase30a-runtime-policy.txt"
+
+  SURFACE_MATERIAL_LIBRARY="$ROOT/patches/v0120-phase30/surface-material-library.mjs"
+  SURFACE_MATERIAL_LIBRARY_BLOB="c3f71fffd76898cf9e9f2a40c925b25fd32eefe8"
+  SURFACE_MATERIAL_INSTALLER="$ROOT/scripts/install-surface-material-library.mjs"
+  SURFACE_MATERIAL_INSTALLER_BLOB="fcd8341d85f8763d61ebc36ac00c5c562fd08e92"
+  [[ -f "$SURFACE_MATERIAL_LIBRARY" && -f "$SURFACE_MATERIAL_INSTALLER" ]] || {
+    echo "Missing theme park surface material library phase." | tee "$DIAG/surface-material-error.txt" >&2
+    exit 2
+  }
+  surface_material_library_blob="$(git -C "$ROOT" hash-object "$SURFACE_MATERIAL_LIBRARY")"
+  surface_material_installer_blob="$(git -C "$ROOT" hash-object "$SURFACE_MATERIAL_INSTALLER")"
+  printf 'surface_material_library_blob_expected=%s\nsurface_material_library_blob_actual=%s\nsurface_material_installer_blob_expected=%s\nsurface_material_installer_blob_actual=%s\n' \
+    "$SURFACE_MATERIAL_LIBRARY_BLOB" "$surface_material_library_blob" \
+    "$SURFACE_MATERIAL_INSTALLER_BLOB" "$surface_material_installer_blob" \
+    | tee "$DIAG/surface-material-checksum.txt"
+  [[ "$surface_material_library_blob" == "$SURFACE_MATERIAL_LIBRARY_BLOB" && "$surface_material_installer_blob" == "$SURFACE_MATERIAL_INSTALLER_BLOB" ]] || {
+    echo "Theme park surface material library content hash mismatch." | tee "$DIAG/surface-material-error.txt" >&2
+    exit 2
+  }
+
+  node "$SURFACE_MATERIAL_INSTALLER" --self-test | tee "$DIAG/surface-material-installer-self-test.log"
+  node "$SURFACE_MATERIAL_INSTALLER" \
+    --generator "$GEN" \
+    --library "$SURFACE_MATERIAL_LIBRARY" \
+    --diagnostics "$DIAG/surface-material-library.json" \
+    2>&1 | tee "$DIAG/surface-material-install.log"
+
+  node --check "$GEN/src/lib/surface-material-library.mjs"
+  node --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module -e '
+      import { THEMEPARK_SURFACE_MATERIAL_PRESETS as p, resolveThemeParkSurfaceMaterial as r, blockForThemeParkSurfaceStyle as b } from "./src/lib/surface-material-library.mjs";
+      if (Object.keys(p).length !== 29) throw new Error("expected 29 surface material presets");
+      for (const preset of Object.values(p)) {
+        const sum = preset.palette.reduce((n,e)=>n+e.weight,0);
+        if (Math.abs(sum - 1) > 1e-9) throw new Error(`${preset.id} weights sum to ${sum}`);
+      }
+      if (p.red_block_paving.palette[0].block !== "minecraft:brick_block") throw new Error("Bedrock brick alias normalization failed");
+      if (r({material:"asphalt",observedColor:"#26282a"}).id !== "fresh_black_asphalt") throw new Error("dark asphalt resolver failed");
+      if (b({materialPreset:"weathered_asphalt"},17,-4,991) !== b({materialPreset:"weathered_asphalt"},17,-4,991)) throw new Error("surface sampling is not deterministic");
+      console.log("surface_material_runtime_test=PASS");
+    ' 2>&1 | tee "$DIAG/surface-material-runtime-test.log"
+  )
+
+  printf '%s\n' \
+    'surface_material_library=themepark-surface-materials-v1' \
+    'surface_material_presets=29' \
+    'surface_material_weights=exact-requested-percentages' \
+    'surface_material_patterns=deterministic-procedural' \
+    'surface_material_industrial_service_paving_pattern=fine_noise-default' \
+    > "$DIAG/surface-material-runtime-policy.txt"
