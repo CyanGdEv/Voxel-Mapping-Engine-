@@ -9,31 +9,47 @@ import { fileURLToPath } from "node:url";
 // host. The balanced completion stage then expands address/pagination/related
 // application discovery and distributes high-value attachment downloads across
 // cases, preventing one large application from consuming the evidence budget.
+// A final manifest pass keeps only applications proven to expose drawing or
+// geometry documents, so the Alton Towers 500-application cap is spent on
+// useful drawing-bearing cases rather than text-only planning records.
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(scriptDirectory, "prefetch-planning-portal-http.mjs");
 const attachmentCompleter = path.join(scriptDirectory, "complete-planning-prefetch-balanced.mjs");
+const drawingApplicationFilter = path.join(scriptDirectory, "filter-planning-drawing-applications.mjs");
 const requestedArgs = process.argv.slice(2);
-const production = !requestedArgs.includes("--self-test") && process.env.GITHUB_WORKFLOW === "Build Minecraft Theme Park World";
+const productionWorkflows = new Set([
+  "Build Minecraft Theme Park World",
+  "Build Minecraft Theme Park World (Resilient)",
+  "Warm Theme Park Evidence Cache"
+]);
+const production = !requestedArgs.includes("--self-test") && productionWorkflows.has(process.env.GITHUB_WORKFLOW || "");
 const completionArgsSource = productionCaps(requestedArgs);
 const collectorArgs = production ? collectorOnlyArgs(completionArgsSource) : [...completionArgsSource];
 
 runNode(collector, collectorArgs);
 
 if (requestedArgs.includes("--self-test")) {
+  selfTestProductionCaps();
   runNode(attachmentCompleter, ["--self-test"]);
-  console.log("planning expanded search and balanced attachment pipeline self-test passed");
+  runNode(drawingApplicationFilter, ["--self-test"]);
+  console.log("planning expanded search, balanced attachment, and drawing-application filter self-test passed");
 } else {
-  const completionArgs = ["--directory", optionValue(completionArgsSource, "--output") || "planning-prefetch-output"];
+  const output = optionValue(completionArgsSource, "--output") || "planning-prefetch-output";
+  const completionArgs = ["--directory", output];
   copyOption(completionArgsSource, completionArgs, "--max-applications");
   copyOption(completionArgsSource, completionArgs, "--max-documents");
   copyOption(completionArgsSource, completionArgs, "--max-mb");
   runNode(attachmentCompleter, completionArgs);
+
+  const filterArgs = ["--directory", output];
+  copyOption(completionArgsSource, filterArgs, "--max-applications");
+  runNode(drawingApplicationFilter, filterArgs);
 }
 
-function productionCaps(values) {
-  if (!production) return [...values];
+function productionCaps(values, active = production) {
+  if (!active) return [...values];
   const result = [...values];
-  enforceMinimum(result, "--max-applications", 300);
+  enforceMinimum(result, "--max-applications", 500);
   enforceMinimum(result, "--max-documents", 1200);
   enforceMinimum(result, "--max-mb", 150);
   return result;
@@ -58,6 +74,13 @@ function setOption(values, name, value) {
   const index = values.indexOf(name);
   if (index < 0) values.push(name, String(value));
   else if (index + 1 < values.length) values[index + 1] = String(value);
+}
+
+function selfTestProductionCaps() {
+  const result = productionCaps(["--max-applications", "300", "--max-documents", "240", "--max-mb", "25"], true);
+  if (optionValue(result, "--max-applications") !== "500") throw new Error("Alton production application cap self-test failed");
+  if (optionValue(result, "--max-documents") !== "1200") throw new Error("Alton production document cap self-test failed");
+  if (optionValue(result, "--max-mb") !== "150") throw new Error("Alton production byte cap self-test failed");
 }
 
 function runNode(script, childArgs) {

@@ -3,6 +3,14 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+const DRAWING_ROLES = new Set([
+  'site-plan', 'location-plan', 'block-plan', 'masterplan', 'general-arrangement',
+  'landscape-plan', 'access-plan', 'ride-layout', 'track-layout',
+  'terrain-or-drainage', 'floor-plan', 'roof-plan', 'elevation', 'section', 'lighting-plan'
+]);
+const DRAWING_TEXT = /\b(site|block|location|master|landscape|planting|access|floor|roof|elevation|section|drainage|levels?|topograph(?:y|ical)?|ride|track|layout|general arrangement|ga|drawing|plan)\b/i;
+const NON_DRAWING_TEXT = /\b(decision|officer report|committee report|application form|certificate|notice|consultation|representation|correspondence|email|fee|privacy)\b/i;
+
 function argsOf(argv) {
   const out = {};
   for (let i = 2; i < argv.length; i += 1) {
@@ -60,6 +68,15 @@ function dedupeDocuments(documents) {
   return [...map.values()];
 }
 
+function isDrawingDocument(document) {
+  if (!document || document.rejected === true) return false;
+  const role = String(document.role || '').trim().toLowerCase();
+  if (DRAWING_ROLES.has(role)) return true;
+  if (['document', 'decision-notice', 'officer-report', 'committee-report'].includes(role)) return false;
+  const text = `${document.text || ''} ${document.title || ''} ${document.name || ''} ${document.url || ''}`;
+  return DRAWING_TEXT.test(text) && !NON_DRAWING_TEXT.test(text);
+}
+
 async function prepare(input, output) {
   const inputRoot = path.resolve(input);
   const outputRoot = path.resolve(output);
@@ -93,7 +110,8 @@ async function prepare(input, output) {
       applications: 0,
       documents: 0,
       duplicateEntriesRemoved: 0,
-      invalidEntriesRemoved: 0
+      invalidEntriesRemoved: 0,
+      applicationsWithoutDrawingsRemoved: 0
     };
     await writeFile(path.join(outputRoot, 'runtime-report.json'), JSON.stringify(report, null, 2) + '\n');
     return report;
@@ -103,6 +121,7 @@ async function prepare(input, output) {
 
   let duplicateEntriesRemoved = 0;
   let invalidEntriesRemoved = 0;
+  let applicationsWithoutDrawingsRemoved = 0;
   const candidates = [];
   for (const raw of Array.isArray(manifest.entries) ? manifest.entries : []) {
     const key = canonicalUrl(raw?.url || raw?.finalUrl || raw?.transportUrl || '');
@@ -148,6 +167,11 @@ async function prepare(input, output) {
       return !entry.applicationReference || !reference || entry.applicationReference === reference;
     });
     if (!linked.length) continue;
+    const linkedDrawings = linked.filter(isDrawingDocument);
+    if (!linkedDrawings.length) {
+      applicationsWithoutDrawingsRemoved += 1;
+      continue;
+    }
     linkedDocuments += linked.length;
     applications.push({
       ...raw,
@@ -165,10 +189,20 @@ async function prepare(input, output) {
     documentsDownloaded: ready ? linkedDocuments : 0,
     applications: ready ? applications : [],
     entries,
+    applicationSelection: {
+      ...(manifest.applicationSelection || {}),
+      policy: 'drawing-bearing-only',
+      maxApplications: Number.isFinite(Number(manifest?.applicationSelection?.maxApplications))
+        ? Number(manifest.applicationSelection.maxApplications)
+        : null,
+      retainedApplications: ready ? applications.length : 0,
+      runtimeApplicationsWithoutDownloadedDrawingsRemoved: applicationsWithoutDrawingsRemoved
+    },
     warnings: [
       ...(Array.isArray(manifest.warnings) ? manifest.warnings : []),
       ...(duplicateEntriesRemoved ? [`Runtime normalization removed ${duplicateEntriesRemoved} duplicate canonical prefetch entr${duplicateEntriesRemoved === 1 ? 'y' : 'ies'}.`] : []),
       ...(invalidEntriesRemoved ? [`Runtime normalization removed ${invalidEntriesRemoved} invalid prefetch entr${invalidEntriesRemoved === 1 ? 'y' : 'ies'}.`] : []),
+      ...(applicationsWithoutDrawingsRemoved ? [`Runtime normalization removed ${applicationsWithoutDrawingsRemoved} application${applicationsWithoutDrawingsRemoved === 1 ? '' : 's'} without a downloaded drawing.`] : []),
       ...(!ready ? ['Prefetch was not bridge-ready after runtime normalization; planning ingestion must remain disabled for this build.'] : [])
     ]
   };
@@ -182,7 +216,8 @@ async function prepare(input, output) {
     documents: linkedDocuments,
     entries: entries.length,
     duplicateEntriesRemoved,
-    invalidEntriesRemoved
+    invalidEntriesRemoved,
+    applicationsWithoutDrawingsRemoved
   };
   await writeFile(path.join(outputRoot, 'runtime-report.json'), JSON.stringify(report, null, 2) + '\n');
   return report;
@@ -197,29 +232,46 @@ async function selfTest() {
   await mkdir(path.join(input, 'files'), { recursive: true });
   await writeFile(path.join(input, 'files', 'app.html'), '<html></html>');
   await writeFile(path.join(input, 'files', 'plan.pdf'), '%PDF-1.4\n%%EOF');
+  await writeFile(path.join(input, 'files', 'decision.pdf'), '%PDF-1.4\n%%EOF');
   const app = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet?PKID=123';
+  const appTextOnly = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet?PKID=124';
   const doc = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=plan.pdf';
+  const decision = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=decision.pdf';
   await writeFile(path.join(input, 'manifest.json'), JSON.stringify({
     schemaVersion: 1,
     status: 'usable',
-    liveApplications: 1,
-    documentsDownloaded: 1,
-    applications: [{
-      reference: 'SMD/TEST',
-      url: app,
-      documents: [{ url: doc }],
-      downloadedDocuments: [{ url: doc, bytes: 14 }]
-    }],
+    liveApplications: 2,
+    documentsDownloaded: 2,
+    applications: [
+      {
+        reference: 'SMD/TEST',
+        url: app,
+        documents: [{ url: doc, role: 'site-plan' }],
+        downloadedDocuments: [{ url: doc, role: 'site-plan', bytes: 14 }]
+      },
+      {
+        reference: 'SMD/TEXT',
+        url: appTextOnly,
+        documents: [{ url: decision, role: 'decision-notice' }],
+        downloadedDocuments: [{ url: decision, role: 'decision-notice', bytes: 14 }]
+      }
+    ],
     entries: [
       { url: 'http://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', file: 'files/app.html', kind: 'search-page' },
       { url: 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', file: 'files/app.html', kind: 'search-page' },
       { url: app, file: 'files/app.html', kind: 'application-page', applicationReference: 'SMD/TEST' },
-      { url: doc, file: 'files/plan.pdf', kind: 'document', applicationReference: 'SMD/TEST', bytes: 14 }
+      { url: appTextOnly, file: 'files/app.html', kind: 'application-page', applicationReference: 'SMD/TEXT' },
+      { url: doc, file: 'files/plan.pdf', kind: 'document', applicationReference: 'SMD/TEST', bytes: 14 },
+      { url: decision, file: 'files/decision.pdf', kind: 'document', applicationReference: 'SMD/TEXT', bytes: 14 }
     ]
   }, null, 2));
   const report = await prepare(input, output);
-  if (report.status !== 'ready' || report.applications !== 1 || report.documents < 1 || report.duplicateEntriesRemoved !== 1) {
+  if (report.status !== 'ready' || report.applications !== 1 || report.documents < 1 || report.duplicateEntriesRemoved !== 1 || report.applicationsWithoutDrawingsRemoved !== 1) {
     throw new Error(`self-test failed: ${JSON.stringify(report)}`);
+  }
+  const sanitized = JSON.parse(await readFile(path.join(output, 'manifest.json'), 'utf8'));
+  if (sanitized.applicationSelection?.policy !== 'drawing-bearing-only' || sanitized.applicationSelection?.maxApplications !== null) {
+    throw new Error('drawing-bearing runtime selection self-test failed');
   }
   console.log('planning runtime prefetch normalization self-test passed');
 }
