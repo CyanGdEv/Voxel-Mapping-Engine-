@@ -62,12 +62,19 @@ jobs:
           phase30a_line=$(grep -n 'part-02y-phase30a-authority' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           legacy_phase30_line=$(grep -n 'part-02z-phase30$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           phase30b_line=$(grep -n 'part-02zz-phase30b$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
-          phase30d_line=$(grep -n 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           final_guard_line=$(grep -n 'part-02zzzzzzzzzz-fast-attempt-guard-close' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           test "$phase30a_line" -lt "$legacy_phase30_line"
           test "$legacy_phase30_line" -lt "$phase30b_line"
-          test "$phase30b_line" -lt "$phase30d_line"
-          test "$phase30d_line" -lt "$final_guard_line"
+          test "$phase30b_line" -lt "$final_guard_line"
+
+          # Phase 30D was merged into the stacked Phase 30C feature branch, not
+          # current main. If it is promoted into main later, the final guard must
+          # remain after it; until then do not require a nonexistent fragment.
+          if grep -q 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt"; then
+            phase30d_line=$(grep -n 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+            test "$phase30b_line" -lt "$phase30d_line"
+            test "$phase30d_line" -lt "$final_guard_line"
+          fi
       - name: Verify resilient workflow budget policy
         shell: bash
         run: |
