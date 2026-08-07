@@ -3,14 +3,14 @@ name: Validate Bounded World Runtime
 on:
   pull_request:
     paths:
-      - '.github/workflows/build-themepark-world-v0120-resilient.yml'
+      - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-themepark-world-v0120-resilient.yml'
+      - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
 
@@ -39,7 +39,7 @@ jobs:
       - name: Verify resilient workflow budget policy
         shell: bash
         run: |
-          grep -q 'timeout-minutes: 40' .github/workflows/build-themepark-world-v0120-resilient.yml
-          grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS: "2040"' .github/workflows/build-themepark-world-v0120-resilient.yml
-          grep -q 'timeout --signal=TERM --kill-after=20s 4m' .github/workflows/build-themepark-world-v0120-resilient.yml
-          ! grep -q 'trying five-minute legacy fallback' .github/workflows/build-themepark-world-v0120-resilient.yml
+          grep -q 'timeout-minutes: 40' .github/workflows/build-themepark-world-resilient.yml
+          grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS: "2040"' .github/workflows/build-themepark-world-resilient.yml
+          grep -q 'timeout --signal=TERM --kill-after=20s 4m' .github/workflows/build-themepark-world-resilient.yml
+          ! grep -q 'trying five-minute legacy fallback' .github/workflows/build-themepark-world-resilient.yml
