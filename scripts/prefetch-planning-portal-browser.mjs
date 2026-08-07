@@ -12,10 +12,14 @@ import { fileURLToPath } from "node:url";
 // A final manifest pass keeps only applications proven to expose drawing or
 // geometry documents, so the Alton Towers 500-application cap is spent on
 // useful drawing-bearing cases rather than text-only planning records.
+// Ride evidence recovery then targets important Alton attractions whose useful
+// drawings can survive outside the current live attachment catalogue.
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(scriptDirectory, "prefetch-planning-portal-http.mjs");
+const fallbackCollector = path.join(scriptDirectory, "prefetch-planning-portal.mjs");
 const attachmentCompleter = path.join(scriptDirectory, "complete-planning-prefetch-balanced.mjs");
 const drawingApplicationFilter = path.join(scriptDirectory, "filter-planning-drawing-applications.mjs");
+const rideEvidenceRecovery = path.join(scriptDirectory, "recover-alton-ride-evidence.mjs");
 const requestedArgs = process.argv.slice(2);
 const productionWorkflows = new Set([
   "Build Minecraft Theme Park World",
@@ -26,24 +30,38 @@ const production = !requestedArgs.includes("--self-test") && productionWorkflows
 const completionArgsSource = productionCaps(requestedArgs);
 const collectorArgs = production ? collectorOnlyArgs(completionArgsSource) : [...completionArgsSource];
 
-runNode(collector, collectorArgs);
-
 if (requestedArgs.includes("--self-test")) {
+  requireSuccess(collector, collectorArgs);
   selfTestProductionCaps();
-  runNode(attachmentCompleter, ["--self-test"]);
-  runNode(drawingApplicationFilter, ["--self-test"]);
-  console.log("planning expanded search, balanced attachment, and drawing-application filter self-test passed");
+  requireSuccess(attachmentCompleter, ["--self-test"]);
+  requireSuccess(drawingApplicationFilter, ["--self-test"]);
+  requireSuccess(rideEvidenceRecovery, ["--self-test"]);
+  console.log("planning expanded search, balanced attachment, drawing-application filter, ride-evidence recovery, and internal fallback self-test passed");
 } else {
   const output = optionValue(completionArgsSource, "--output") || "planning-prefetch-output";
-  const completionArgs = ["--directory", output];
-  copyOption(completionArgsSource, completionArgs, "--max-applications");
-  copyOption(completionArgsSource, completionArgs, "--max-documents");
-  copyOption(completionArgsSource, completionArgs, "--max-mb");
-  runNode(attachmentCompleter, completionArgs);
+  let primaryReady = runNodeStatus(collector, collectorArgs) === 0;
+
+  if (primaryReady) {
+    const completionArgs = ["--directory", output];
+    copyOption(completionArgsSource, completionArgs, "--max-applications");
+    copyOption(completionArgsSource, completionArgs, "--max-documents");
+    copyOption(completionArgsSource, completionArgs, "--max-mb");
+    primaryReady = runNodeStatus(attachmentCompleter, completionArgs) === 0;
+  }
+
+  if (!primaryReady) {
+    console.error("Expanded planning collection failed; running the bounded legacy collector before applying the same drawing and ride-recovery policy.");
+    requireSuccess(fallbackCollector, completionArgsSource);
+  }
 
   const filterArgs = ["--directory", output];
   copyOption(completionArgsSource, filterArgs, "--max-applications");
-  runNode(drawingApplicationFilter, filterArgs);
+  requireSuccess(drawingApplicationFilter, filterArgs);
+
+  const recoveryArgs = ["--directory", output];
+  copyOption(completionArgsSource, recoveryArgs, "--max-documents");
+  copyOption(completionArgsSource, recoveryArgs, "--max-mb");
+  requireSuccess(rideEvidenceRecovery, recoveryArgs);
 }
 
 function productionCaps(values, active = production) {
@@ -83,11 +101,15 @@ function selfTestProductionCaps() {
   if (optionValue(result, "--max-mb") !== "150") throw new Error("Alton production byte cap self-test failed");
 }
 
-function runNode(script, childArgs) {
+function runNodeStatus(script, childArgs) {
   const result = spawnSync(process.execPath, [script, ...childArgs], { stdio: "inherit", env: process.env });
   if (result.error) throw result.error;
   if (result.signal) throw new Error(`${path.basename(script)} terminated by ${result.signal}`);
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  return result.status ?? 1;
+}
+function requireSuccess(script, childArgs) {
+  const status = runNodeStatus(script, childArgs);
+  if (status !== 0) process.exit(status);
 }
 function optionValue(values, name) { const index = values.indexOf(name); return index < 0 || index + 1 >= values.length ? null : values[index + 1]; }
 function copyOption(source, target, name) { const value = optionValue(source, name); if (value !== null) target.push(name, value); }
