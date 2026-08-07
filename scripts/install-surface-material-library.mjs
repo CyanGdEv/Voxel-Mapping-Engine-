@@ -17,7 +17,7 @@ function parse(argv) {
   return out;
 }
 
-export function patchRaster(source) {
+export function patchSurfaceSampler(source) {
   if (source.includes(MARKER)) return source;
   let out = source;
   const importLine = `import { blockForThemeParkSurfaceStyle, withThemeParkMaterialHints } from "./surface-material-library.mjs"; // ${MARKER}`;
@@ -29,7 +29,7 @@ export function patchRaster(source) {
   } else out = importLine + "\n" + out;
 
   const fn = /(function\s+blockForSurfaceStyle\s*\(([^)]*)\)\s*\{)/m.exec(out) || /(const\s+blockForSurfaceStyle\s*=\s*\(([^)]*)\)\s*=>\s*\{)/m.exec(out);
-  if (!fn) throw new Error("Unable to locate blockForSurfaceStyle in src/lib/raster.mjs");
+  if (!fn) throw new Error("Unable to locate blockForSurfaceStyle in candidate module");
   const args = fn[2].split(",").map((v) => v.trim()).filter(Boolean);
   const [style = "style", x = "x", z = "z", seed = "seed"] = args;
   const hook = `\n  const themeParkSurfaceBlock = blockForThemeParkSurfaceStyle(${style}, ${x}, ${z}, ${seed || "0"});\n  if (themeParkSurfaceBlock) return themeParkSurfaceBlock;`;
@@ -41,7 +41,7 @@ export function patchRaster(source) {
 
 async function selfTest() {
   const fixture = `import x from "./x.mjs";\nfunction blockForSurfaceStyle(style, x, z, seed) { return style.primaryBlock; }\nfunction f(feature, accessCode, baseCode) { const code = accessCode ? registerSurfaceStyle(feature.surfaceStyle) : baseCode; return blockForSurfaceStyle(feature.surfaceStyle, 1, 2, 3); }\n`;
-  const once = patchRaster(fixture), twice = patchRaster(once);
+  const once = patchSurfaceSampler(fixture), twice = patchSurfaceSampler(once);
   if (once !== twice || !once.includes(MARKER) || !once.includes("withThemeParkMaterialHints(feature.surfaceStyle, feature)")) throw new Error("surface material raster transform self-test failed");
   process.stdout.write("surface_material_installer_self_test=PASS\n");
 }
@@ -49,17 +49,36 @@ async function selfTest() {
 async function install(args) {
   if (!args.generator || !args.library) throw new Error("--generator and --library are required");
   const generator = resolve(args.generator), sourceLibrary = resolve(args.library);
-  const raster = resolve(generator, "src/lib/raster.mjs"), targetLibrary = resolve(generator, "src/lib/surface-material-library.mjs");
-  const before = await readFile(raster, "utf8"), after = patchRaster(before);
+  const targetLibrary = resolve(generator, "src/lib/surface-material-library.mjs");
+  const candidates = [
+    resolve(generator, "src/lib/raster.mjs"),
+    resolve(generator, "src/lib/fidelity.mjs"),
+  ];
+  let integrationFile = null, before = null, after = null;
+  for (const candidate of candidates) {
+    let source;
+    try { source = await readFile(candidate, "utf8"); } catch { continue; }
+    if (!/\bblockForSurfaceStyle\b/.test(source) && !source.includes(MARKER)) continue;
+    try {
+      const patched = patchSurfaceSampler(source);
+      integrationFile = candidate;
+      before = source;
+      after = patched;
+      break;
+    } catch (error) {
+      if (!String(error?.message || error).includes("Unable to locate blockForSurfaceStyle")) throw error;
+    }
+  }
+  if (!integrationFile) throw new Error("Unable to locate blockForSurfaceStyle in raster.mjs or fidelity.mjs");
   await mkdir(dirname(targetLibrary), { recursive: true });
   await copyFile(sourceLibrary, targetLibrary);
-  if (after !== before) await writeFile(raster, after, "utf8");
+  if (after !== before) await writeFile(integrationFile, after, "utf8");
   if (args.diagnostics) {
-    const report = { schemaVersion: 1, marker: MARKER, library: "themepark-surface-materials-v1", rasterPatched: after !== before, presets: 29 };
+    const report = { schemaVersion: 2, marker: MARKER, library: "themepark-surface-materials-v1", integrationFile, samplerPatched: after !== before, presets: 29 };
     await mkdir(dirname(resolve(args.diagnostics)), { recursive: true });
     await writeFile(resolve(args.diagnostics), JSON.stringify(report, null, 2) + "\n", "utf8");
   }
-  process.stdout.write(`surface_material_library=themepark-surface-materials-v1\npresets=29\nraster_patched=${after !== before}\n`);
+  process.stdout.write(`surface_material_library=themepark-surface-materials-v1\npresets=29\nintegration_file=${integrationFile}\nsampler_patched=${after !== before}\n`);
 }
 
 const args = parse(process.argv);
