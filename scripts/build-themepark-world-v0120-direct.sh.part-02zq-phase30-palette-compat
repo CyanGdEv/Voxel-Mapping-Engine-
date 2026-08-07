@@ -1,0 +1,14 @@
+
+    PALETTE_COMPAT_TRANSFORM="$ROOT/patches/v0120-phase30/bedrock-palette-compatibility.mjs"
+    [[ -f "$PALETTE_COMPAT_TRANSFORM" ]] || {
+      echo "Missing Bedrock palette compatibility transform." | tee "$DIAG/palette-compatibility-error.txt" >&2
+      exit 2
+    }
+    node "$PALETTE_COMPAT_TRANSFORM" \
+      --file "$GEN/src/lib/park-scenery-fidelity.mjs" \
+      2>&1 | tee "$DIAG/palette-compatibility-apply.log"
+    node --check "$GEN/src/lib/park-scenery-fidelity.mjs"
+    if grep -q 'minecraft:polished_blackstone_wall' "$GEN/src/lib/park-scenery-fidelity.mjs"; then
+      echo "Unsupported polished_blackstone_wall survived palette compatibility transform." | tee "$DIAG/palette-compatibility-error.txt" >&2
+      exit 2
+    fi
