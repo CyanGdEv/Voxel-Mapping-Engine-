@@ -1,0 +1,45 @@
+name: Validate Bounded World Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-themepark-world-v0120-resilient.yml'
+      - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - '.github/workflows/validate-bounded-world-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-themepark-world-v0120-resilient.yml'
+      - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate palette compatibility transform
+        run: node patches/v0120-phase30/bedrock-palette-compatibility.mjs --self-test
+      - name: Validate concatenated direct runner syntax
+        shell: bash
+        run: |
+          cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/direct-runner.sh"
+          bash -n "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'deterministic-build-failure.marker' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'TPMAP_ATTEMPT_PREPARED=true' "$RUNNER_TEMP/direct-runner.sh"
+      - name: Verify resilient workflow budget policy
+        shell: bash
+        run: |
+          grep -q 'timeout-minutes: 40' .github/workflows/build-themepark-world-v0120-resilient.yml
+          grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS: "2040"' .github/workflows/build-themepark-world-v0120-resilient.yml
+          grep -q 'timeout --signal=TERM --kill-after=20s 4m' .github/workflows/build-themepark-world-v0120-resilient.yml
+          ! grep -q 'trying five-minute legacy fallback' .github/workflows/build-themepark-world-v0120-resilient.yml
