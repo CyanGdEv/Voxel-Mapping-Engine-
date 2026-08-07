@@ -179,7 +179,12 @@ function compileFallenLog({ add, feature, geometry, seed, ...context }) {
     add(4, x, y + 1, z, x, y + 1, z, end ? "minecraft:spruce_stairs" : mossy ? "minecraft:moss_block" : "minecraft:spruce_planks"); blocks++;
     if (thick && i > 0 && i < cells.length - 1 && i % 2 === 0) { add(4, x, y + 2, z, x, y + 2, z, "minecraft:spruce_slab"); blocks++; }
   }
-  return blocks ? landscapingResult({ blocks, modelClass: "fallen_log", fallenLogBlocks: blocks }) : null;
+  if (!blocks) return null;
+  return {
+    ...landscapingResult({ blocks, modelClass: "fallen_log", fallenLogBlocks: blocks }),
+    shrubBlocks: 0, shrubModels: 0, shrubs: 0,
+    models: 1, rockModels: 1, rockBlocks: blocks, positionMarkers: 0, cliffBlocks: 0, inferredClusters: 0
+  };
 }
 
 function plantingProfile(feature) {
