@@ -325,7 +325,7 @@ jobs:
           bash "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
 
       - name: Seal newly acquired shared source cache
-        if: ${{ steps.build.outcome == 'success' && steps.runtime_cache.outputs.usable != 'true' }}
+        if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
         shell: bash
         run: |
           rm -f "$TPMAP_SHARED_CACHE_DIR/supplemental/planning-portal-cookies.txt"
@@ -335,7 +335,7 @@ jobs:
             --park "${{ inputs.preset }}"
 
       - name: Save verified shared source cache
-        if: ${{ steps.build.outcome == 'success' && steps.runtime_cache.outputs.usable != 'true' }}
+        if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
         uses: actions/cache/save@v4
         with:
           path: .park-runtime-cache/${{ inputs.preset }}/runtime
@@ -379,6 +379,7 @@ jobs:
                 ci-diagnostics/planning-prefetch-runtime-selftest.log \
                 ci-diagnostics/planning-prefetch-runtime-normalization.log \
                 ci-diagnostics/planning-prefetch-runtime-policy.txt \
+                ci-diagnostics/prepared-generator-cache.txt \
                 ci-diagnostics/doctor.log \
                 ci-diagnostics/build-01-ea-lidar-primary.log \
                 ci-diagnostics/build-02-ea-dtm-primary.log \
