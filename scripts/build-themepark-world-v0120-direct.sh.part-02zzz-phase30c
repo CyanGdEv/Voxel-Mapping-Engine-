@@ -30,6 +30,7 @@
       phase30c_normalize_status=${PIPESTATUS[0]}
       set -e
       if [[ "$phase30c_normalize_status" -eq 0 && -f "$CHESSINGTON_SELECTED/manifest.json" ]]; then
+        set +e
         node --input-type=module - "$CHESSINGTON_SELECTED/manifest.json" "$DIAG/phase30c-target-coverage.json" <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
 const manifest = JSON.parse(readFileSync(process.argv[2], 'utf8'));
@@ -59,10 +60,14 @@ writeFileSync(process.argv[3], JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(report));
 process.exit(report.status === 'usable' ? 0 : 4);
 NODE
-        [[ "$?" -eq 0 ]] && phase30c_ready=true || true
-        node -e "const r=require(process.argv[1]); process.exit(r.targetCoveragePassed ? 0 : 1)" \
-          "$DIAG/phase30c-target-coverage.json" \
-          && phase30c_targets=true || true
+        phase30c_manifest_status=$?
+        set -e
+        [[ "$phase30c_manifest_status" -eq 0 ]] && phase30c_ready=true || true
+        if [[ -f "$DIAG/phase30c-target-coverage.json" ]]; then
+          node -e "const r=require(process.argv[1]); process.exit(r.targetCoveragePassed ? 0 : 1)" \
+            "$DIAG/phase30c-target-coverage.json" \
+            && phase30c_targets=true || true
+        fi
       fi
     fi
 
