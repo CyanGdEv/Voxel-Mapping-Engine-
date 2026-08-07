@@ -1,0 +1,123 @@
+name: Warm Theme Park Evidence Cache
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */12 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-park-evidence-cache-alton-towers
+  cancel-in-progress: false
+
+jobs:
+  warm-alton-towers-planning:
+    name: Refresh Alton Towers planning evidence cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install portal transport dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget ca-certificates
+
+      - name: Validate evidence clients
+        shell: bash
+        run: |
+          node scripts/prefetch-planning-portal-http.mjs --self-test
+          node scripts/complete-planning-prefetch-attachments.mjs --self-test
+          node scripts/complete-planning-prefetch-balanced.mjs --self-test
+          node scripts/prefetch-planning-portal-browser.mjs --self-test
+          node scripts/prefetch-planning-portal.mjs --self-test
+          node scripts/prepare-planning-prefetch-runtime.mjs --self-test
+          node scripts/validate-planning-evidence-cache.mjs --self-test
+
+      - name: Run full off-path planning refresh
+        id: refresh
+        shell: bash
+        run: |
+          rm -rf planning-prefetch-output planning-prefetch-normalized
+          set +e
+          timeout --signal=TERM --kill-after=30s 35m \
+            node scripts/prefetch-planning-portal-browser.mjs \
+              --output planning-prefetch-output \
+              --runner linux-cache-warmer-expanded \
+              --max-applications 300 \
+              --max-documents 1200 \
+              --max-mb 150
+          expanded_status=$?
+          set -e
+
+          usable=false
+          if [[ -f planning-prefetch-output/manifest.json ]]; then
+            node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' && Number(m.liveApplications||0)>0 && Number(m.documentsDownloaded||0)>0 ? 0 : 1)" \
+              && usable=true || true
+          fi
+
+          if [[ "$usable" != "true" ]]; then
+            echo "::warning::Expanded cache refresh did not produce usable evidence (exit $expanded_status); trying legacy transport."
+            rm -rf planning-prefetch-output
+            set +e
+            timeout --signal=TERM --kill-after=30s 15m \
+              node scripts/prefetch-planning-portal.mjs \
+                --output planning-prefetch-output \
+                --runner linux-cache-warmer-fallback \
+                --max-applications 300 \
+                --max-documents 1200 \
+                --max-mb 150
+            fallback_status=$?
+            set -e
+            echo "legacy_fallback_exit=$fallback_status"
+          fi
+
+          set +e
+          node scripts/prepare-planning-prefetch-runtime.mjs \
+            --input planning-prefetch-output \
+            --output planning-prefetch-normalized
+          normalize_status=$?
+          set -e
+          if [[ "$normalize_status" -eq 0 ]]; then
+            echo "usable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "usable=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Full cache refresh did not produce bridge-safe planning evidence."
+            exit 2
+          fi
+
+      - name: Stage verified cache
+        if: ${{ steps.refresh.outputs.usable == 'true' }}
+        shell: bash
+        run: |
+          CACHE_DIR="$GITHUB_WORKSPACE/.park-evidence-cache/alton-towers/planning"
+          rm -rf "$CACHE_DIR"
+          mkdir -p "$(dirname "$CACHE_DIR")"
+          cp -a planning-prefetch-normalized "$CACHE_DIR"
+
+      - name: Save verified cache
+        if: ${{ steps.refresh.outputs.usable == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .park-evidence-cache/alton-towers/planning
+          key: park-evidence-planning-v1-alton-towers-${{ github.run_id }}
+
+      - name: Upload refresh diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alton-towers-planning-cache-refresh-${{ github.run_id }}
+          path: |
+            planning-prefetch-output/**
+            planning-prefetch-normalized/**
+          if-no-files-found: warn
+          retention-days: 14
