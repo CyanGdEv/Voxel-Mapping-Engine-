@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 
 const REQUIRED_APPLICATION_POLICY = 'drawing-bearing-only';
 const REQUIRED_APPLICATION_CAP = 500;
+const REQUIRED_RIDE_RECOVERY_POLICY = 'alton-ride-evidence-recovery-v1';
+const REQUIRED_RIDE_TARGETS = ['th13teen', 'the-smiler', 'nemesis-reborn', 'congo-river-rapids'];
 
 function parseArgs(argv) {
   const options = { maxAgeHours: 24, selfTest: false };
@@ -37,6 +39,13 @@ function hasCurrentApplicationSelection(manifest) {
     && Number(manifest?.applicationSelection?.maxApplications) >= REQUIRED_APPLICATION_CAP;
 }
 
+function hasCurrentRideRecovery(manifest) {
+  if (manifest?.rideEvidenceRecoveryPolicy !== REQUIRED_RIDE_RECOVERY_POLICY) return false;
+  const targets = manifest?.rideEvidenceRecovery?.targets;
+  if (!targets || typeof targets !== 'object') return false;
+  return REQUIRED_RIDE_TARGETS.every((id) => targets[id] && typeof targets[id] === 'object');
+}
+
 async function validate(options) {
   if (!options.input || !options.output) throw new Error('Usage: validate-planning-evidence-cache.mjs --input <dir> --output <dir> [--max-age-hours 24]');
   const input = path.resolve(options.input);
@@ -61,6 +70,11 @@ async function validate(options) {
     return 7;
   }
 
+  if (!hasCurrentRideRecovery(manifest)) {
+    console.error(`planning cache predates targeted Alton ride recovery; required policy=${REQUIRED_RIDE_RECOVERY_POLICY} targets=${REQUIRED_RIDE_TARGETS.join(',')}`);
+    return 8;
+  }
+
   const normalizer = path.resolve('scripts/prepare-planning-prefetch-runtime.mjs');
   const result = spawnSync(process.execPath, [normalizer, '--input', input, '--output', output], {
     cwd: process.cwd(),
@@ -80,6 +94,8 @@ async function validate(options) {
     maxAgeHours: options.maxAgeHours,
     applicationSelectionPolicy: manifest.applicationSelection.policy,
     applicationSelectionCap: Number(manifest.applicationSelection.maxApplications),
+    rideEvidenceRecoveryPolicy: manifest.rideEvidenceRecoveryPolicy,
+    rideEvidenceTargets: REQUIRED_RIDE_TARGETS,
     applications: report.applications || 0,
     documents: report.documents || 0,
     duplicateEntriesRemoved: report.duplicateEntriesRemoved || 0,
@@ -101,7 +117,14 @@ function selfTest() {
   if (!hasCurrentApplicationSelection({ applicationSelection: { policy: 'drawing-bearing-only', maxApplications: 500 } })) throw new Error('current drawing application selection test failed');
   if (hasCurrentApplicationSelection({ applicationSelection: { policy: 'drawing-bearing-only', maxApplications: 300 } })) throw new Error('legacy application cap rejection test failed');
   if (hasCurrentApplicationSelection({})) throw new Error('missing application selection rejection test failed');
-  console.log('planning evidence cache freshness and application-policy self-test passed');
+  const currentRecovery = {
+    rideEvidenceRecoveryPolicy: REQUIRED_RIDE_RECOVERY_POLICY,
+    rideEvidenceRecovery: { targets: Object.fromEntries(REQUIRED_RIDE_TARGETS.map((id) => [id, {}])) }
+  };
+  if (!hasCurrentRideRecovery(currentRecovery)) throw new Error('current ride recovery policy test failed');
+  if (hasCurrentRideRecovery({ rideEvidenceRecoveryPolicy: REQUIRED_RIDE_RECOVERY_POLICY, rideEvidenceRecovery: { targets: { 'the-smiler': {} } } })) throw new Error('incomplete ride recovery target rejection test failed');
+  if (hasCurrentRideRecovery({})) throw new Error('missing ride recovery policy rejection test failed');
+  console.log('planning evidence cache freshness, application-policy, and ride-recovery self-test passed');
 }
 
 const options = parseArgs(process.argv.slice(2));
