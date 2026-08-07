@@ -1,0 +1,103 @@
+  if [[ "${TPMAP_PRESET:-}" == "chessington" ]]; then
+    echo "Phase 30C: acquiring Kingston/Chessington planning evidence inside the production runner." \
+      | tee "$DIAG/phase30c-planning.log"
+    node "$ROOT/scripts/prefetch-planning-kingston.mjs" --self-test \
+      2>&1 | tee -a "$DIAG/phase30c-planning.log"
+
+    CHESSINGTON_RAW="$ROOT/planning-prefetch-output"
+    CHESSINGTON_SELECTED="$ROOT/planning-prefetch-selected"
+    rm -rf "$CHESSINGTON_RAW" "$CHESSINGTON_SELECTED"
+    set +e
+    timeout --signal=TERM --kill-after=30s 10m \
+      node "$ROOT/scripts/prefetch-planning-kingston.mjs" \
+        --output "$CHESSINGTON_RAW" \
+        --runner "linux-resilient-phase30c-kingston" \
+        --max-applications "${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS:-300}" \
+        --max-documents "${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS:-1200}" \
+        --max-mb "${TPMAP_PLANNING_DOCUMENT_MAX_MB:-150}" \
+      2>&1 | tee -a "$DIAG/phase30c-planning.log"
+    phase30c_fetch_status=${PIPESTATUS[0]}
+    set -e
+
+    phase30c_ready=false
+    phase30c_targets=false
+    if [[ "$phase30c_fetch_status" -eq 0 && -f "$CHESSINGTON_RAW/manifest.json" ]]; then
+      set +e
+      node "$ROOT/scripts/prepare-planning-prefetch-runtime.mjs" \
+        --input "$CHESSINGTON_RAW" \
+        --output "$CHESSINGTON_SELECTED" \
+        2>&1 | tee -a "$DIAG/phase30c-planning.log"
+      phase30c_normalize_status=${PIPESTATUS[0]}
+      set -e
+      if [[ "$phase30c_normalize_status" -eq 0 && -f "$CHESSINGTON_SELECTED/manifest.json" ]]; then
+        set +e
+        node --input-type=module - "$CHESSINGTON_SELECTED/manifest.json" "$DIAG/phase30c-target-coverage.json" <<'NODE'
+import { readFileSync, writeFileSync } from 'node:fs';
+const manifest = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const geometryRoles = new Set(['ride-layout','access-plan','site-plan','block-plan','landscape-plan','terrain-or-drainage','floor-plan','elevation','section','lighting-plan']);
+const targets = ['21/02435/FUL', '17/10262/FUL'];
+const result = targets.map((reference) => {
+  const app = (manifest.applications || []).find((item) => item.reference === reference);
+  const geometryDocuments = (app?.downloadedDocuments || []).filter((doc) => geometryRoles.has(doc.role));
+  return {
+    reference,
+    present: Boolean(app),
+    geometryDocuments: geometryDocuments.length,
+    roles: [...new Set(geometryDocuments.map((doc) => doc.role))],
+    sources: geometryDocuments.map((doc) => doc.provenanceClass || null)
+  };
+});
+const report = {
+  schemaVersion: 1,
+  status: manifest.status,
+  applications: manifest.liveApplications || 0,
+  documents: manifest.documentsDownloaded || 0,
+  geometryDocuments: manifest.geometryDocumentsDownloaded || 0,
+  targets: result,
+  targetCoveragePassed: result.every((target) => target.present && target.geometryDocuments > 0)
+};
+writeFileSync(process.argv[3], JSON.stringify(report, null, 2) + '\n');
+console.log(JSON.stringify(report));
+process.exit(report.status === 'usable' ? 0 : 4);
+NODE
+        phase30c_manifest_status=$?
+        set -e
+        [[ "$phase30c_manifest_status" -eq 0 ]] && phase30c_ready=true || true
+        if [[ -f "$DIAG/phase30c-target-coverage.json" ]]; then
+          node -e "const r=require(process.argv[1]); process.exit(r.targetCoveragePassed ? 0 : 1)" \
+            "$DIAG/phase30c-target-coverage.json" \
+            && phase30c_targets=true || true
+        fi
+      fi
+    fi
+
+    if [[ "$phase30c_ready" == "true" ]]; then
+      export TPMAP_PLANNING_DOCUMENT_MODE=extract
+      export TPMAP_PLANNING_PREFETCH_DIR="$CHESSINGTON_SELECTED"
+      export TPMAP_PLANNING_OVERRIDE_MODE=private
+      for ((phase30c_i=0; phase30c_i<${#SOURCE_ARGS[@]}; phase30c_i++)); do
+        case "${SOURCE_ARGS[$phase30c_i]}" in
+          --planning-document-mode)
+            SOURCE_ARGS[$((phase30c_i + 1))]="extract"
+            ;;
+          --planning-override-mode)
+            SOURCE_ARGS[$((phase30c_i + 1))]="private"
+            ;;
+        esac
+      done
+      [[ " ${SOURCE_ARGS[*]} " == *" --planning-documents "* ]] || SOURCE_ARGS+=(--planning-documents)
+      echo "Phase 30C planning runtime ready: Kingston/private planning authority enabled." \
+        | tee -a "$DIAG/phase30c-planning.log"
+    else
+      echo "::warning::Phase 30C Kingston planning evidence was not bridge-ready." \
+        | tee -a "$DIAG/phase30c-planning.log"
+    fi
+
+    if [[ "$phase30c_targets" != "true" ]]; then
+      echo "::error::Chessington planning quality gate failed: both World of Jumanji 21/02435/FUL and Tiger Rock/Land of the Tiger 17/10262/FUL require at least one downloaded geometry-bearing planning document." \
+        | tee -a "$DIAG/phase30c-planning.log"
+      if [[ "${TPMAP_CHESSINGTON_PLANNING_REQUIRED:-true}" == "true" ]]; then
+        exit 2
+      fi
+    fi
+  fi

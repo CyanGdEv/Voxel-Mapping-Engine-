@@ -4,25 +4,30 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-// The legacy council portal rejects modern HTTPS/TLS fingerprints on hosted
-// runners. The first stage gathers application pages from the exact official
-// host. The balanced completion stage then expands address/pagination/related
-// application discovery and distributes high-value attachment downloads across
-// cases, preventing one large application from consuming the evidence budget.
+// Park-specific planning acquisition dispatcher. Staffordshire Moorlands still
+// uses the legacy-host collector + balanced attachment expansion for Alton.
+// Chessington uses Kingston's Idox register plus the private-use historic-plan
+// bridge because Kingston removes supporting documents after determination.
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const collector = path.join(scriptDirectory, "prefetch-planning-portal-http.mjs");
+const staffordshireCollector = path.join(scriptDirectory, "prefetch-planning-portal-http.mjs");
 const attachmentCompleter = path.join(scriptDirectory, "complete-planning-prefetch-balanced.mjs");
+const kingstonCollector = path.join(scriptDirectory, "prefetch-planning-kingston.mjs");
 const requestedArgs = process.argv.slice(2);
-const production = !requestedArgs.includes("--self-test") && process.env.GITHUB_WORKFLOW === "Build Minecraft Theme Park World";
+const selfTest = requestedArgs.includes("--self-test");
+const preset = String(process.env.TPMAP_PRESET || "").trim().toLowerCase();
+const production = !selfTest && /^Build Minecraft Theme Park World/.test(process.env.GITHUB_WORKFLOW || "");
 const completionArgsSource = productionCaps(requestedArgs);
-const collectorArgs = production ? collectorOnlyArgs(completionArgsSource) : [...completionArgsSource];
 
-runNode(collector, collectorArgs);
-
-if (requestedArgs.includes("--self-test")) {
+if (selfTest) {
+  runNode(staffordshireCollector, ["--self-test"]);
   runNode(attachmentCompleter, ["--self-test"]);
-  console.log("planning expanded search and balanced attachment pipeline self-test passed");
+  runNode(kingstonCollector, ["--self-test"]);
+  console.log("planning park dispatch self-test passed for Staffordshire/Alton and Kingston/Chessington");
+} else if (preset === "chessington") {
+  runNode(kingstonCollector, completionArgsSource);
 } else {
+  const collectorArgs = production ? collectorOnlyArgs(completionArgsSource) : [...completionArgsSource];
+  runNode(staffordshireCollector, collectorArgs);
   const completionArgs = ["--directory", optionValue(completionArgsSource, "--output") || "planning-prefetch-output"];
   copyOption(completionArgsSource, completionArgs, "--max-applications");
   copyOption(completionArgsSource, completionArgs, "--max-documents");
@@ -41,8 +46,8 @@ function productionCaps(values) {
 
 function collectorOnlyArgs(values) {
   const result = [...values];
-  // The original collector is intentionally limited to a tiny attachment probe.
-  // The balanced stage owns the real 150 MB download budget.
+  // The Staffordshire collector is intentionally limited to a tiny attachment
+  // probe. Its balanced stage owns the real 150 MB download budget.
   setOption(result, "--max-documents", 1);
   setOption(result, "--max-mb", 25);
   return result;
