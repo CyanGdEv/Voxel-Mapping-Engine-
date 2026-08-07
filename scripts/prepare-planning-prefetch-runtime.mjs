@@ -101,9 +101,9 @@ async function prepare(input, output) {
 
   await cp(inputRoot, outputRoot, { recursive: true });
 
-  const entryMap = new Map();
   let duplicateEntriesRemoved = 0;
   let invalidEntriesRemoved = 0;
+  const candidates = [];
   for (const raw of Array.isArray(manifest.entries) ? manifest.entries : []) {
     const key = canonicalUrl(raw?.url || raw?.finalUrl || raw?.transportUrl || '');
     if (!key) {
@@ -112,15 +112,22 @@ async function prepare(input, output) {
     }
     const candidate = { ...raw, url: key };
     if (candidate.finalUrl) candidate.finalUrl = canonicalUrl(candidate.finalUrl) || candidate.finalUrl;
-    const current = entryMap.get(key);
-    if (!current) entryMap.set(key, candidate);
-    else {
+    candidates.push(candidate);
+  }
+  candidates.sort((a, b) => entryScore(b, inputRoot) - entryScore(a, inputRoot));
+
+  const usedAliases = new Set();
+  const entries = [];
+  for (const candidate of candidates) {
+    const aliases = [...new Set([candidate.url, candidate.finalUrl, candidate.transportUrl].map(canonicalUrl).filter(Boolean))];
+    if (aliases.some((alias) => usedAliases.has(alias))) {
       duplicateEntriesRemoved += 1;
-      if (entryScore(candidate, inputRoot) > entryScore(current, inputRoot)) entryMap.set(key, candidate);
+      continue;
     }
+    entries.push(candidate);
+    for (const alias of aliases) usedAliases.add(alias);
   }
 
-  const entries = [...entryMap.values()];
   const documentEntries = new Map(
     entries
       .filter((entry) => entry.kind === 'document' && entry.file && existsSync(path.join(inputRoot, entry.file)))
