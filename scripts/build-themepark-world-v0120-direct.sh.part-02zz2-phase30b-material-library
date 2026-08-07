@@ -1,0 +1,37 @@
+  PHASE30B_LIBRARY_TRANSFORM="$ROOT/patches/v0120-phase30b/material-library-extension-transform.mjs"
+  PHASE30B_LIBRARY_TRANSFORM_SHA="8aac7e1c21c33475c486a1224f18ceda5b9dc4eea2df3243a2486b144444a92a"
+  [[ -f "$PHASE30B_LIBRARY_TRANSFORM" ]] || {
+    echo "Missing Phase 30B extended material library transform." | tee "$DIAG/phase30b-material-library-error.txt" >&2
+    exit 2
+  }
+  phase30b_library_actual_sha="$(sha256sum "$PHASE30B_LIBRARY_TRANSFORM" | cut -d' ' -f1)"
+  printf 'material_library_transform_expected=%s\nmaterial_library_transform_actual=%s\n' \
+    "$PHASE30B_LIBRARY_TRANSFORM_SHA" "$phase30b_library_actual_sha" \
+    | tee "$DIAG/phase30b-material-library-checksum.txt"
+  [[ "$phase30b_library_actual_sha" == "$PHASE30B_LIBRARY_TRANSFORM_SHA" ]] || {
+    echo "Phase 30B extended material library checksum mismatch." | tee "$DIAG/phase30b-material-library-error.txt" >&2
+    exit 2
+  }
+
+  node "$PHASE30B_LIBRARY_TRANSFORM" --root "$GEN" \
+    2>&1 | tee "$DIAG/phase30b-material-library-transform.log"
+  node --check "$GEN/src/lib/fidelity.mjs"
+  node --check "$GEN/src/lib/mcworld.mjs"
+  (
+    cd "$GEN"
+    node --test \
+      test/material-pattern-recipes.test.mjs \
+      test/material-pattern-library.test.mjs \
+      test/appearance-vegetation.test.mjs \
+      test/direct-world-palette-compatibility.test.mjs \
+      2>&1 | tee "$DIAG/phase30b-material-library-tests.log"
+  )
+
+  printf '%s\n' \
+    'extended_material_library=enabled' \
+    'materials=weathered-asphalt,fresh-asphalt,light-asphalt,red-tarmac,resin-bound-beige,resin-bound-grey,concrete,old-concrete,grey-block-paving,red-block-paving,buff-paving,cobblestone,old-stone-paving,gravel,hoggin,dirt-trail,woodland-floor,mulch,healthy-lawn,worn-grass,boardwalk,weathered-timber,sand,natural-rock,dark-rockwork,artificial-rockwork,old-brick-wall,sandstone-wall,industrial-service-paving' \
+    'recipe_selection=raw-material-label-first-then-canonical-material' \
+    'pattern_scales=material-specific-deterministic' \
+    'palette_policy=exact-weighted-recipes-not-re-randomised-by-world-palette' \
+    'planning_qa=planning-derived geometry remains minecraft:pink_wool while provenance QA is active' \
+    > "$DIAG/phase30b-material-library-policy.txt"
