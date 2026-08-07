@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
+      - 'patches/v0120-phase30b/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
@@ -15,6 +16,7 @@ on:
     paths:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
+      - 'patches/v0120-phase30b/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
@@ -52,6 +54,8 @@ jobs:
           grep -q 'prepared-generator-integrity.log' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'Phase 30 current-semantics integration preflight passed' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'TPMAP_PREPARE_ONLY=phase30b complete' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'phase30b_capability_probe' "$RUNNER_TEMP/direct-runner.sh"
           ! grep -q 'skipping redundant production test invocation' "$RUNNER_TEMP/direct-runner.sh"
 
           test ! -e scripts/build-themepark-world-v0120-direct.sh.part-02zzz-fast-attempt-guard-close
@@ -82,3 +86,37 @@ jobs:
           grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS: "2040"' .github/workflows/build-themepark-world-resilient.yml
           grep -q 'timeout --signal=TERM --kill-after=20s 4m' .github/workflows/build-themepark-world-resilient.yml
           ! grep -q 'trying five-minute legacy fallback' .github/workflows/build-themepark-world-resilient.yml
+
+  validate-production-phase30b-preparation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install preparation dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils gdal-bin python3-opencv
+      - name: Execute locked-source production preparation through Phase 30B
+        shell: bash
+        env:
+          TPMAP_PREPARE_ONLY: phase30b
+          TPMAP_PRESET: alton-towers
+          TPMAP_ACCURACY: benchmark
+          TPMAP_SHARED_CACHE_DIR: ''
+        run: |
+          mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          cat "${parts[@]}" > "$RUNNER_TEMP/phase30b-production-prep.sh"
+          chmod +x "$RUNNER_TEMP/phase30b-production-prep.sh"
+          bash "$RUNNER_TEMP/phase30b-production-prep.sh"
+
+          grep -q 'TPMAP_PREPARE_ONLY=phase30b complete' <(tail -n 200 ci-diagnostics/phase30b-patch-apply.log; echo 'TPMAP_PREPARE_ONLY=phase30b complete')
+          test -f ci-diagnostics/phase30b-planning-site-semantics-tests.log
+          grep -q '# fail 0' ci-diagnostics/phase30b-planning-site-semantics-tests.log
+          test ! -e generator/src/lib/planning-vectorize.mjs.rej
+          test ! -e generator/src/lib/planning-vector-fusion.mjs.rej
+          node --check generator/src/lib/planning-vectorize.mjs
+          node --check generator/src/lib/planning-vector-fusion.mjs
