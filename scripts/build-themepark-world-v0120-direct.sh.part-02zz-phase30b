@@ -115,3 +115,12 @@
 
   phase30b_cleanup
   trap - RETURN
+
+  # CI can execute the exact production preparation chain against the locked
+  # archive and stop here, before any external map/elevation acquisition or
+  # expensive world compilation. This makes the partial-Phase-30B recovery path
+  # reproducible in Actions instead of relying on a full Alton build to test it.
+  if [[ "${TPMAP_PREPARE_ONLY:-}" == "phase30b" ]]; then
+    echo "TPMAP_PREPARE_ONLY=phase30b complete"
+    exit 0
+  fi
