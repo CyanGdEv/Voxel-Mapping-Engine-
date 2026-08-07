@@ -4,11 +4,13 @@
       echo "Missing Bedrock palette compatibility transform." | tee "$DIAG/palette-compatibility-error.txt" >&2
       exit 2
     }
+    node "$PALETTE_COMPAT_TRANSFORM" --self-test \
+      2>&1 | tee "$DIAG/palette-compatibility-self-test.log"
     node "$PALETTE_COMPAT_TRANSFORM" \
-      --file "$GEN/src/lib/park-scenery-fidelity.mjs" \
+      --generator "$GEN" \
       2>&1 | tee "$DIAG/palette-compatibility-apply.log"
-    node --check "$GEN/src/lib/park-scenery-fidelity.mjs"
-    if grep -q 'minecraft:polished_blackstone_wall' "$GEN/src/lib/park-scenery-fidelity.mjs"; then
-      echo "Unsupported polished_blackstone_wall survived palette compatibility transform." | tee "$DIAG/palette-compatibility-error.txt" >&2
+    node --check "$GEN/src/lib/mcworld.mjs"
+    if ! grep -q 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$GEN/src/lib/mcworld.mjs"; then
+      echo "Phase 30 Bedrock block-library synchronization marker is missing." | tee "$DIAG/palette-compatibility-error.txt" >&2
       exit 2
     fi

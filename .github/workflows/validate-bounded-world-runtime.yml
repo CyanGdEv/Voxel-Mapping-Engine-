@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
+      - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
+      - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
 
 permissions:
@@ -26,8 +28,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate palette compatibility transform
-        run: node patches/v0120-phase30/bedrock-palette-compatibility.mjs --self-test
+      - name: Validate Phase 30 compatibility transforms
+        run: |
+          node patches/v0120-phase30/bedrock-palette-compatibility.mjs --self-test
+          node scripts/prepare-surface-material-hook.mjs --self-test
       - name: Validate concatenated direct runner syntax
         shell: bash
         run: |
@@ -36,6 +40,9 @@ jobs:
           grep -q 'TPMAP_WORLD_RUN_BUDGET_SECONDS' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'deterministic-build-failure.marker' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'TPMAP_ATTEMPT_PREPARED=true' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'prepared-generator-integrity.log' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$RUNNER_TEMP/direct-runner.sh"
+          ! grep -q 'skipping redundant production test invocation' "$RUNNER_TEMP/direct-runner.sh"
       - name: Verify resilient workflow budget policy
         shell: bash
         run: |
