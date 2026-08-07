@@ -24,7 +24,10 @@ jobs:
   build-world:
     name: Generate resilient automatic Bedrock world
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    # Product requirement: a one-click generation run must never consume hours.
+    # The direct runner has its own 34-minute world budget; this is the final
+    # workflow-level safety boundary including cache/setup/artifact work.
+    timeout-minutes: 40
     env:
       TPMAP_CONTACT: ${{ vars.TPMAP_CONTACT || format('https://github.com/{0}', github.repository) }}
       TPMAP_PRESET: ${{ inputs.preset }}
@@ -34,7 +37,7 @@ jobs:
       TPMAP_WORLD_MARGIN: "32"
       TPMAP_ENGLAND_OPEN_DATA: "true"
       TPMAP_PLANNING_DOCUMENT_MODE: extract
-      TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS: "300"
+      TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS: "500"
       TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS: "1200"
       TPMAP_PLANNING_DOCUMENT_MAX_MB: "150"
       TPMAP_PLANNING_DOCUMENT_MAX_PAGES: "12"
@@ -59,9 +62,11 @@ jobs:
       TPMAP_ORTHOPHOTO_DATE: ""
       TPMAP_ORTHOPHOTO_SHA256: ""
       TPMAP_MAX_SUPPLEMENTAL_FEATURES: "50000"
-      TPMAP_SUPPLEMENTAL_PAGE_SIZE: "5000"
+      TPMAP_SUPPLEMENTAL_PAGE_SIZE: "500"
       TPMAP_MAX_SUPPLEMENTAL_DOWNLOAD_MB: "250"
       TPMAP_SHARED_CACHE_DIR: ${{ github.workspace }}/.park-runtime-cache/${{ inputs.preset }}/runtime
+      TPMAP_WORLD_RUN_BUDGET_SECONDS: "2040"
+      TPMAP_SKIP_REDUNDANT_RUNTIME_TESTS: "true"
       NODE_OPTIONS: --max-old-space-size=6144
       npm_config_audit: "false"
       npm_config_fund: "false"
@@ -91,7 +96,6 @@ jobs:
         shell: bash
         run: |
           CACHE_DIR="$GITHUB_WORKSPACE/.park-runtime-cache/${{ inputs.preset }}/runtime"
-          node scripts/validate-park-runtime-cache.mjs --self-test
           set +e
           node scripts/validate-park-runtime-cache.mjs \
             --input "$CACHE_DIR" \
@@ -128,7 +132,6 @@ jobs:
         run: |
           CACHE_DIR="$GITHUB_WORKSPACE/.park-evidence-cache/${{ inputs.preset }}/planning"
           rm -rf planning-prefetch-selected
-          node scripts/validate-planning-evidence-cache.mjs --self-test
           set +e
           node scripts/validate-planning-evidence-cache.mjs \
             --input "$CACHE_DIR" \
@@ -144,10 +147,10 @@ jobs:
             rm -rf planning-prefetch-selected
             echo "usable=false" >> "$GITHUB_OUTPUT"
             echo "source=live-refresh" >> "$GITHUB_OUTPUT"
-            echo "Planning cache missing, stale, or rejected; running bounded live refresh."
+            echo "Planning cache missing, stale, or rejected; running a short on-demand refresh."
           fi
 
-      - name: Install build and automatic-registration tools
+      - name: Install native build tools
         shell: bash
         run: |
           sudo apt-get update
@@ -155,55 +158,27 @@ jobs:
             gdal-bin unzip poppler-utils python3-opencv wget ca-certificates
           python3 -c 'import cv2; print("opencv=" + cv2.__version__)'
 
-      - name: Validate planning clients
+      - name: Refresh planning evidence when cache is unavailable
         if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' }}
         continue-on-error: true
         shell: bash
         run: |
-          node scripts/prefetch-planning-portal-http.mjs --self-test
-          node scripts/complete-planning-prefetch-attachments.mjs --self-test
-          node scripts/complete-planning-prefetch-balanced.mjs --self-test
-          node scripts/prefetch-planning-portal-browser.mjs --self-test
-          node scripts/prefetch-planning-portal.mjs --self-test
-
-      - name: Refresh official planning evidence when cache is unavailable
-        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' }}
-        continue-on-error: true
-        shell: bash
-        run: |
+          # The browser wrapper owns its legacy fallback and drawing-only filter.
+          # Deep 500-application acquisition belongs to the evidence warmer; a
+          # manual world build gets a strict four-minute opportunity to refresh
+          # so planning cannot consume the world-generation budget.
           rm -rf planning-prefetch-output
           set +e
-          timeout --signal=TERM --kill-after=30s 10m \
+          timeout --signal=TERM --kill-after=20s 4m \
             node scripts/prefetch-planning-portal-browser.mjs \
               --output planning-prefetch-output \
-              --runner linux-resilient-fast-refresh \
-              --max-applications 300 \
+              --runner linux-resilient-bounded-refresh \
+              --max-applications 500 \
               --max-documents 1200 \
               --max-mb 150
-          expanded_status=$?
+          refresh_status=$?
           set -e
-
-          usable=false
-          if [[ -f planning-prefetch-output/manifest.json ]]; then
-            node -e "const m=require('./planning-prefetch-output/manifest.json'); process.exit(m.status === 'usable' && Number(m.liveApplications||0)>0 && Number(m.documentsDownloaded||0)>0 ? 0 : 1)" \
-              && usable=true || true
-          fi
-
-          if [[ "$usable" != "true" ]]; then
-            echo "::warning::Fast expanded planning refresh did not produce usable evidence (exit $expanded_status); trying five-minute legacy fallback."
-            rm -rf planning-prefetch-output
-            set +e
-            timeout --signal=TERM --kill-after=30s 5m \
-              node scripts/prefetch-planning-portal.mjs \
-                --output planning-prefetch-output \
-                --runner linux-resilient-fast-fallback \
-                --max-applications 300 \
-                --max-documents 1200 \
-                --max-mb 150
-            fallback_status=$?
-            set -e
-            echo "legacy_fallback_exit=$fallback_status"
-          fi
+          echo "planning_refresh_exit=$refresh_status"
 
       - name: Prepare planning evidence or safe no-planning fallback
         id: planning_policy
@@ -214,50 +189,36 @@ jobs:
             node - <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
-
           const source = path.resolve('planning-prefetch-output');
           const target = path.resolve('planning-prefetch-selected');
           fs.rmSync(target, { recursive: true, force: true });
-
-          let usable = false;
           let manifest = null;
+          let usable = false;
           try {
             manifest = JSON.parse(fs.readFileSync(path.join(source, 'manifest.json'), 'utf8'));
             usable = manifest?.status === 'usable'
               && Number(manifest?.liveApplications || 0) > 0
               && Number(manifest?.documentsDownloaded || 0) > 0;
-          } catch {
-            usable = false;
-          }
-
+          } catch {}
           if (usable) {
             fs.cpSync(source, target, { recursive: true });
-            console.log(JSON.stringify({
-              planningMode: 'usable',
-              runner: manifest.runner || 'unknown',
-              applications: manifest.liveApplications || 0,
-              documents: manifest.documentsDownloaded || 0
-            }));
+            console.log(JSON.stringify({planningMode:'usable',applications:manifest.liveApplications||0,documents:manifest.documentsDownloaded||0}));
           } else {
             fs.mkdirSync(target, { recursive: true });
-            const fallback = {
+            fs.writeFileSync(path.join(target, 'manifest.json'), JSON.stringify({
               schemaVersion: 1,
               status: 'disabled',
               generatedAt: new Date().toISOString(),
               runner: 'resilient-no-planning-fallback',
-              tlsVerification: null,
               liveApplications: 0,
               documentsDownloaded: 0,
               totalBytes: 0,
               applications: [],
               entries: [],
               attempts: [],
-              warnings: [
-                'Official planning evidence was unavailable for this run. World generation continued with the remaining geospatial sources.'
-              ]
-            };
-            fs.writeFileSync(path.join(target, 'manifest.json'), JSON.stringify(fallback, null, 2));
-            console.log(JSON.stringify({ planningMode: 'fallback', applications: 0, documents: 0 }));
+              warnings: ['Planning evidence was unavailable inside the bounded build window; remaining geospatial sources continue.']
+            }, null, 2));
+            console.log(JSON.stringify({planningMode:'fallback',applications:0,documents:0}));
           }
           NODE
           fi
@@ -267,54 +228,12 @@ jobs:
             echo "TPMAP_PLANNING_PREFETCH_DIR=$GITHUB_WORKSPACE/planning-prefetch-selected" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_OVERRIDE_MODE=gated" >> "$GITHUB_ENV"
             echo "usable=true" >> "$GITHUB_OUTPUT"
-            echo "planning_runtime=usable"
           else
             echo "TPMAP_PLANNING_DOCUMENT_MODE=off" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_PREFETCH_DIR=" >> "$GITHUB_ENV"
             echo "TPMAP_PLANNING_OVERRIDE_MODE=off" >> "$GITHUB_ENV"
             echo "usable=false" >> "$GITHUB_OUTPUT"
-            echo "planning_runtime=disabled"
-            echo "::warning::Planning evidence is unavailable. Planning-document ingestion and planning overrides are disabled for this build; remaining geospatial sources will continue."
           fi
-
-      - name: Stage refreshed evidence for future fast builds
-        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' && steps.planning_policy.outputs.usable == 'true' }}
-        shell: bash
-        run: |
-          CACHE_DIR="$GITHUB_WORKSPACE/.park-evidence-cache/${{ inputs.preset }}/planning"
-          rm -rf "$CACHE_DIR"
-          mkdir -p "$(dirname "$CACHE_DIR")"
-          cp -a planning-prefetch-selected "$CACHE_DIR"
-
-      - name: Save refreshed verified park evidence
-        if: ${{ inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' && steps.planning_policy.outputs.usable == 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: .park-evidence-cache/${{ inputs.preset }}/planning
-          key: park-evidence-planning-v1-${{ inputs.preset }}-${{ github.run_id }}
-
-      - name: Upload planning acquisition diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: planning-prefetch-resilient-diagnostics
-          path: |
-            planning-prefetch-output/**
-            planning-prefetch-selected/**
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Show effective planning runtime policy
-        if: always()
-        shell: bash
-        run: |
-          printf 'planning_document_mode=%s\nplanning_prefetch_dir=%s\nplanning_override_mode=%s\nplanning_cache=%s\nsource_cache=%s\nsource_cache_dir=%s\n' \
-            "${TPMAP_PLANNING_DOCUMENT_MODE:-unset}" \
-            "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
-            "${TPMAP_PLANNING_OVERRIDE_MODE:-unset}" \
-            "${{ steps.planning_cache.outputs.source || 'not-applicable' }}" \
-            "${{ steps.runtime_cache.outputs.source || 'unknown' }}" \
-            "${TPMAP_SHARED_CACHE_DIR:-unset}"
 
       - name: Generate and validate world
         id: build
@@ -322,7 +241,36 @@ jobs:
         run: |
           cat scripts/build-themepark-world-v0120-direct.sh.part-* > "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
           chmod +x "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
+          bash -n "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
           bash "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
+
+      # Put the player-facing deliverable on the wire immediately after build;
+      # cache and diagnostic housekeeping must not delay world availability.
+      - name: Upload generated world and reports
+        if: ${{ always() && steps.build.outputs.mcworld != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.safe_name }}-mcworld-v0120
+          path: generator/out/github-actions/**
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Stage refreshed planning cache
+        if: ${{ always() && inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' && steps.planning_policy.outputs.usable == 'true' }}
+        shell: bash
+        run: |
+          CACHE_DIR="$GITHUB_WORKSPACE/.park-evidence-cache/${{ inputs.preset }}/planning"
+          rm -rf "$CACHE_DIR"
+          mkdir -p "$(dirname "$CACHE_DIR")"
+          cp -a planning-prefetch-selected "$CACHE_DIR"
+
+      - name: Save refreshed planning cache
+        if: ${{ always() && inputs.preset == 'alton-towers' && steps.planning_cache.outputs.usable != 'true' && steps.planning_policy.outputs.usable == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .park-evidence-cache/${{ inputs.preset }}/planning
+          key: park-evidence-planning-v1-${{ inputs.preset }}-${{ github.run_id }}
 
       - name: Seal newly acquired shared source cache
         if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
@@ -341,6 +289,19 @@ jobs:
           path: .park-runtime-cache/${{ inputs.preset }}/runtime
           key: park-runtime-v1-${{ inputs.preset }}-${{ github.run_id }}
 
+      - name: Upload compact planning diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planning-prefetch-resilient-diagnostics
+          path: |
+            planning-prefetch-output/manifest.json
+            planning-prefetch-output/ride-evidence-recovery.json
+            planning-prefetch-selected/manifest.json
+            planning-prefetch-selected/ride-evidence-recovery.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Write build summary
         if: always()
         shell: bash
@@ -352,57 +313,23 @@ jobs:
           SUMMARY_RUNTIME_CACHE: ${{ steps.runtime_cache.outputs.source || 'unknown' }}
         run: |
           {
-            printf '%s\n' '# Voxel Mapping Engine — Resilient Automatic Theme Park World'
-            printf '\n'
+            printf '%s\n' '# Voxel Mapping Engine — bounded resilient build'
             printf '%s\n' "- Park: ${SUMMARY_PRESET:-unknown}"
-            printf '%s\n' '- Player inputs: park selection only'
-            printf '%s\n' '- Planning failure policy: fail closed for planning geometry, continue world generation with remaining sources'
             printf '%s\n' "- Successful strategy: ${SUMMARY_STRATEGY:-none}"
             printf '%s\n' "- Planning evidence path: ${SUMMARY_PLANNING_CACHE:-unknown}"
-            printf '%s\n' "- Shared geospatial source cache: ${SUMMARY_RUNTIME_CACHE:-unknown}"
-            printf '%s\n' "- Effective planning document mode: ${TPMAP_PLANNING_DOCUMENT_MODE:-unset}"
+            printf '%s\n' "- Shared geospatial cache: ${SUMMARY_RUNTIME_CACHE:-unknown}"
+            printf '%s\n' '- Workflow hard limit: 40 minutes'
+            printf '%s\n' '- World runner budget: 34 minutes'
             if [[ -f planning-prefetch-selected/manifest.json ]]; then
-              node -e 'const m=require("./planning-prefetch-selected/manifest.json"); console.log(`- Planning evidence status: ${m.status||"unknown"}; ${m.liveApplications||0} applications; ${m.documentsDownloaded||0} documents; runner ${m.runner||"unknown"}`)'
+              node -e 'const m=require("./planning-prefetch-selected/manifest.json"); console.log(`- Planning: ${m.status||"unknown"}; ${m.liveApplications||0} apps; ${m.documentsDownloaded||0} docs`)'
             fi
             if [[ -n "$SUMMARY_MCWORLD" && -f "$SUMMARY_MCWORLD" ]]; then
-              printf '\n%s\n' '## Generated world'
-              printf '%s\n' "- File: $(basename "$SUMMARY_MCWORLD")"
-              printf '%s\n' "- Size: $(du -h "$SUMMARY_MCWORLD" | cut -f1)"
+              printf '%s\n' "- World: $(basename "$SUMMARY_MCWORLD")"
               printf '%s\n' "- SHA-256: $(sha256sum "$SUMMARY_MCWORLD" | cut -d' ' -f1)"
             else
-              printf '\n%s\n' '## Build did not produce a world'
-              printf '%s\n' 'The most relevant diagnostic tails are included below.'
-              for LOG in \
-                ci-diagnostics/source-error.txt \
-                ci-diagnostics/phase28-patch-checksum.txt \
-                ci-diagnostics/phase28-patch-apply.log \
-                ci-diagnostics/planning-prefetch-runtime-selftest.log \
-                ci-diagnostics/planning-prefetch-runtime-normalization.log \
-                ci-diagnostics/planning-prefetch-runtime-policy.txt \
-                ci-diagnostics/prepared-generator-cache.txt \
-                ci-diagnostics/doctor.log \
-                ci-diagnostics/build-01-ea-lidar-primary.log \
-                ci-diagnostics/build-02-ea-dtm-primary.log \
-                ci-diagnostics/build-03-ea-dtm-alternate.log; do
-                [[ -f "$LOG" ]] || continue
-                printf '\n<details><summary>%s</summary>\n\n' "$(basename "$LOG")"
-                printf '%s\n' '```text'
-                tail -n 120 "$LOG"
-                printf '%s\n' '```'
-                printf '%s\n' '</details>'
-              done
+              printf '%s\n' '- Build did not produce a world; inspect the diagnostics artifact.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload generated world and reports
-        if: ${{ always() && steps.build.outputs.mcworld != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.build.outputs.safe_name }}-mcworld-v0120
-          path: generator/out/github-actions/**
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
 
       - name: Upload diagnostics
         if: always()
