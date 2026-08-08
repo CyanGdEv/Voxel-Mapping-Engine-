@@ -82,6 +82,16 @@
   console.log(JSON.stringify({ status: 'passed', kind: promoted.properties.kind, targetOnly: true }));
 NODE
 
+  # Keep a bounded source-context diagnostic for the Phase 28 automatic
+  # registration consensus gate. This is deliberately diagnostic only: Phase 31
+  # must not relax georeference acceptance without proving the exact final-source
+  # condition that held a strong existing/as-built drawing for consensus.
+  if [[ -f "$GEN/src/lib/planning-auto-registration.mjs" ]]; then
+    grep -n -B 16 -A 24 'awaiting-cross-document-consensus' \
+      "$GEN/src/lib/planning-auto-registration.mjs" \
+      > "$DIAG/phase31-auto-registration-consensus-context.txt" || true
+  fi
+
   printf '%s\n' \
     'phase31_universal_planning_authority=enabled' \
     'generic_site_line_policy=planning-shape-osm-semantics-target-only' \
