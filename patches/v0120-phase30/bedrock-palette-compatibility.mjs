@@ -1,13 +1,23 @@
 #!/usr/bin/env node
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const MARKER = 'PHASE30_SCENERY_BLOCK_LIBRARY_V2';
-const LIBRARY_FILES = [
+const BLOCK_SOURCE_FILES = [
   'src/lib/park-scenery-fidelity.mjs',
   'src/lib/park-landscaping-fidelity.mjs',
   'src/lib/surface-material-library.mjs',
+  // Phase 30A planning provenance and several direct geometry paths emit
+  // blocks from raster.mjs rather than from one of the fidelity libraries.
+  // Scan the direct emitter so every literal block it can place reaches the
+  // direct-world writer compatibility set before final preflight.
+  'src/lib/raster.mjs',
+];
+const REQUIRED_BLOCK_SOURCE_FILES = [
+  'src/lib/park-scenery-fidelity.mjs',
+  'src/lib/park-landscaping-fidelity.mjs',
+  'src/lib/raster.mjs',
 ];
 
 function parseArgs(argv) {
@@ -43,7 +53,8 @@ export function extendBedrockBlockLibrary(text, requiredBlocks) {
   const missing = required.filter((block) => !existing.has(block));
   if (!missing.length && text.includes(MARKER)) return { text, changed: false, added: [] };
 
-  const insertion = `${region.body.trimEnd().endsWith('[') ? '' : ','}\n  // ${MARKER}\n  ${missing.map((block) => JSON.stringify(block)).join(',\n  ')}`;
+  const markerLine = text.includes(MARKER) ? '' : `  // ${MARKER}\n`;
+  const insertion = `${region.body.trimEnd().endsWith('[') ? '' : ','}\n${markerLine}  ${missing.map((block) => JSON.stringify(block)).join(',\n  ')}`;
   const output = text.slice(0, region.end) + insertion + text.slice(region.end);
   const finalRegion = blockSetRegion(output);
   const finalIds = new Set(extractMinecraftBlockIds(finalRegion.body));
@@ -55,15 +66,16 @@ export function extendBedrockBlockLibrary(text, requiredBlocks) {
 async function collectRequiredBlocks(generator) {
   const blocks = new Set();
   const scanned = [];
-  for (const relative of LIBRARY_FILES) {
+  for (const relative of BLOCK_SOURCE_FILES) {
     const filename = path.join(generator, relative);
     let text;
     try { text = await readFile(filename, 'utf8'); } catch { continue; }
     scanned.push(relative);
     for (const block of extractMinecraftBlockIds(text)) blocks.add(block);
   }
-  if (!scanned.includes('src/lib/park-scenery-fidelity.mjs') || !scanned.includes('src/lib/park-landscaping-fidelity.mjs')) {
-    throw new Error(`Required Phase 30 fidelity libraries are missing; scanned=${scanned.join(',') || 'none'}`);
+  const missingSources = REQUIRED_BLOCK_SOURCE_FILES.filter((relative) => !scanned.includes(relative));
+  if (missingSources.length) {
+    throw new Error(`Required Phase 30 block sources are missing; missing=${missingSources.join(',')} scanned=${scanned.join(',') || 'none'}`);
   }
   return { blocks: [...blocks].sort(), scanned };
 }
@@ -85,24 +97,37 @@ async function apply(generatorRoot) {
 }
 
 async function selfTest() {
-  const root = await mkdtemp(path.join(tmpdir(), 'tpmap-palette-compat-v2-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'tpmap-palette-compat-v3-'));
   try {
-    await writeFile(path.join(root, 'mcworld.mjs'), `const BEDROCK_BLOCKS = new Set([\n  "minecraft:stone"\n]);\n`);
+    const lib = path.join(root, 'src/lib');
+    await mkdir(lib, { recursive: true });
+    await writeFile(path.join(lib, 'mcworld.mjs'), `const BEDROCK_BLOCKS = new Set([\n  "minecraft:stone"\n]);\n`);
+    await writeFile(path.join(lib, 'park-scenery-fidelity.mjs'), 'export const wall = "minecraft:stone_brick_wall";\n');
+    await writeFile(path.join(lib, 'park-landscaping-fidelity.mjs'), 'export const wall = "minecraft:polished_blackstone_wall";\n');
+    await writeFile(path.join(lib, 'surface-material-library.mjs'), 'export const path = "minecraft:brick_wall";\n');
+    await writeFile(path.join(lib, 'raster.mjs'), 'const PLANNING_QA_BLOCK = "minecraft:pink_wool";\n');
+
+    const first = await apply(root);
+    if (first.status !== 'patched') throw new Error(`Expected full-source synchronization to patch writer, got ${first.status}`);
+    if (!first.scanned.includes('src/lib/raster.mjs')) throw new Error('Direct raster block source was not scanned');
+    if (!first.added.includes('minecraft:pink_wool')) throw new Error('Planning QA block was not discovered from raster.mjs');
+
+    const patched = await readFile(path.join(lib, 'mcworld.mjs'), 'utf8');
     const required = [
       'minecraft:stone',
       'minecraft:stone_brick_wall',
       'minecraft:polished_blackstone_wall',
       'minecraft:brick_wall',
+      'minecraft:pink_wool',
     ];
-    const file = path.join(root, 'mcworld.mjs');
-    const original = await readFile(file, 'utf8');
-    const first = extendBedrockBlockLibrary(original, required);
-    if (!first.changed || first.added.length !== 3) throw new Error('Expected three missing fidelity blocks to be registered');
-    for (const block of required) if (!first.text.includes(JSON.stringify(block))) throw new Error(`Missing registered test block ${block}`);
-    const second = extendBedrockBlockLibrary(first.text, required);
-    if (second.changed || second.text !== first.text) throw new Error('Bedrock block-library transform is not idempotent');
-    if (!first.text.includes(MARKER)) throw new Error('Bedrock block-library marker missing');
-    console.log('Bedrock Phase 30 block-library synchronization self-test passed');
+    for (const block of required) if (!patched.includes(JSON.stringify(block))) throw new Error(`Missing registered test block ${block}`);
+    if ((patched.match(new RegExp(MARKER, 'g')) || []).length !== 1) throw new Error('Bedrock block-library marker should remain singular');
+
+    const second = await apply(root);
+    if (second.status !== 'already-patched') throw new Error('Bedrock block-library synchronization is not idempotent');
+    const twice = await readFile(path.join(lib, 'mcworld.mjs'), 'utf8');
+    if (twice !== patched) throw new Error('Idempotent synchronization changed mcworld.mjs');
+    console.log('Bedrock Phase 30 block-source synchronization self-test passed');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
