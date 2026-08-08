@@ -1,7 +1,8 @@
 
-    # Final preparation gate. This fragment intentionally sorts after Phase 30C/
-    # 30D and every current Phase 30 transform. The previous guard ran before
-    # those transforms and rejected a valid intermediate generator.
+    # Final preparation gate. This fragment intentionally sorts after every
+    # current Phase 30 transform. It validates capabilities rather than marker
+    # strings for behavior that can legitimately be installed by more than one
+    # historical patch path.
     local preflight_log="$DIAG/prepared-generator-integrity.log"
     local preparation_failed=false
     : > "$preflight_log"
@@ -25,12 +26,12 @@
     fi
     require_marker 'PARK_SCENERY_FIDELITY_MARKER' "$GEN/src/lib/park-scenery-fidelity.mjs" 'park scenery library'
     require_marker 'PARK_LANDSCAPING_FIDELITY_MARKER' "$GEN/src/lib/park-landscaping-fidelity.mjs" 'park landscaping library'
-    require_marker 'PHASE30B_SEMANTIC_SITE_PLANS' "$GEN/src/lib/planning-vectorize.mjs" 'Phase 30B site semantics'
+    require_marker 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' "$GEN/src/lib/fidelity.mjs" 'Phase 30B uniform weighted sampler'
     require_marker 'PHASE30B_EXTENDED_BLOCK_LIBRARY_V1' "$GEN/src/lib/mcworld.mjs" 'Phase 30B material writer library'
     require_marker 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$GEN/src/lib/mcworld.mjs" 'Phase 30 scenery block writer library'
 
-    # Phase 30D is optional only on historical branches. On current production
-    # main it must be present before the final integrity gate runs.
+    # Phase 30D is optional on current main. If its source transform is present,
+    # require both runtime integration points before world compilation.
     if [[ -f "$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs" ]]; then
       require_marker 'PHASE30D_RASTER_PLANNING_GEOMETRY' "$GEN/src/lib/planning-vectorize.mjs" 'Phase 30D raster planning vectorization'
       require_marker 'PHASE30D_RASTER_PLANNING_GEOMETRY' "$GEN/src/lib/planning-georeference.mjs" 'Phase 30D raster planning georeference'
@@ -49,8 +50,6 @@
       fi
     done
 
-    # Validate the intended Phase 30A policy directly instead of re-running old
-    # archived tests whose expectations predate Phase 30A's authority change.
     if ! "$TPMAP_NODE_BIN" "$ROOT/scripts/install-phase30a-authority.mjs" \
       --generator "$GEN" --validate-only >> "$preflight_log" 2>&1; then
       echo "PREP_FAIL Phase 30A deterministic authority validation" | tee -a "$preflight_log" >&2
@@ -59,76 +58,80 @@
       echo "PREP_OK Phase 30A deterministic authority validation" >> "$preflight_log"
     fi
 
+    # Phase 30B's contract is behavioral. The previous preflight looked for the
+    # old PHASE30B_SEMANTIC_SITE_PLANS marker and called an archived __test export;
+    # diagnostics proved both assumptions could be false while all 15 current
+    # semantic/vector tests passed. Re-run the current behavior suite after every
+    # later transform instead.
+    local phase30b_final_log="$DIAG/final-phase30b-capability-tests.log"
+    if ! (
+      cd "$GEN"
+      "$TPMAP_NODE_BIN" --test \
+        test/planning-vectorize.test.mjs \
+        test/planning-vector-fusion.test.mjs \
+        test/planning-site-semantics.test.mjs \
+        test/planning-pink-qa.test.mjs
+    ) > "$phase30b_final_log" 2>&1; then
+      cat "$phase30b_final_log" >> "$preflight_log"
+      echo "PREP_FAIL Phase 30B final behavior suite" | tee -a "$preflight_log" >&2
+      preparation_failed=true
+    else
+      cat "$phase30b_final_log" >> "$preflight_log"
+      echo "PREP_OK Phase 30B final behavior suite" >> "$preflight_log"
+    fi
+
+    # Material tests are intentionally placed here, after the Phase 30 Bedrock
+    # block-library synchronizer. Running direct-world compatibility earlier
+    # falsely reports pink QA/scenery blocks as unsupported. The two material
+    # suites also prove the uniform weighted sampler and arbitrary-length recipes.
+    local material_final_log="$DIAG/final-phase30-material-tests.log"
+    if ! (
+      cd "$GEN"
+      "$TPMAP_NODE_BIN" --test \
+        test/material-pattern-recipes.test.mjs \
+        test/material-pattern-library.test.mjs \
+        test/direct-world-palette-compatibility.test.mjs
+    ) > "$material_final_log" 2>&1; then
+      cat "$material_final_log" >> "$preflight_log"
+      echo "PREP_FAIL Phase 30 final material/palette suite" | tee -a "$preflight_log" >&2
+      preparation_failed=true
+    else
+      cat "$material_final_log" >> "$preflight_log"
+      echo "PREP_OK Phase 30 final material/palette suite" >> "$preflight_log"
+    fi
+
+    # Validate the 29-preset high-fidelity library that supersedes generic
+    # aliases at raster time. This deliberately avoids the archived
+    # appearance-vegetation test's fixed three-block palette assumption.
     if ! (
       cd "$GEN"
       "$TPMAP_NODE_BIN" --input-type=module - <<'NODE'
 import assert from 'node:assert/strict';
-import { __test as fusionTest } from './src/lib/planning-vector-fusion.mjs';
-import { __test as vectorTest } from './src/lib/planning-vectorize.mjs';
-import { compileMap } from './src/lib/raster.mjs';
-import { deriveSurfaceStyle, blockForSurfaceStyle } from './src/lib/fidelity.mjs';
+import {
+  THEMEPARK_SURFACE_MATERIAL_PRESETS as presets,
+  resolveThemeParkSurfaceMaterial,
+  blockForThemeParkSurfaceStyle
+} from './src/lib/surface-material-library.mjs';
 
-const approved = fusionTest.planningState('approved', 'approved', 'gated');
-assert.equal(approved.allowed, true);
-assert.equal(approved.requiresExistingTarget, false);
-assert.equal(approved.gapFillAllowed, true);
-const review = fusionTest.planningState('approved', 'approved', 'review');
-assert.equal(review.gapFillAllowed, false);
-
-const pathSemantic = vectorTest.classifyPlanningSemanticLabel('3m wide resin bound pedestrian path');
-assert.equal(pathSemantic.className, 'path');
-assert.equal(pathSemantic.material, 'resin');
-assert.equal(pathSemantic.widthM, 3);
-const pathRole = vectorTest.semanticGeometryRole(pathSemantic, false);
-assert.equal(pathRole.role, 'site-path-centerline-candidate');
-assert.equal(pathRole.tags.highway, 'footway');
-
-function planningFeature(id, kind, geometry, extra = {}) {
-  return {
-    id, name: id, kind, subtype: `planning-${kind}`,
-    tags: { planning_qa: true, planning_authoritative: true, planning_reference: 'APP/QA/1', ...(extra.tags || {}) },
-    localGeometry: geometry,
-    vertical: { heightM: null, elevationM: null, explicit: false, ...(extra.vertical || {}) },
-    verification: { plan: 'planning-authority-override', vertical: 'unknown' },
-    source: { provider: 'Planning authority', dataset: 'planning-drawing-vector' },
-    surfaceStyle: { primaryBlock: 'minecraft:stone', secondaryBlock: 'minecraft:stone', pattern: 'solid', appearanceStatus: 'source' }
-  };
+assert.equal(Object.keys(presets).length, 29);
+for (const preset of Object.values(presets)) {
+  const sum = preset.palette.reduce((total, entry) => total + entry.weight, 0);
+  assert.ok(Math.abs(sum - 1) < 1e-9, `${preset.id} weights=${sum}`);
 }
-const map = {
-  boundary: { localGeometry: { type: 'Polygon', coordinates: [[[0,0],[20,0],[20,20],[0,20],[0,0]]] } },
-  features: [
-    planningFeature('plan:path','path',{type:'LineString',coordinates:[[2,2],[18,2]]},{tags:{highway:'footway',width:'3'}}),
-    planningFeature('plan:building','building',{type:'Polygon',coordinates:[[[4,5],[9,5],[9,10],[4,10],[4,5]]]}),
-    planningFeature('plan:ride','ride_track',{type:'LineString',coordinates:[[2,14],[18,14]]}),
-    planningFeature('plan:wall','barrier',{type:'LineString',coordinates:[[2,18],[18,18]]},{tags:{barrier:'wall'}})
-  ],
-  topology:{}, semantics:{}, fidelity:null, orthophoto:null, pathTopology:null, pathGeometry:null,
-  rideProfiles:null, terrainDetails:null
-};
-const compilation = compileMap({
-  parkName:'Planning QA', map,
-  sources:{center:{lat:0,lon:0}, elevation:{provider:'synthetic',minM:0,points:[],sampleLocal:()=>0}},
-  accuracy:{score:1,grade:'A',exact3d:false},
-  options:{maxCells:10_000,buildings:'markers',noRideInfoSigns:true,accuracyMode:'verified'}
-});
-const pink = compilation.palette.indexOf('minecraft:pink_wool');
-assert.ok(pink >= 0);
-assert.ok(compilation.chunks.flatMap((chunk)=>chunk.o).filter((op)=>op[7]===pink).length >= 4);
-
-const materialFeature={id:'m:weathered',kind:'path',tags:{surface:'weathered_asphalt'},localGeometry:{type:'LineString',coordinates:[[0,0],[100,0]]},source:{provider:'preflight'}};
-const style=deriveSurfaceStyle(materialFeature,{accuracyMode:'plausible'});
-assert.equal(style.exactMaterialPalette,true);
-assert.ok(style.paletteBlocks.length >= 4);
-const a=Array.from({length:128},(_,i)=>blockForSurfaceStyle(style,i%16,Math.floor(i/16),417));
-const b=Array.from({length:128},(_,i)=>blockForSurfaceStyle(style,i%16,Math.floor(i/16),417));
-assert.deepEqual(a,b);
-console.log('Phase 30 current-semantics integration preflight passed');
+assert.equal(resolveThemeParkSurfaceMaterial({ material: 'weathered asphalt' }).id, 'weathered_asphalt');
+const a = Array.from({ length: 256 }, (_, i) =>
+  blockForThemeParkSurfaceStyle({ materialPreset: 'weathered_asphalt' }, i % 16, Math.floor(i / 16), 417));
+const b = Array.from({ length: 256 }, (_, i) =>
+  blockForThemeParkSurfaceStyle({ materialPreset: 'weathered_asphalt' }, i % 16, Math.floor(i / 16), 417));
+assert.deepEqual(a, b);
+assert.ok(new Set(a).size >= 3);
+console.log('Phase 30 current material-library integration preflight passed');
 NODE
     ) >> "$preflight_log" 2>&1; then
-      echo "PREP_FAIL Phase 30 current-semantics integration probe" | tee -a "$preflight_log" >&2
+      echo "PREP_FAIL Phase 30 current material-library integration probe" | tee -a "$preflight_log" >&2
       preparation_failed=true
     else
-      echo "PREP_OK Phase 30 current-semantics integration probe" >> "$preflight_log"
+      echo "PREP_OK Phase 30 current material-library integration probe" >> "$preflight_log"
     fi
 
     if find "$GEN" -type f -name '*.rej' -print -quit | grep -q .; then
@@ -144,6 +147,12 @@ NODE
     fi
 
     TPMAP_ATTEMPT_PREPARED=true
+    echo "PREP_OK prepared generator final integrity" >> "$preflight_log"
+
+    if [[ "${TPMAP_PREPARE_ONLY:-}" == "preflight" ]]; then
+      echo "TPMAP_PREPARE_ONLY=preflight complete" | tee -a "$preflight_log"
+      exit 0
+    fi
   fi
 
   if [[ -f "$DIAG/deterministic-build-failure.marker" ]]; then

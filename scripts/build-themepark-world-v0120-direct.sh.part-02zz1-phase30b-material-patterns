@@ -1,34 +1,58 @@
   PHASE30B_MATERIAL_TRANSFORM="$ROOT/patches/v0120-phase30b/material-pattern-transform.mjs"
   PHASE30B_MATERIAL_TRANSFORM_SHA="2118630c515ca658dae9f07460cf282d8e0748cb17c0dc2b3644ae2fd771e654"
+  PHASE30B_WEIGHTED_SAMPLER_INSTALLER="$ROOT/scripts/install-phase30b-weighted-sampler.mjs"
+  PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA="c7ab354e37fb123cec55335f03dfbc8fa6686a13ba73263c6fcc83cebad11687"
   [[ -f "$PHASE30B_MATERIAL_TRANSFORM" ]] || {
     echo "Missing Phase 30B material-pattern transform." | tee "$DIAG/phase30b-material-error.txt" >&2
     exit 2
   }
+  [[ -f "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" ]] || {
+    echo "Missing Phase 30B weighted-sampler installer." | tee "$DIAG/phase30b-material-error.txt" >&2
+    exit 2
+  }
   phase30b_material_actual_sha="$(sha256sum "$PHASE30B_MATERIAL_TRANSFORM" | cut -d' ' -f1)"
-  printf 'material_transform_expected=%s\nmaterial_transform_actual=%s\n' \
+  phase30b_sampler_actual_sha="$(sha256sum "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" | cut -d' ' -f1)"
+  printf 'material_transform_expected=%s\nmaterial_transform_actual=%s\nweighted_sampler_expected=%s\nweighted_sampler_actual=%s\n' \
     "$PHASE30B_MATERIAL_TRANSFORM_SHA" "$phase30b_material_actual_sha" \
+    "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA" "$phase30b_sampler_actual_sha" \
     | tee "$DIAG/phase30b-material-transform-checksum.txt"
   [[ "$phase30b_material_actual_sha" == "$PHASE30B_MATERIAL_TRANSFORM_SHA" ]] || {
     echo "Phase 30B material-pattern transform checksum mismatch." | tee "$DIAG/phase30b-material-error.txt" >&2
     exit 2
   }
+  [[ "$phase30b_sampler_actual_sha" == "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA" ]] || {
+    echo "Phase 30B weighted-sampler installer checksum mismatch." | tee "$DIAG/phase30b-material-error.txt" >&2
+    exit 2
+  }
 
   node "$PHASE30B_MATERIAL_TRANSFORM" --root "$GEN" \
     2>&1 | tee "$DIAG/phase30b-material-transform.log"
+  node "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" --self-test \
+    2>&1 | tee "$DIAG/phase30b-weighted-sampler-self-test.log"
+  node "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" --generator "$GEN" \
+    2>&1 | tee "$DIAG/phase30b-weighted-sampler-install.log"
   node --check "$GEN/src/lib/fidelity.mjs"
   node --check "$GEN/src/lib/raster.mjs"
   node --check "$GEN/src/lib/mcworld.mjs"
-  (
+
+  # Only run the tests whose contract this phase owns. The historical
+  # appearance test assumes a fixed three-block palette, which Phase 30B
+  # intentionally replaces with arbitrary-length weighted palettes. The
+  # direct-world compatibility test is meaningful only after the later Phase 30
+  # block-library synchronizer has registered pink QA and scenery blocks.
+  if ! (
     cd "$GEN"
-    node --test \
-      test/material-pattern-recipes.test.mjs \
-      test/appearance-vegetation.test.mjs \
-      test/direct-world-palette-compatibility.test.mjs \
-      2>&1 | tee "$DIAG/phase30b-material-pattern-tests.log"
-  )
+    node --test test/material-pattern-recipes.test.mjs
+  ) > "$DIAG/phase30b-material-pattern-tests.log" 2>&1; then
+    cat "$DIAG/phase30b-material-pattern-tests.log" >&2
+    echo "Phase 30B material-pattern regression failed." | tee "$DIAG/phase30b-material-error.txt" >&2
+    exit 2
+  fi
+  cat "$DIAG/phase30b-material-pattern-tests.log"
 
   printf '%s\n' \
     'material_pattern_engine=arbitrary-length-deterministic-weighted-palettes' \
+    'weighted_sampler=uniform-32bit-coordinate-avalanche-v1' \
     'asphalt=minecraft:gray_wool@60,minecraft:gray_concrete@40' \
     'brick=minecraft:terracotta@60,minecraft:jungle_planks@30,minecraft:packed_mud@10' \
     'stone=minecraft:stone@55,minecraft:cracked_stone_bricks@5,minecraft:stone_bricks@20,minecraft:andesite@15,minecraft:polished_andesite@5' \

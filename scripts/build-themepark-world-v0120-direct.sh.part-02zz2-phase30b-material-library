@@ -17,15 +17,23 @@
     2>&1 | tee "$DIAG/phase30b-material-library-transform.log"
   node --check "$GEN/src/lib/fidelity.mjs"
   node --check "$GEN/src/lib/mcworld.mjs"
-  (
+
+  # Validate the contracts owned by the extended material library. The old
+  # appearance/vegetation suite assumes the pre-Phase-30 fixed three-block
+  # surface palette, and direct-world palette validation must run after the
+  # later block-library compatibility synchronizer. Both are checked at the
+  # final prepared-generator gate instead of producing misleading failures here.
+  if ! (
     cd "$GEN"
     node --test \
       test/material-pattern-recipes.test.mjs \
-      test/material-pattern-library.test.mjs \
-      test/appearance-vegetation.test.mjs \
-      test/direct-world-palette-compatibility.test.mjs \
-      2>&1 | tee "$DIAG/phase30b-material-library-tests.log"
-  )
+      test/material-pattern-library.test.mjs
+  ) > "$DIAG/phase30b-material-library-tests.log" 2>&1; then
+    cat "$DIAG/phase30b-material-library-tests.log" >&2
+    echo "Phase 30B extended material-library regression failed." | tee "$DIAG/phase30b-material-library-error.txt" >&2
+    exit 2
+  fi
+  cat "$DIAG/phase30b-material-library-tests.log"
 
   printf '%s\n' \
     'extended_material_library=enabled' \

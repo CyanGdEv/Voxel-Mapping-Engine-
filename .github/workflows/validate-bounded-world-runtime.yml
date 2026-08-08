@@ -9,6 +9,7 @@ on:
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
+      - 'scripts/install-phase30b-weighted-sampler.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
   push:
@@ -20,7 +21,9 @@ on:
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
+      - 'scripts/install-phase30b-weighted-sampler.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - '.github/workflows/validate-bounded-world-runtime.yml'
 
 permissions:
   contents: read
@@ -40,6 +43,7 @@ jobs:
           node scripts/prepare-surface-material-hook.mjs --self-test
           node scripts/install-phase30a-authority.mjs --self-test
           node scripts/install-phase30a-tests.mjs --self-test
+          node scripts/install-phase30b-weighted-sampler.mjs --self-test
       - name: Validate concatenated direct runner syntax and ordering
         shell: bash
         run: |
@@ -53,9 +57,13 @@ jobs:
           grep -q 'TPMAP_ATTEMPT_PREPARED=true' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'prepared-generator-integrity.log' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$RUNNER_TEMP/direct-runner.sh"
-          grep -q 'Phase 30 current-semantics integration preflight passed' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'Phase 30 current material-library integration preflight passed' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'TPMAP_PREPARE_ONLY=phase30b complete' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'TPMAP_PREPARE_ONLY=preflight complete' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'phase30b_capability_probe' "$RUNNER_TEMP/direct-runner.sh"
+          ! grep -q 'classifyPlanningSemanticLabel' "$RUNNER_TEMP/direct-runner.sh"
+          ! grep -q "require_marker 'PHASE30B_SEMANTIC_SITE_PLANS'" "$RUNNER_TEMP/direct-runner.sh"
           ! grep -q 'skipping redundant production test invocation' "$RUNNER_TEMP/direct-runner.sh"
 
           test ! -e scripts/build-themepark-world-v0120-direct.sh.part-02zzz-fast-attempt-guard-close
@@ -66,14 +74,13 @@ jobs:
           phase30a_line=$(grep -n 'part-02y-phase30a-authority' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           legacy_phase30_line=$(grep -n 'part-02z-phase30$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           phase30b_line=$(grep -n 'part-02zz-phase30b$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          material30b_line=$(grep -n 'part-02zz1-phase30b-material-patterns$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           final_guard_line=$(grep -n 'part-02zzzzzzzzzz-fast-attempt-guard-close' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           test "$phase30a_line" -lt "$legacy_phase30_line"
           test "$legacy_phase30_line" -lt "$phase30b_line"
-          test "$phase30b_line" -lt "$final_guard_line"
+          test "$phase30b_line" -lt "$material30b_line"
+          test "$material30b_line" -lt "$final_guard_line"
 
-          # Phase 30D was merged into the stacked Phase 30C feature branch, not
-          # current main. If it is promoted into main later, the final guard must
-          # remain after it; until then do not require a nonexistent fragment.
           if grep -q 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt"; then
             phase30d_line=$(grep -n 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
             test "$phase30b_line" -lt "$phase30d_line"
@@ -87,7 +94,7 @@ jobs:
           grep -q 'timeout --signal=TERM --kill-after=20s 4m' .github/workflows/build-themepark-world-resilient.yml
           ! grep -q 'trying five-minute legacy fallback' .github/workflows/build-themepark-world-resilient.yml
 
-  validate-production-phase30b-preparation:
+  validate-production-phase30-preparation:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -100,23 +107,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends poppler-utils gdal-bin python3-opencv
-      - name: Execute locked-source production preparation through Phase 30B
+      - name: Execute locked-source production preparation through final Phase 30 preflight
         shell: bash
         env:
-          TPMAP_PREPARE_ONLY: phase30b
+          TPMAP_PREPARE_ONLY: preflight
           TPMAP_PRESET: alton-towers
           TPMAP_ACCURACY: benchmark
           TPMAP_SHARED_CACHE_DIR: ''
         run: |
           mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
-          cat "${parts[@]}" > "$RUNNER_TEMP/phase30b-production-prep.sh"
-          chmod +x "$RUNNER_TEMP/phase30b-production-prep.sh"
-          bash "$RUNNER_TEMP/phase30b-production-prep.sh"
+          cat "${parts[@]}" > "$RUNNER_TEMP/phase30-production-prep.sh"
+          chmod +x "$RUNNER_TEMP/phase30-production-prep.sh"
+          bash "$RUNNER_TEMP/phase30-production-prep.sh"
 
-          grep -q 'TPMAP_PREPARE_ONLY=phase30b complete' <(tail -n 200 ci-diagnostics/phase30b-patch-apply.log; echo 'TPMAP_PREPARE_ONLY=phase30b complete')
+          test -f ci-diagnostics/prepared-generator-integrity.log
+          grep -q 'TPMAP_PREPARE_ONLY=preflight complete' ci-diagnostics/prepared-generator-integrity.log
+          grep -q 'PREP_OK Phase 30B final behavior suite' ci-diagnostics/prepared-generator-integrity.log
+          grep -q 'PREP_OK Phase 30 final material/palette suite' ci-diagnostics/prepared-generator-integrity.log
+          grep -q 'PREP_OK Phase 30 current material-library integration probe' ci-diagnostics/prepared-generator-integrity.log
+          grep -q 'PREP_OK prepared generator final integrity' ci-diagnostics/prepared-generator-integrity.log
           test -f ci-diagnostics/phase30b-planning-site-semantics-tests.log
           grep -q '# fail 0' ci-diagnostics/phase30b-planning-site-semantics-tests.log
+          grep -q '# fail 0' ci-diagnostics/phase30b-material-pattern-tests.log
+          grep -q '# fail 0' ci-diagnostics/phase30b-material-library-tests.log
+          grep -q '# fail 0' ci-diagnostics/final-phase30b-capability-tests.log
+          grep -q '# fail 0' ci-diagnostics/final-phase30-material-tests.log
+          grep -q 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' generator/src/lib/fidelity.mjs
           test ! -e generator/src/lib/planning-vectorize.mjs.rej
           test ! -e generator/src/lib/planning-vector-fusion.mjs.rej
+          test -z "$(find generator -type f -name '*.rej' -print -quit)"
           node --check generator/src/lib/planning-vectorize.mjs
           node --check generator/src/lib/planning-vector-fusion.mjs
+          node --check generator/src/lib/fidelity.mjs
+          node --check generator/src/lib/mcworld.mjs
