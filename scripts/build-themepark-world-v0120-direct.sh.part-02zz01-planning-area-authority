@@ -1,0 +1,40 @@
+  # Planning-area authority: prioritise real drawings, resolve ambiguous visual
+  # registrations jointly across drawings, and prevent OSM surface/pattern tags
+  # from repainting paths rebuilt from semantic site-plan geometry.
+  PLANNING_AREA_INSTALLER="$(mktemp --suffix=.mjs)"
+  planning_area_cleanup() { rm -f "$PLANNING_AREA_INSTALLER"; }
+  trap planning_area_cleanup RETURN
+  PLANNING_AREA_PARTS=()
+  for index in 00 01 02 03 04; do
+    part="$ROOT/scripts/install-planning-area-authority.mjs.part-$index"
+    [[ -f "$part" ]] || {
+      echo "Missing planning area authority installer part $index." | tee "$DIAG/planning-area-authority-error.txt" >&2
+      exit 2
+    }
+    PLANNING_AREA_PARTS+=("$part")
+  done
+  cat "${PLANNING_AREA_PARTS[@]}" > "$PLANNING_AREA_INSTALLER"
+
+  TPMAP_INSTALLER_SELFTEST_SOURCE="$GEN" node "$PLANNING_AREA_INSTALLER" --self-test \
+    2>&1 | tee "$DIAG/planning-area-authority-installer-self-test.log"
+  node "$PLANNING_AREA_INSTALLER" --generator "$GEN" \
+    2>&1 | tee "$DIAG/planning-area-authority-install.log"
+  node --check "$GEN/src/lib/planning-georeference.mjs"
+  node --check "$GEN/src/lib/planning-auto-registration.mjs"
+  node --check "$GEN/src/lib/source-fusion.mjs"
+  python3 -m py_compile "$GEN/src/tools/planning_auto_register.py"
+  node "$PLANNING_AREA_INSTALLER" --generator "$GEN" --validate-only \
+    2>&1 | tee "$DIAG/planning-area-authority-validation.log"
+  (
+    cd "$GEN"
+    node --test test/planning-area-authority.test.mjs test/planning-auto-registration.test.mjs test/planning-georeference.test.mjs \
+      2>&1 | tee "$DIAG/planning-area-authority-tests.log"
+  )
+  printf '%s\n' \
+    'planning_drawing_selection=geometry-first' \
+    'planning_registration_consensus=multi-candidate-joint-drawing' \
+    'planning_site_path_geometry=planning-primary-after-existing-gates' \
+    'planning_site_path_surface=planning-not-osm' \
+    > "$DIAG/planning-area-authority-policy.txt"
+  planning_area_cleanup
+  trap - RETURN
