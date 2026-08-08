@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MARKER = 'TPMAP_SURFACE_MATERIAL_LIBRARY_V1';
 const DELEGATE_COMMENT = `// ${MARKER} integration delegated to src/lib/fidelity.mjs`;
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_LIBRARY = path.resolve(SCRIPT_DIR, '../patches/v0120-phase30/surface-material-library.mjs');
 
 function parseArgs(argv) {
   const options = {};
@@ -38,10 +41,36 @@ export function patchSurfaceSampler(source) {
   return out;
 }
 
+async function fileExists(file) {
+  try {
+    const info = await stat(file);
+    return info.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function ensureSurfaceLibrary(generator) {
+  const target = path.join(generator, 'src/lib/surface-material-library.mjs');
+  if (await fileExists(target)) return { target, bootstrapped: false };
+  if (!(await fileExists(DEFAULT_LIBRARY))) {
+    throw new Error(`Surface material prehook cannot bootstrap missing library: ${DEFAULT_LIBRARY}`);
+  }
+  await mkdir(path.dirname(target), { recursive: true });
+  await copyFile(DEFAULT_LIBRARY, target);
+  return { target, bootstrapped: true };
+}
+
 async function prepare(generatorRoot) {
   const generator = path.resolve(generatorRoot);
   const fidelity = path.join(generator, 'src/lib/fidelity.mjs');
   const raster = path.join(generator, 'src/lib/raster.mjs');
+
+  // The prehook adds a static ESM import. Ensure the imported module exists
+  // before any Phase 30A tests import fidelity.mjs, otherwise CI can fail with
+  // ERR_MODULE_NOT_FOUND before the normal Phase 30 installer runs.
+  const library = await ensureSurfaceLibrary(generator);
+
   const fidelitySource = await readFile(fidelity, 'utf8');
   const rasterSource = await readFile(raster, 'utf8');
 
@@ -64,7 +93,8 @@ async function prepare(generatorRoot) {
   const finalFidelity = await readFile(fidelity, 'utf8');
   const finalRaster = await readFile(raster, 'utf8');
   if (!finalFidelity.includes(MARKER) && !finalRaster.includes(MARKER)) throw new Error('Surface material integration marker missing after prehook');
-  console.log(JSON.stringify({ status: 'ready', integrationFile, legacyInstallerRasterGuard: finalRaster.includes(MARKER) }));
+  if (!(await fileExists(library.target))) throw new Error('Surface material library missing after prehook bootstrap');
+  console.log(JSON.stringify({ status: 'ready', integrationFile, legacyInstallerRasterGuard: finalRaster.includes(MARKER), libraryBootstrapped: library.bootstrapped }));
 }
 
 async function selfTest() {
@@ -75,13 +105,14 @@ async function selfTest() {
     if (!patched.includes(MARKER) || !patched.includes('blockForThemeParkSurfaceStyle(style, x, z, seed)')) throw new Error('Surface prehook sampler test failed');
     if (patchSurfaceSampler(patched) !== patched) throw new Error('Surface prehook is not idempotent');
     const generator = path.join(root, 'generator');
-    await writeFile(path.join(root, 'placeholder'), 'x');
-    await import('node:fs/promises').then(({ mkdir }) => mkdir(path.join(generator, 'src/lib'), { recursive: true }));
+    await mkdir(path.join(generator, 'src/lib'), { recursive: true });
     await writeFile(path.join(generator, 'src/lib/fidelity.mjs'), fidelity);
     await writeFile(path.join(generator, 'src/lib/raster.mjs'), 'export const raster = true;\n');
     await prepare(generator);
     const finalRaster = await readFile(path.join(generator, 'src/lib/raster.mjs'), 'utf8');
+    const finalLibrary = await readFile(path.join(generator, 'src/lib/surface-material-library.mjs'), 'utf8');
     if (!finalRaster.includes(DELEGATE_COMMENT)) throw new Error('Legacy raster guard marker was not installed');
+    if (!finalLibrary.includes('THEMEPARK_SURFACE_MATERIAL_PRESETS')) throw new Error('Surface prehook library bootstrap failed');
     console.log('Surface material fidelity prehook self-test passed');
   } finally {
     await rm(root, { recursive: true, force: true });

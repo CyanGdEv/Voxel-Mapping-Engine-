@@ -1,7 +1,7 @@
   PHASE30B_MATERIAL_TRANSFORM="$ROOT/patches/v0120-phase30b/material-pattern-transform.mjs"
   PHASE30B_MATERIAL_TRANSFORM_SHA="2118630c515ca658dae9f07460cf282d8e0748cb17c0dc2b3644ae2fd771e654"
   PHASE30B_WEIGHTED_SAMPLER_INSTALLER="$ROOT/scripts/install-phase30b-weighted-sampler.mjs"
-  PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA="c7ab354e37fb123cec55335f03dfbc8fa6686a13ba73263c6fcc83cebad11687"
+  PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA="f3d4206f1e5741574be5d1fbfd2f6ea0e0444a7d641ddec84eadae5fcc985607"
   [[ -f "$PHASE30B_MATERIAL_TRANSFORM" ]] || {
     echo "Missing Phase 30B material-pattern transform." | tee "$DIAG/phase30b-material-error.txt" >&2
     exit 2
