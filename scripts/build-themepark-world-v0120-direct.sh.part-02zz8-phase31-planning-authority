@@ -1,0 +1,92 @@
+  # Phase 31 — universal planning authority. This runs after Phase 30B semantic
+  # extraction/material preparation and before the final prepared-generator guard.
+  # It does not weaken provenance/georeference/status gates. It promotes broad
+  # site-plan geometry only as target-bound replacement geometry so a verified
+  # plan can redraw weak OSM geometry without guessing that every anonymous line
+  # is a path.
+  node "$ROOT/scripts/install-phase31-planning-authority.mjs" --generator "$GEN" \
+    2>&1 | tee "$DIAG/phase31-planning-authority-install.log"
+
+  node --check "$GEN/src/lib/planning-vector-fusion.mjs"
+  node --check "$GEN/src/lib/source-fusion.mjs"
+  node --check "$GEN/src/lib/report.mjs"
+
+  (
+    cd "$GEN"
+    node --test \
+      test/planning-vector-fusion.test.mjs \
+      test/planning-site-semantics.test.mjs \
+      test/planning-pink-qa.test.mjs \
+      2>&1 | tee "$DIAG/phase31-regression-tests.log"
+  )
+
+  # Exercise the final prepared source, not just the repository transformer.
+  # A high-confidence approved generic site-plan line must now be eligible to
+  # replace an existing path target, but must not be permitted to invent a path
+  # when no semantic target/corroboration exists.
+  GEN_FOR_PHASE31="$GEN" node --input-type=module <<'NODE' \
+    2>&1 | tee "$DIAG/phase31-contextual-authority-test.log"
+  import path from 'node:path';
+  import { pathToFileURL } from 'node:url';
+  const generator = process.env.GEN_FOR_PHASE31;
+  const moduleUrl = pathToFileURL(path.join(generator, 'src/lib/planning-vector-fusion.mjs')).href;
+  const { preparePlanningVectorFusion } = await import(moduleUrl);
+  const feature = {
+    type: 'Feature',
+    id: 'phase31:site-line',
+    geometry: { type: 'LineString', coordinates: [[-1.9002, 52.98], [-1.8997, 52.98005]] },
+    properties: {
+      source_type: 'planning-drawing-vector',
+      planning_reference: 'SMD/TEST/0031',
+      application_status: 'approved',
+      document_id: 'planning-document:phase31',
+      document_role: 'existing-site-plan',
+      document_state: 'approved',
+      document_sha256: 'phase31-test-sha',
+      source_url: 'http://publicaccess.staffsmoorlands.gov.uk/phase31-test',
+      extraction_method: 'pdf-svg-vector',
+      geometry_role: 'site-plan-linear-candidate',
+      confidence: 0.96,
+      georeference_method: 'automatic-registration',
+      georeference_rmse_m: 0.45,
+      length_m: 40,
+      area_m2: 0,
+      reuse_status: 'unknown-not-for-redistribution',
+      world_eligible: false,
+      fusion_status: 'awaiting-planning-authority-gates'
+    }
+  };
+  const catalogue = {
+    applications: [{
+      reference: 'SMD/TEST/0031',
+      status: 'approved',
+      documents: [{
+        id: 'planning-document:phase31',
+        role: 'existing-site-plan',
+        state: 'approved',
+        sha256: 'phase31-test-sha',
+        url: 'http://publicaccess.staffsmoorlands.gov.uk/phase31-test',
+        reuseStatus: 'unknown-not-for-redistribution',
+        reuseLicense: null
+      }]
+    }],
+    vectorExtraction: { candidates: { type: 'FeatureCollection', features: [feature] } }
+  };
+  const result = preparePlanningVectorFusion({ planningVectorFusionMode: 'private' }, catalogue);
+  if (result.collection.features.length !== 1) throw new Error(`expected one contextual feature, got ${result.collection.features.length}`);
+  const promoted = result.collection.features[0];
+  if (promoted.properties.kind !== 'path') throw new Error(`expected contextual path target, got ${promoted.properties.kind}`);
+  if (promoted.properties.planning_contextual_geometry !== true) throw new Error('contextual planning marker missing');
+  if (promoted.properties.planning_requires_existing_osm_target !== true) throw new Error('generic planning line must require an existing semantic target');
+  if (promoted.properties.planning_allow_gap_fill !== false) throw new Error('generic planning line must not blindly gap-fill');
+  console.log(JSON.stringify({ status: 'passed', kind: promoted.properties.kind, targetOnly: true }));
+NODE
+
+  printf '%s\n' \
+    'phase31_universal_planning_authority=enabled' \
+    'generic_site_line_policy=planning-shape-osm-semantics-target-only' \
+    'generic_site_area_policy=planning-shape-osm-semantics-target-only' \
+    'semantic_planning_vectors=authoritative-gap-fill-and-replacement-after-existing-gates' \
+    'blocked_proposals=withheld' \
+    'osm_role=metadata-and-fallback-not-primary-shape-where-planning-is-accepted' \
+    > "$DIAG/phase31-runtime-policy.txt"
