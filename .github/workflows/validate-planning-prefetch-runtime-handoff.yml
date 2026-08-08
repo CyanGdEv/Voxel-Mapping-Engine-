@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - 'scripts/prepare-planning-prefetch-runtime.mjs'
       - '.github/workflows/validate-planning-prefetch-runtime-handoff.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - 'scripts/prepare-planning-prefetch-runtime.mjs'
       - '.github/workflows/validate-planning-prefetch-runtime-handoff.yml'
 
 permissions:
@@ -20,6 +22,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate official-prefetch runtime boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/prepare-planning-prefetch-runtime.mjs
+          node scripts/prepare-planning-prefetch-runtime.mjs --self-test
 
       - name: Prove validated prefetch environment reaches generator CLI
         shell: bash
