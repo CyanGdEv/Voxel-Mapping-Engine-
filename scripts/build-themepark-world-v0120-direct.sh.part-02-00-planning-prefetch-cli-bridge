@@ -1,0 +1,24 @@
+
+  # The resilient workflow validates/normalizes the selected planning artifact
+  # before the direct runner starts and publishes its directory through
+  # TPMAP_PLANNING_PREFETCH_DIR. Phase 26/26B consume that artifact through the
+  # CLI option, not by implicitly reading the workflow environment. Bridge the
+  # validated runtime path into SOURCE_ARGS once so every source strategy uses
+  # the same verified planning evidence instead of falling back to a live portal
+  # request that can report zero downloaded documents.
+  if [[ "${TPMAP_PLANNING_PREFETCH_CLI_BRIDGED:-false}" != "true" ]]; then
+    if [[ "${TPMAP_PLANNING_DOCUMENT_MODE:-extract}" == "off" ]]; then
+      printf 'state=disabled\nreason=planning-document-mode-off\n' > "$DIAG/planning-prefetch-cli-bridge.txt"
+    elif [[ -z "${TPMAP_PLANNING_PREFETCH_DIR:-}" ]]; then
+      printf 'state=not-configured\n' > "$DIAG/planning-prefetch-cli-bridge.txt"
+    elif [[ ! -f "$TPMAP_PLANNING_PREFETCH_DIR/manifest.json" ]]; then
+      printf 'state=missing-manifest\nprefetch_dir=%s\n' \
+        "$TPMAP_PLANNING_PREFETCH_DIR" > "$DIAG/planning-prefetch-cli-bridge.txt"
+      echo "Planning prefetch directory is configured but has no manifest; continuing with the generator's live planning transport." >&2
+    else
+      SOURCE_ARGS+=(--planning-prefetch-dir "$TPMAP_PLANNING_PREFETCH_DIR")
+      TPMAP_PLANNING_PREFETCH_CLI_BRIDGED=true
+      printf 'state=bridged\nprefetch_dir=%s\ncli_flag=--planning-prefetch-dir\n' \
+        "$TPMAP_PLANNING_PREFETCH_DIR" > "$DIAG/planning-prefetch-cli-bridge.txt"
+    fi
+  fi
