@@ -1,0 +1,91 @@
+  # Phase 30B semantic contract repair.
+  # The previous behavior-only probe can false-positive when a historical
+  # planning-site-semantics.test.mjs is present but contains no semantic cases.
+  # Require the actual site-plan extraction/fusion capabilities before allowing
+  # the runner to move on to world generation.
+  PHASE30B_CONTRACT_DIR="$ROOT/patches/v0120-phase30b"
+  PHASE30B_CONTRACT_SHA="433069358a9ab0b0dcac44955379003710cd6534fb2c0ed540d676eda660d0b3"
+  PHASE30B_CONTRACT_B64="$(mktemp)"
+  PHASE30B_CONTRACT_PATCH="$(mktemp)"
+  phase30b_contract_cleanup() { rm -f "$PHASE30B_CONTRACT_B64" "$PHASE30B_CONTRACT_PATCH"; }
+  trap phase30b_contract_cleanup RETURN
+
+  phase30b_semantic_contract_probe() {
+    [[ -f "$GEN/src/lib/planning-vectorize.mjs" ]] || return 1
+    [[ -f "$GEN/src/lib/planning-vector-fusion.mjs" ]] || return 1
+    [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || return 1
+
+    # These are executable capability tokens introduced by the decoded Phase
+    # 30B source patch, not a loose version marker. A partial historical state
+    # can contain PHASE30B_SEMANTIC_SITE_PLANS while lacking these behaviors.
+    grep -q 'extractPlanningSemanticAnchors' "$GEN/src/lib/planning-vectorize.mjs" || return 1
+    grep -q 'site-path-centerline-candidate' "$GEN/src/lib/planning-vectorize.mjs" || return 1
+    grep -q 'site-path-centerline-candidate' "$GEN/src/lib/planning-vector-fusion.mjs" || return 1
+    grep -q 'planning_semantic' "$GEN/src/lib/planning-vectorize.mjs" || return 1
+
+    # Protect against an empty/stale semantic test file, which is exactly what
+    # allowed diagnostics 17 to report a green 15-test suite without exercising
+    # site-plan semantics at all.
+    local semantic_test_count
+    semantic_test_count="$(grep -Ec '(^|[^A-Za-z])test\(' "$GEN/test/planning-site-semantics.test.mjs" || true)"
+    [[ "$semantic_test_count" -ge 4 ]] || return 1
+
+    (
+      cd "$GEN"
+      node --test test/planning-site-semantics.test.mjs test/planning-vector-fusion.test.mjs
+    ) > "$DIAG/phase30b-semantic-contract-probe.log" 2>&1
+  }
+
+  if ! phase30b_semantic_contract_probe; then
+    echo "Phase 30B semantic contract incomplete despite earlier behavior probe; forcing checksum-locked completion." \
+      | tee "$DIAG/phase30b-semantic-contract-repair.log"
+
+    PHASE30B_CONTRACT_PARTS=()
+    for index in 00 01 02 03 04 05 06 07; do
+      part="$PHASE30B_CONTRACT_DIR/v0120-phase30b-site-semantics.b64.part-$index"
+      [[ -f "$part" ]] || {
+        echo "Missing Phase 30B semantic patch chunk $index." | tee -a "$DIAG/phase30b-semantic-contract-repair.log" >&2
+        exit 2
+      }
+      PHASE30B_CONTRACT_PARTS+=("$part")
+    done
+    cat "${PHASE30B_CONTRACT_PARTS[@]}" | tr -d '[:space:]' > "$PHASE30B_CONTRACT_B64"
+    base64 --decode "$PHASE30B_CONTRACT_B64" > "$PHASE30B_CONTRACT_PATCH"
+    phase30b_contract_actual_sha="$(sha256sum "$PHASE30B_CONTRACT_PATCH" | cut -d' ' -f1)"
+    [[ "$phase30b_contract_actual_sha" == "$PHASE30B_CONTRACT_SHA" ]] || {
+      printf 'Phase 30B semantic contract patch checksum mismatch expected=%s actual=%s\n' \
+        "$PHASE30B_CONTRACT_SHA" "$phase30b_contract_actual_sha" \
+        | tee -a "$DIAG/phase30b-semantic-contract-repair.log" >&2
+      exit 2
+    }
+
+    set +e
+    patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE30B_CONTRACT_PATCH" \
+      2>&1 | tee -a "$DIAG/phase30b-semantic-contract-repair.log"
+    phase30b_contract_patch_status=${PIPESTATUS[0]}
+    set -e
+    printf 'phase30b_semantic_contract_patch_exit=%s\n' "$phase30b_contract_patch_status" \
+      | tee -a "$DIAG/phase30b-semantic-contract-repair.log"
+
+    node --check "$GEN/src/lib/planning-vectorize.mjs"
+    node --check "$GEN/src/lib/planning-vector-fusion.mjs"
+    if ! phase30b_semantic_contract_probe; then
+      cat "$DIAG/phase30b-semantic-contract-probe.log" \
+        | tee -a "$DIAG/phase30b-semantic-contract-repair.log" >&2
+      echo "Phase 30B still lacks real site-plan semantic extraction/fusion after checksum-locked completion." \
+        | tee -a "$DIAG/phase30b-semantic-contract-repair.log" >&2
+      exit 2
+    fi
+
+    # Only clear overlap rejects after the semantic contract itself has passed.
+    rm -f "$GEN/src/lib/planning-vectorize.mjs.rej" "$GEN/src/lib/planning-vector-fusion.mjs.rej"
+  fi
+
+  phase30b_semantic_contract_probe
+  printf '%s\n' \
+    'phase30b_semantic_contract=verified' \
+    'site_plan_path_role=site-path-centerline-candidate' \
+    'semantic_test_minimum=4' \
+    > "$DIAG/phase30b-semantic-contract.txt"
+  phase30b_contract_cleanup
+  trap - RETURN
