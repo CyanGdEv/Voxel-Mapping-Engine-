@@ -20,6 +20,7 @@ const OFFICIAL_PREFETCH_HOSTS = new Set([
   'publicaccess.staffsmoorlands.gov.uk',
   'www.staffsmoorlands.gov.uk'
 ]);
+const LEGACY_OFFICIAL_HOST = 'publicaccess.staffsmoorlands.gov.uk';
 
 function argsOf(argv) {
   const out = {};
@@ -38,7 +39,7 @@ function canonicalUrl(value) {
     if (!['http:', 'https:'].includes(url.protocol)) return null;
     url.hash = '';
     url.hostname = url.hostname.toLowerCase();
-    if (url.hostname === 'publicaccess.staffsmoorlands.gov.uk') url.protocol = 'https:';
+    if (url.hostname === LEGACY_OFFICIAL_HOST) url.protocol = 'https:';
     const sorted = [...url.searchParams.entries()].sort(([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv));
     url.search = '';
     for (const [key, val] of sorted) url.searchParams.append(key, val);
@@ -53,6 +54,25 @@ function runtimePrefetchUrl(value) {
   if (!canonical) return null;
   try {
     return OFFICIAL_PREFETCH_HOSTS.has(new URL(canonical).hostname.toLowerCase()) ? canonical : null;
+  } catch {
+    return null;
+  }
+}
+
+// The public URL stored in a verified planning artifact is canonical HTTPS, but
+// the selected cross-platform prefetch may have been acquired through the
+// council portal's exact-host legacy HTTP transport. Phase 26 intentionally
+// validates that transport alias separately. Do not canonicalize it to HTTPS.
+function runtimePrefetchTransportUrl(value) {
+  const canonical = runtimePrefetchUrl(value);
+  if (!canonical) return null;
+  try {
+    const url = new URL(canonical);
+    if (url.hostname.toLowerCase() === LEGACY_OFFICIAL_HOST) {
+      url.protocol = 'http:';
+      url.port = '';
+    }
+    return url.toString();
   } catch {
     return null;
   }
@@ -80,6 +100,7 @@ function dedupeDocuments(documents) {
     const key = documentKey(document);
     if (!key) continue;
     const candidate = { ...document, url: key };
+    if (candidate.transportUrl) candidate.transportUrl = runtimePrefetchTransportUrl(candidate.transportUrl);
     const current = map.get(key);
     if (!current || Number(candidate.score || 0) > Number(current.score || 0) || Number(candidate.bytes || 0) > Number(current.bytes || 0)) {
       map.set(key, candidate);
@@ -168,7 +189,7 @@ async function prepare(input, output) {
       candidate.finalUrl = finalUrl;
     }
     if (candidate.transportUrl) {
-      const transportUrl = runtimePrefetchUrl(candidate.transportUrl);
+      const transportUrl = runtimePrefetchTransportUrl(candidate.transportUrl);
       if (!transportUrl) {
         nonOfficialEntriesRemoved += 1;
         continue;
@@ -226,9 +247,11 @@ async function prepare(input, output) {
       continue;
     }
     linkedDocuments += linked.length;
+    const applicationTransportUrl = raw.transportUrl ? runtimePrefetchTransportUrl(raw.transportUrl) : null;
     applications.push({
       ...raw,
       url: appUrl,
+      ...(applicationTransportUrl ? { transportUrl: applicationTransportUrl } : {}),
       documents: dedupeDocuments(raw.documents || []).filter((document) => linked.some((item) => documentKey(item) === documentKey(document))),
       downloadedDocuments: dedupeDocuments(raw.downloadedDocuments || []).filter((document) => linked.some((item) => documentKey(item) === documentKey(document)))
     });
@@ -293,9 +316,13 @@ async function selfTest() {
   await writeFile(path.join(input, 'files', 'decision.pdf'), '%PDF-1.4\n%%EOF');
   await writeFile(path.join(input, 'files', 'mirror.jpg'), '0123456789abcdef');
   const app = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet?PKID=123';
+  const appTransport = app.replace('https:', 'http:');
   const appTextOnly = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet?PKID=124';
+  const appTextOnlyTransport = appTextOnly.replace('https:', 'http:');
   const doc = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=plan.pdf';
+  const docTransport = doc.replace('https:', 'http:');
   const decision = 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/AttachmentShowServlet?ImageName=decision.pdf';
+  const decisionTransport = decision.replace('https:', 'http:');
   const supportPage = 'https://www.towerstimes.co.uk/history/the-drawing-board/th13teen/';
   const supportDoc = 'https://www.towerstimes.co.uk/wp-content/uploads/2022/02/thirteenproposedplan-250x166.jpg';
   await writeFile(path.join(input, 'manifest.json'), JSON.stringify({
@@ -307,20 +334,22 @@ async function selfTest() {
       {
         reference: 'SMD/TEST',
         url: app,
+        transportUrl: appTransport,
         documents: [
-          { url: doc, role: 'site-plan' },
+          { url: doc, transportUrl: docTransport, role: 'site-plan' },
           { url: supportDoc, role: 'ride-layout', sourceAuthority: 'corroboration-only' }
         ],
         downloadedDocuments: [
-          { url: doc, role: 'site-plan', bytes: 14 },
+          { url: doc, transportUrl: docTransport, role: 'site-plan', bytes: 14 },
           { url: supportDoc, role: 'ride-layout', bytes: 16, sourceAuthority: 'corroboration-only' }
         ]
       },
       {
         reference: 'SMD/TEXT',
         url: appTextOnly,
-        documents: [{ url: decision, role: 'decision-notice' }],
-        downloadedDocuments: [{ url: decision, role: 'decision-notice', bytes: 14 }]
+        transportUrl: appTextOnlyTransport,
+        documents: [{ url: decision, transportUrl: decisionTransport, role: 'decision-notice' }],
+        downloadedDocuments: [{ url: decision, transportUrl: decisionTransport, role: 'decision-notice', bytes: 14 }]
       },
       {
         reference: 'RECOVERED/TH13TEEN',
@@ -331,12 +360,12 @@ async function selfTest() {
       }
     ],
     entries: [
-      { url: 'http://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', file: 'files/app.html', kind: 'search-page' },
-      { url: 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', file: 'files/app.html', kind: 'search-page' },
-      { url: app, file: 'files/app.html', kind: 'application-page', applicationReference: 'SMD/TEST' },
-      { url: appTextOnly, file: 'files/app.html', kind: 'application-page', applicationReference: 'SMD/TEXT' },
-      { url: doc, file: 'files/plan.pdf', kind: 'document', applicationReference: 'SMD/TEST', bytes: 14 },
-      { url: decision, file: 'files/decision.pdf', kind: 'document', applicationReference: 'SMD/TEXT', bytes: 14 },
+      { url: 'http://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', transportUrl: 'http://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', file: 'files/app.html', kind: 'search-page', tlsVerification: 'legacy-http-official-host' },
+      { url: 'https://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', transportUrl: 'http://publicaccess.staffsmoorlands.gov.uk/portal/servlets/ApplicationSearchServlet', file: 'files/app.html', kind: 'search-page', tlsVerification: 'legacy-http-official-host' },
+      { url: app, finalUrl: app, transportUrl: appTransport, file: 'files/app.html', kind: 'application-page', applicationReference: 'SMD/TEST', tlsVerification: 'legacy-http-official-host' },
+      { url: appTextOnly, finalUrl: appTextOnly, transportUrl: appTextOnlyTransport, file: 'files/app.html', kind: 'application-page', applicationReference: 'SMD/TEXT', tlsVerification: 'legacy-http-official-host' },
+      { url: doc, finalUrl: doc, transportUrl: docTransport, file: 'files/plan.pdf', kind: 'document', applicationReference: 'SMD/TEST', bytes: 14, tlsVerification: 'legacy-http-official-host' },
+      { url: decision, finalUrl: decision, transportUrl: decisionTransport, file: 'files/decision.pdf', kind: 'document', applicationReference: 'SMD/TEXT', bytes: 14, tlsVerification: 'legacy-http-official-host' },
       { url: supportPage, file: 'files/app.html', kind: 'application-page', applicationReference: 'RECOVERED/TH13TEEN' },
       { url: supportDoc, file: 'files/mirror.jpg', kind: 'document', applicationReference: 'RECOVERED/TH13TEEN', bytes: 16, sourceAuthority: 'corroboration-only' }
     ]
@@ -372,6 +401,17 @@ async function selfTest() {
   }
   if (JSON.stringify(sanitized).includes('thirteenproposedplan-250x166.jpg')) {
     throw new Error('support-host recovery document escaped the official prefetch runtime boundary');
+  }
+  const normalizedPlanEntry = (sanitized.entries || []).find((entry) => entry.url === doc);
+  const normalizedPlanApplication = (sanitized.applications || []).find((application) => application.reference === 'SMD/TEST');
+  if (normalizedPlanEntry?.transportUrl !== docTransport) {
+    throw new Error(`legacy document transport alias was not preserved: ${normalizedPlanEntry?.transportUrl || 'missing'}`);
+  }
+  if (normalizedPlanApplication?.transportUrl !== appTransport) {
+    throw new Error(`legacy application transport alias was not preserved: ${normalizedPlanApplication?.transportUrl || 'missing'}`);
+  }
+  if (normalizedPlanApplication?.downloadedDocuments?.[0]?.transportUrl !== docTransport) {
+    throw new Error(`legacy downloaded-document transport alias was not preserved: ${normalizedPlanApplication?.downloadedDocuments?.[0]?.transportUrl || 'missing'}`);
   }
   console.log('planning runtime prefetch normalization self-test passed');
 }
