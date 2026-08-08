@@ -1,0 +1,88 @@
+name: Validate Planning Prefetch Runtime Handoff
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - '.github/workflows/validate-planning-prefetch-runtime-handoff.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - '.github/workflows/validate-planning-prefetch-runtime-handoff.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove validated prefetch environment reaches generator CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          fragment='scripts/build-themepark-world-v0120-direct.sh.part-02-00-planning-prefetch-cli-bridge'
+          mkdir -p "$RUNNER_TEMP/prefetch" "$RUNNER_TEMP/diag"
+          printf '%s\n' '{"status":"usable","liveApplications":44,"documentsDownloaded":172}' > "$RUNNER_TEMP/prefetch/manifest.json"
+
+          SOURCE_ARGS=()
+          DIAG="$RUNNER_TEMP/diag"
+          TPMAP_PLANNING_DOCUMENT_MODE=extract
+          TPMAP_PLANNING_PREFETCH_DIR="$RUNNER_TEMP/prefetch"
+          TPMAP_PLANNING_PREFETCH_CLI_BRIDGED=false
+          source "$fragment"
+
+          test "${#SOURCE_ARGS[@]}" -eq 2
+          test "${SOURCE_ARGS[0]}" = '--planning-prefetch-dir'
+          test "${SOURCE_ARGS[1]}" = "$RUNNER_TEMP/prefetch"
+          grep -q '^state=bridged$' "$DIAG/planning-prefetch-cli-bridge.txt"
+
+          # Re-running another source strategy must not duplicate the CLI flag.
+          source "$fragment"
+          test "${#SOURCE_ARGS[@]}" -eq 2
+          test "$(printf '%s\n' "${SOURCE_ARGS[@]}" | grep -c '^--planning-prefetch-dir$')" -eq 1
+
+      - name: Preserve resilient fallback when verified prefetch is unavailable
+        shell: bash
+        run: |
+          set -euo pipefail
+          fragment='scripts/build-themepark-world-v0120-direct.sh.part-02-00-planning-prefetch-cli-bridge'
+          mkdir -p "$RUNNER_TEMP/diag-missing" "$RUNNER_TEMP/diag-off"
+
+          SOURCE_ARGS=()
+          DIAG="$RUNNER_TEMP/diag-missing"
+          TPMAP_PLANNING_DOCUMENT_MODE=extract
+          TPMAP_PLANNING_PREFETCH_DIR="$RUNNER_TEMP/does-not-exist"
+          TPMAP_PLANNING_PREFETCH_CLI_BRIDGED=false
+          source "$fragment"
+          test "${#SOURCE_ARGS[@]}" -eq 0
+          grep -q '^state=missing-manifest$' "$DIAG/planning-prefetch-cli-bridge.txt"
+
+          SOURCE_ARGS=()
+          DIAG="$RUNNER_TEMP/diag-off"
+          TPMAP_PLANNING_DOCUMENT_MODE=off
+          TPMAP_PLANNING_PREFETCH_DIR="$RUNNER_TEMP/prefetch"
+          TPMAP_PLANNING_PREFETCH_CLI_BRIDGED=false
+          source "$fragment"
+          test "${#SOURCE_ARGS[@]}" -eq 0
+          grep -q '^state=disabled$' "$DIAG/planning-prefetch-cli-bridge.txt"
+
+      - name: Validate production runner ordering and syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          printf '%s\n' "${parts[@]}" > "$RUNNER_TEMP/part-order.txt"
+          cat "${parts[@]}" > "$RUNNER_TEMP/direct-runner.sh"
+          bash -n "$RUNNER_TEMP/direct-runner.sh"
+          grep -q -- '--planning-prefetch-dir' "$RUNNER_TEMP/direct-runner.sh"
+
+          base_line=$(grep -n 'part-02$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          bridge_line=$(grep -n 'part-02-00-planning-prefetch-cli-bridge$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          guard_line=$(grep -n 'part-02-01-fast-attempt-guard$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          test "$base_line" -lt "$bridge_line"
+          test "$bridge_line" -lt "$guard_line"
