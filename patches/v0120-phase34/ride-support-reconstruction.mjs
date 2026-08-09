@@ -58,7 +58,7 @@ function solveSupport(support, rideTracks, options, diagnostics) {
   const centroid = support.geometry?.centroid;
   if (!Array.isArray(centroid)) return unresolved(support, "missing-support-position");
   const maxTrackDistanceM = finite(options.rideSupportMaxTrackDistanceM) ?? DEFAULT_MAX_TRACK_DISTANCE_M;
-  const compatibleTracks = rideTracks.filter((ride) => identityCompatible(support, ride));
+  const compatibleTracks = chooseCompatibleTracks(support, rideTracks);
   diagnostics.rejectedIdentity += Math.max(0, rideTracks.length - compatibleTracks.length);
 
   let best = null;
@@ -109,22 +109,29 @@ function solveSupport(support, rideTracks, options, diagnostics) {
     length3dM: round3(length3dM),
     leanDeg: round3(leanDeg),
     lateralTrackDistanceM: round3(best.lateralDistanceM),
-    confidence: supportConfidence(support, best),
+    confidence: supportConfidence(support, best, maxTrackDistanceM),
     osmDerived: false,
     policy: "planning-support-to-resolved-track-plus-resolved-ground-no-fabrication"
   };
 }
 
-function identityCompatible(support, ride) {
+function chooseCompatibleTracks(support, rides) {
   const supportHash = support.evidence?.sourceHash;
-  const rideHash = ride.evidence?.sourceHash;
-  if (supportHash && rideHash) return supportHash === rideHash;
+  if (supportHash) {
+    const sameHash = rides.filter((ride) => ride.evidence?.sourceHash === supportHash);
+    if (sameHash.length) return sameHash;
+  }
   const supportRef = support.evidence?.planningReference;
-  const rideRef = ride.evidence?.planningReference;
-  if (supportRef && rideRef) return supportRef === rideRef;
+  if (supportRef) {
+    const sameRef = rides.filter((ride) => ride.evidence?.planningReference === supportRef);
+    if (sameRef.length) return sameRef;
+  }
   const relation = support.semantics?.rideId || support.semantics?.parentRideId || support.sourceFeature?.tags?.ride_id || support.sourceFeature?.tags?.parent_ride_id;
-  if (relation) return String(relation) === String(ride.sourceFeatureId || ride.id);
-  return Boolean(support.authority?.planningAuthoritative && ride.authority?.planningAuthoritative);
+  if (relation) {
+    const linked = rides.filter((ride) => String(relation) === String(ride.sourceFeatureId || ride.id));
+    if (linked.length) return linked;
+  }
+  return rides.filter((ride) => support.authority?.planningAuthoritative && ride.authority?.planningAuthoritative);
 }
 
 function resolvedGround(support) {
@@ -136,10 +143,10 @@ function resolvedGround(support) {
   return null;
 }
 
-function supportConfidence(support, best) {
+function supportConfidence(support, best, maxTrackDistanceM) {
   const supportConfidence = support.confidence?.overall ?? 0.8;
   const rideConfidence = best.ride.confidence?.overall ?? 0.8;
-  const proximity = Math.max(0.35, 1 - best.lateralDistanceM / DEFAULT_MAX_TRACK_DISTANCE_M);
+  const proximity = Math.max(0.35, 1 - best.lateralDistanceM / Math.max(1, maxTrackDistanceM));
   return round3(Math.min(supportConfidence, rideConfidence) * proximity);
 }
 
