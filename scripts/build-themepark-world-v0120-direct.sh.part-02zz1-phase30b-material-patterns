@@ -1,9 +1,15 @@
   PHASE30B_MATERIAL_TRANSFORM="$ROOT/patches/v0120-phase30b/material-pattern-transform.mjs"
   PHASE30B_MATERIAL_TRANSFORM_SHA="2118630c515ca658dae9f07460cf282d8e0748cb17c0dc2b3644ae2fd771e654"
+  PHASE30B_SURFACE_PREHOOK="$ROOT/scripts/prepare-surface-material-hook.mjs"
+  PHASE30B_SURFACE_PREHOOK_SHA="aeec7673f7ac418545921116ed6c8a4a62953f070356b8279e435d600ff27ea8"
   PHASE30B_WEIGHTED_SAMPLER_INSTALLER="$ROOT/scripts/install-phase30b-weighted-sampler.mjs"
-  PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA="f3d4206f1e5741574be5d1fbfd2f6ea0e0444a7d641ddec84eadae5fcc985607"
+  PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA="0e9758075e45865dbb8829f3c282350c64e570a38eba4369bf08d6f7cb39020b"
   [[ -f "$PHASE30B_MATERIAL_TRANSFORM" ]] || {
     echo "Missing Phase 30B material-pattern transform." | tee "$DIAG/phase30b-material-error.txt" >&2
+    exit 2
+  }
+  [[ -f "$PHASE30B_SURFACE_PREHOOK" ]] || {
+    echo "Missing Phase 30B surface-material prehook." | tee "$DIAG/phase30b-material-error.txt" >&2
     exit 2
   }
   [[ -f "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" ]] || {
@@ -11,13 +17,19 @@
     exit 2
   }
   phase30b_material_actual_sha="$(sha256sum "$PHASE30B_MATERIAL_TRANSFORM" | cut -d' ' -f1)"
+  phase30b_prehook_actual_sha="$(sha256sum "$PHASE30B_SURFACE_PREHOOK" | cut -d' ' -f1)"
   phase30b_sampler_actual_sha="$(sha256sum "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" | cut -d' ' -f1)"
-  printf 'material_transform_expected=%s\nmaterial_transform_actual=%s\nweighted_sampler_expected=%s\nweighted_sampler_actual=%s\n' \
+  printf 'material_transform_expected=%s\nmaterial_transform_actual=%s\nsurface_prehook_expected=%s\nsurface_prehook_actual=%s\nweighted_sampler_expected=%s\nweighted_sampler_actual=%s\n' \
     "$PHASE30B_MATERIAL_TRANSFORM_SHA" "$phase30b_material_actual_sha" \
+    "$PHASE30B_SURFACE_PREHOOK_SHA" "$phase30b_prehook_actual_sha" \
     "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA" "$phase30b_sampler_actual_sha" \
     | tee "$DIAG/phase30b-material-transform-checksum.txt"
   [[ "$phase30b_material_actual_sha" == "$PHASE30B_MATERIAL_TRANSFORM_SHA" ]] || {
     echo "Phase 30B material-pattern transform checksum mismatch." | tee "$DIAG/phase30b-material-error.txt" >&2
+    exit 2
+  }
+  [[ "$phase30b_prehook_actual_sha" == "$PHASE30B_SURFACE_PREHOOK_SHA" ]] || {
+    echo "Phase 30B surface-material prehook checksum mismatch." | tee "$DIAG/phase30b-material-error.txt" >&2
     exit 2
   }
   [[ "$phase30b_sampler_actual_sha" == "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER_SHA" ]] || {
@@ -27,6 +39,8 @@
 
   node "$PHASE30B_MATERIAL_TRANSFORM" --root "$GEN" \
     2>&1 | tee "$DIAG/phase30b-material-transform.log"
+  node "$PHASE30B_SURFACE_PREHOOK" --self-test \
+    2>&1 | tee "$DIAG/phase30b-surface-prehook-self-test.log"
   node "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" --self-test \
     2>&1 | tee "$DIAG/phase30b-weighted-sampler-self-test.log"
   node "$PHASE30B_WEIGHTED_SAMPLER_INSTALLER" --generator "$GEN" \
