@@ -68,6 +68,19 @@ test("evidence-only planning boundaries and explicit exclusions never become phy
   assert.equal(graph.summary.evidenceOnlySkipped, 2);
 });
 
+test("planning level/elevation points are retained as evidence nodes rather than physical objects", () => {
+  const level = feature("level:1", "detail", { type: "Point", coordinates: [5, 5] }, {
+    subtype: "planning-building-level",
+    tags: { planning_reference: "P", planning_authoritative: true, planning_feature_class: "building-level", ffl_m: 103.25 },
+    vertical: { elevationM: 103.25, elevationSource: "planning-ffl" }
+  });
+  const graph = buildParkReconstructionGraph({ map: { features: [level] }, options: { planningWorldAuthority: "planning-only" } });
+  assert.equal(graph.nodes.length, 0);
+  assert.equal(graph.evidenceNodes.length, 1);
+  assert.equal(graph.evidenceNodes[0].observationType, "building-level");
+  assert.equal(graph.summary.evidenceObservationNodes, 1);
+});
+
 test("planning-only graph fails closed if an OSM or Overture feature reaches it", () => {
   const osm = feature("osm:way:1", "path", line([0,0],[2,0]), {
     tags: {}, source: { provider: "OpenStreetMap" }
