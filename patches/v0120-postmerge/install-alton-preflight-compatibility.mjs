@@ -4,7 +4,7 @@
 // This changes no planning authority, source-quality, georeference or terrain thresholds.
 
 import path from 'node:path';
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
 
 const args=process.argv.slice(2);
 const gi=args.indexOf('--generator');
@@ -83,8 +83,8 @@ export function repairVerticalEngine(source){
       '  validateBuildingReconstructions(graph);',
       '  diagnostics.buildingRoofReconstruction = buildingRoofReconstruction;'
     );
-    if(!out.includes('const buildingRoofPlaneDecomposition = decomposeBuildingRoofPlanes(graph, options);')) stages.push(
-      '  const buildingRoofPlaneDecomposition = decomposeBuildingRoofPlanes(graph, options);',
+    if(!out.includes('const buildingRoofPlaneDecomposition = decomposeBuildingRoofPlanes(graph, options.verticalSources || null, options);')) stages.push(
+      '  const buildingRoofPlaneDecomposition = decomposeBuildingRoofPlanes(graph, options.verticalSources || null, options);',
       '  validateBuildingRoofPlaneDecompositions(graph);',
       '  diagnostics.buildingRoofPlaneDecomposition = buildingRoofPlaneDecomposition;'
     );
@@ -128,15 +128,16 @@ export function repairPlanningVectorTest(source){
   const end=next<0?source.length:next;
   let block=source.slice(start,end);
   // Later comprehensive/authority phases may add additional safe evidence candidates.
-  // Keep the regression strict about the required classes while removing only the obsolete exact total=2 assumption.
-  const replaced=block
+  // Replace the obsolete exact total when present. If a previous structural pass
+  // has already modernized it, the behavior test below remains the authority.
+  block=block
     .replace(/assert\.equal\(([^\n;]*?)\.length\s*,\s*2\s*\);/g,'assert.ok($1.length >= 2);')
     .replace(/assert\.strictEqual\(([^\n;]*?)\.length\s*,\s*2\s*\);/g,'assert.ok($1.length >= 2);');
-  if(replaced===block) throw new Error('Alton compatibility: obsolete vector cardinality assertion not found');
-  block=replaced+'\n// TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY\n';
-  const prefixStart=start;
-  return source.slice(0,prefixStart)+block+source.slice(end);
+  block=block+'\n// TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY\n';
+  return source.slice(0,start)+block+source.slice(end);
 }
+
+const GENERATED_TEST_IMPLEMENTATION=/^(?:vertical-evidence-engine|terrain-surface-model|building-roof-reconstruction|building-roof-plane-decomposition|building-roof-planning-constraints|vegetation-reconstruction|ride-vertical-profile|ride-3d-geometry|ride-support-reconstruction|ride-terrain-interaction|ride-excavation-mask|ride-excavation-compiler|ride-graph-compiler|terrain-morphology|terrain-planning-structure-association|terrain-structure-compiler|terrain-steep-bank-treatment|terrain-tunnel-portal-reconciliation|retaining-wall-detail|terrain-qa|block-state-transport|mcworld|bedrock)\.mjs$/;
 
 async function repairGeneratedTestImports(root){
   const testDir=path.join(root,'test');
@@ -147,7 +148,7 @@ async function repairGeneratedTestImports(root){
     let source=await readFile(file,'utf8');
     let changed=false;
     source=source.replace(/from\s+(['"])\.\/([A-Za-z0-9._-]+\.mjs)\1/g,(whole,q,moduleName)=>{
-      if(!/^(?:vertical-evidence-engine|terrain-surface-model|building-roof-reconstruction|building-roof-plane-decomposition|building-roof-planning-constraints|vegetation-reconstruction|ride-vertical-profile|ride-3d-geometry|ride-support-reconstruction|ride-terrain-interaction|ride-excavation-mask|ride-excavation-compiler|ride-graph-compiler|terrain-morphology|terrain-planning-structure-association|terrain-structure-compiler|terrain-steep-bank-treatment|terrain-tunnel-portal-reconciliation|retaining-wall-detail|terrain-qa|block-state-transport)\.mjs$/.test(moduleName)) return whole;
+      if(!GENERATED_TEST_IMPLEMENTATION.test(moduleName)) return whole;
       changed=true;
       return `from ${q}../src/lib/${moduleName}${q}`;
     });
@@ -161,7 +162,7 @@ async function validateGeneratedTestImports(root){
   for(const name of entries){
     if(!name.endsWith('.test.mjs')) continue;
     const source=await readFile(path.join(testDir,name),'utf8');
-    const bad=[...source.matchAll(/from\s+['"]\.\/([A-Za-z0-9._-]+\.mjs)['"]/g)].map(m=>m[1]).filter(moduleName=>/^(?:vertical-evidence-engine|terrain-surface-model|building-roof-reconstruction|building-roof-plane-decomposition|building-roof-planning-constraints|vegetation-reconstruction|ride-vertical-profile|ride-3d-geometry|ride-support-reconstruction|ride-terrain-interaction|ride-excavation-mask|ride-excavation-compiler|ride-graph-compiler|terrain-morphology|terrain-planning-structure-association|terrain-structure-compiler|terrain-steep-bank-treatment|terrain-tunnel-portal-reconciliation|retaining-wall-detail|terrain-qa|block-state-transport)\.mjs$/.test(moduleName));
+    const bad=[...source.matchAll(/from\s+['"]\.\/([A-Za-z0-9._-]+\.mjs)['"]/g)].map(m=>m[1]).filter(moduleName=>GENERATED_TEST_IMPLEMENTATION.test(moduleName));
     if(bad.length) throw new Error(`Alton compatibility: generated test ${name} still imports test-local implementation ${bad.join(',')}`);
   }
 }
@@ -210,5 +211,7 @@ function selfTestTransforms(){
   const p=repairPipeline(pipeline);if(p!==repairPipeline(p))throw new Error('Alton compatibility: pipeline repair not idempotent');
   const vector=`test('accepted georeferenced vector PDF produces evidence-only path and footprint candidates',()=>{\n  const features=[];\n  assert.equal(features.length, 2);\n});\ntest('next',()=>{});`;
   const v=repairPlanningVectorTest(vector);if(v!==repairPlanningVectorTest(v))throw new Error('Alton compatibility: vector test repair not idempotent');
+  const modern=`test('accepted georeferenced vector PDF produces evidence-only path and footprint candidates',()=>{\n  const features=[];\n  assert.ok(features.length >= 2);\n});`;
+  const m=repairPlanningVectorTest(modern);if(!m.includes('TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY'))throw new Error('Alton compatibility: modern vector test rejected');
   console.log('Alton post-merge preflight compatibility self-test passed');
 }
