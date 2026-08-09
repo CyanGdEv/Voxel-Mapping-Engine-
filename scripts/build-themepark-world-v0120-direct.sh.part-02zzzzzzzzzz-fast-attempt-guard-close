@@ -1,182 +1,3 @@
-
-    # Final preparation gate. This fragment intentionally sorts after every
-    # current Phase 30 transform. It validates capabilities rather than marker
-    # strings for behavior that can legitimately be installed by more than one
-    # historical patch path.
-    local preflight_log="$DIAG/prepared-generator-integrity.log"
-    local preparation_failed=false
-    : > "$preflight_log"
-
-    require_marker() {
-      local marker="$1" file="$2" label_text="$3"
-      if [[ ! -f "$file" ]] || ! grep -q "$marker" "$file"; then
-        echo "PREP_FAIL $label_text marker=$marker file=$file" | tee -a "$preflight_log" >&2
-        preparation_failed=true
-      else
-        echo "PREP_OK $label_text" >> "$preflight_log"
-      fi
-    }
-
-    if ! grep -q 'TPMAP_SURFACE_MATERIAL_LIBRARY_V1' "$GEN/src/lib/fidelity.mjs" 2>/dev/null \
-       && ! grep -q 'TPMAP_SURFACE_MATERIAL_LIBRARY_V1' "$GEN/src/lib/raster.mjs" 2>/dev/null; then
-      echo "PREP_FAIL surface material sampler integration marker missing" | tee -a "$preflight_log" >&2
-      preparation_failed=true
-    else
-      echo "PREP_OK surface material sampler integration" >> "$preflight_log"
-    fi
-    require_marker 'PARK_SCENERY_FIDELITY_MARKER' "$GEN/src/lib/park-scenery-fidelity.mjs" 'park scenery library'
-    require_marker 'PARK_LANDSCAPING_FIDELITY_MARKER' "$GEN/src/lib/park-landscaping-fidelity.mjs" 'park landscaping library'
-    require_marker 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' "$GEN/src/lib/fidelity.mjs" 'Phase 30B uniform weighted sampler'
-    require_marker 'PHASE30B_EXTENDED_BLOCK_LIBRARY_V1' "$GEN/src/lib/mcworld.mjs" 'Phase 30B material writer library'
-    require_marker 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$GEN/src/lib/mcworld.mjs" 'Phase 30 scenery block writer library'
-
-    # Phase 30D comprehensive plan extraction is mandatory when its installer is
-    # present. Validate geometry, OCR/raster, georeference, fusion and world-use
-    # integration points independently before expensive compilation.
-    if [[ -f "$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs" ]]; then
-      require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_VECTOR_PIPELINE' "$GEN/src/lib/planning-vectorize.mjs" 'Phase 30D comprehensive planning vectorization'
-      require_marker 'TPMAP_PHASE30D_RASTER_PLANNING_GEOREFERENCE' "$GEN/src/lib/planning-georeference.mjs" 'Phase 30D raster planning georeference'
-      require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_FUSION' "$GEN/src/lib/planning-vector-fusion.mjs" 'Phase 30D comprehensive planning fusion'
-      require_marker 'TPMAP_PHASE30D_PLANNING_ONLY_WORLD_AUTHORITY' "$GEN/src/lib/planning-world-authority.mjs" 'Phase 30D planning-only world authority'
-      require_marker 'TPMAP_PHASE30D_OSM_REFERENCE_ONLY_FUSION' "$GEN/src/lib/source-fusion.mjs" 'Phase 30D OSM reference-only cutover'
-      require_marker 'TPMAP_PHASE30D_PLANNING_BOUNDARY_AUTHORITY' "$GEN/src/lib/osm.mjs" 'Phase 30D planning coverage boundary'
-      require_marker 'TPMAP_PHASE30D_RIDE_SUPPORT_POINTS' "$GEN/src/lib/raster.mjs" 'Phase 30D ride support world compilation'
-      require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_PLAN_DATA' "$GEN/src/lib/planning-comprehensive-semantics.mjs" 'Phase 30D planning semantic library'
-    fi
-
-    for module in \
-      "$GEN/src/lib/fidelity.mjs" \
-      "$GEN/src/lib/raster.mjs" \
-      "$GEN/src/lib/mcworld.mjs" \
-      "$GEN/src/lib/planning-vectorize.mjs" \
-      "$GEN/src/lib/planning-vector-fusion.mjs" \
-      "$GEN/src/lib/planning-world-authority.mjs" \
-      "$GEN/src/lib/planning-georeference.mjs" \
-      "$GEN/src/lib/planning-comprehensive-semantics.mjs" \
-      "$GEN/src/lib/planning-raster-extraction.mjs" \
-      "$GEN/src/lib/source-fusion.mjs"; do
-      if ! "$TPMAP_NODE_BIN" --check "$module" >> "$preflight_log" 2>&1; then
-        echo "PREP_FAIL syntax $(basename "$module")" | tee -a "$preflight_log" >&2
-        preparation_failed=true
-      fi
-    done
-
-    if ! "$TPMAP_NODE_BIN" "$ROOT/scripts/install-phase30a-authority.mjs" \
-      --generator "$GEN" --validate-only >> "$preflight_log" 2>&1; then
-      echo "PREP_FAIL Phase 30A deterministic authority validation" | tee -a "$preflight_log" >&2
-      preparation_failed=true
-    else
-      echo "PREP_OK Phase 30A deterministic authority validation" >> "$preflight_log"
-    fi
-
-    # Phase 30B's contract is behavioral. The previous preflight looked for the
-    # old PHASE30B_SEMANTIC_SITE_PLANS marker and called an archived __test export;
-    # diagnostics proved both assumptions could be false while all 15 current
-    # semantic/vector tests passed. Re-run the current behavior suite after every
-    # later transform instead.
-    local phase30b_final_log="$DIAG/final-phase30b-capability-tests.log"
-    if ! (
-      cd "$GEN"
-      "$TPMAP_NODE_BIN" --test \
-        test/planning-vectorize.test.mjs \
-        test/planning-vector-fusion.test.mjs \
-        test/planning-site-semantics.test.mjs \
-        test/planning-pink-qa.test.mjs
-    ) > "$phase30b_final_log" 2>&1; then
-      cat "$phase30b_final_log" >> "$preflight_log"
-      echo "PREP_FAIL Phase 30B final behavior suite" | tee -a "$preflight_log" >&2
-      preparation_failed=true
-    else
-      cat "$phase30b_final_log" >> "$preflight_log"
-      echo "PREP_OK Phase 30B final behavior suite" >> "$preflight_log"
-    fi
-
-    if [[ -f "$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs" ]]; then
-      local phase30d_final_log="$DIAG/final-phase30d-comprehensive-plan-tests.log"
-      if ! (
-        cd "$GEN"
-        "$TPMAP_NODE_BIN" --test \
-          test/planning-comprehensive-semantics.test.mjs \
-          test/planning-world-authority.test.mjs
-      ) > "$phase30d_final_log" 2>&1; then
-        cat "$phase30d_final_log" >> "$preflight_log"
-        echo "PREP_FAIL Phase 30D comprehensive plan behavior suite" | tee -a "$preflight_log" >&2
-        preparation_failed=true
-      else
-        cat "$phase30d_final_log" >> "$preflight_log"
-        echo "PREP_OK Phase 30D comprehensive plan behavior suite" >> "$preflight_log"
-      fi
-    fi
-
-    # Material tests are intentionally placed here, after the Phase 30 Bedrock
-    # block-library synchronizer. Running direct-world compatibility earlier
-    # falsely reports pink QA/scenery blocks as unsupported. The two material
-    # suites also prove the uniform weighted sampler and arbitrary-length recipes.
-    local material_final_log="$DIAG/final-phase30-material-tests.log"
-    if ! (
-      cd "$GEN"
-      "$TPMAP_NODE_BIN" --test \
-        test/material-pattern-recipes.test.mjs \
-        test/material-pattern-library.test.mjs \
-        test/direct-world-palette-compatibility.test.mjs
-    ) > "$material_final_log" 2>&1; then
-      cat "$material_final_log" >> "$preflight_log"
-      echo "PREP_FAIL Phase 30 final material/palette suite" | tee -a "$preflight_log" >&2
-      preparation_failed=true
-    else
-      cat "$material_final_log" >> "$preflight_log"
-      echo "PREP_OK Phase 30 final material/palette suite" >> "$preflight_log"
-    fi
-
-    # Validate the 29-preset high-fidelity library that supersedes generic
-    # aliases at raster time. This deliberately avoids the archived
-    # appearance-vegetation test's fixed three-block palette assumption.
-    if ! (
-      cd "$GEN"
-      "$TPMAP_NODE_BIN" --input-type=module - <<'NODE'
-import assert from 'node:assert/strict';
-import {
-  THEMEPARK_SURFACE_MATERIAL_PRESETS as presets,
-  resolveThemeParkSurfaceMaterial,
-  blockForThemeParkSurfaceStyle
-} from './src/lib/surface-material-library.mjs';
-
-assert.equal(Object.keys(presets).length, 29);
-for (const preset of Object.values(presets)) {
-  const sum = preset.palette.reduce((total, entry) => total + entry.weight, 0);
-  assert.ok(Math.abs(sum - 1) < 1e-9, `${preset.id} weights=${sum}`);
-}
-assert.equal(resolveThemeParkSurfaceMaterial({ material: 'weathered asphalt' }).id, 'weathered_asphalt');
-const a = Array.from({ length: 256 }, (_, i) =>
-  blockForThemeParkSurfaceStyle({ materialPreset: 'weathered_asphalt' }, i % 16, Math.floor(i / 16), 417));
-const b = Array.from({ length: 256 }, (_, i) =>
-  blockForThemeParkSurfaceStyle({ materialPreset: 'weathered_asphalt' }, i % 16, Math.floor(i / 16), 417));
-assert.deepEqual(a, b);
-assert.ok(new Set(a).size >= 3);
-console.log('Phase 30 current material-library integration preflight passed');
-NODE
-    ) >> "$preflight_log" 2>&1; then
-      echo "PREP_FAIL Phase 30 current material-library integration probe" | tee -a "$preflight_log" >&2
-      preparation_failed=true
-    else
-      echo "PREP_OK Phase 30 current material-library integration probe" >> "$preflight_log"
-    fi
-
-    if find "$GEN" -type f -name '*.rej' -print -quit | grep -q .; then
-      echo "PREP_FAIL patch reject files remain after deterministic repair" | tee -a "$preflight_log" >&2
-      find "$GEN" -type f -name '*.rej' -print >> "$preflight_log"
-      preparation_failed=true
-    fi
-
-    if [[ "$preparation_failed" == "true" ]]; then
-      echo "Prepared generator failed final integrity preflight; refusing expensive world compilation." | tee -a "$preflight_log" >&2
-      touch "$DIAG/deterministic-build-failure.marker"
-      return 64
-    fi
-
-    TPMAP_ATTEMPT_PREPARED=true
-    echo "PREP_OK prepared generator final integrity" >> "$preflight_log"
-
     if [[ "${TPMAP_PREPARE_ONLY:-}" == "preflight" ]]; then
       echo "TPMAP_PREPARE_ONLY=preflight complete" | tee -a "$preflight_log"
       exit 0
@@ -190,6 +11,16 @@ NODE
   if [[ -f "$DIAG/world-runtime-budget-exhausted.marker" ]]; then
     echo "strategy=$label skipped: world-generation runtime budget already exhausted" | tee "$log"
     return 65
+  fi
+
+  # The world clock starts only after all source-independent preparation and
+  # integrity checks have succeeded. Preserve the same start time across source
+  # fallbacks so the three strategies still share one bounded compilation budget.
+  if [[ -z "${TPMAP_WORLD_RUN_STARTED_AT:-}" ]]; then
+    TPMAP_WORLD_RUN_STARTED_AT="$SECONDS"
+    printf 'world_budget_started_after_preflight=true\nstarted_at_seconds=%s\nbudget_seconds=%s\n' \
+      "$TPMAP_WORLD_RUN_STARTED_AT" "$TPMAP_WORLD_RUN_BUDGET_SECONDS" \
+      >> "$DIAG/world-runtime-budget.txt"
   fi
 
   # Wrap only the actual generator build. This keeps the existing runner intact
