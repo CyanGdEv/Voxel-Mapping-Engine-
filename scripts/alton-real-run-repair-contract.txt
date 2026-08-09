@@ -1,1 +1,0 @@
-No planning-authority, terrain-QA, geometry-acceptance, or source-quality threshold is weakened by this repair.
