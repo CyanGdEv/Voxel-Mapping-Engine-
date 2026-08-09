@@ -22,7 +22,8 @@ let behaviorDigestPromise = null;
 export async function extractRasterPlanningPage({ filename, page = 1, workDirectory, document = {} }) {
   await mkdir(workDirectory, { recursive: true });
   const key = safeKey(document.sha256 || document.cacheKey || document.id || "planning-raster");
-  const cache = await derivativeCacheContext(filename, page, document);
+  let cache = null;
+  try { cache = await derivativeCacheContext(filename, page, document); } catch { cache = null; }
   if (cache) {
     const hit = await readCachedDerivative(cache);
     if (hit) {
@@ -147,35 +148,36 @@ async function readCachedDerivative(cache) {
     if (sha256Text(payload.result.svg) !== payload.svgSha256) throw new Error("cached SVG hash mismatch");
     if (sha256Text(JSON.stringify(payload.result.semantic)) !== payload.semanticSha256) throw new Error("cached semantic hash mismatch");
     return payload.result;
-  } catch (error) {
+  } catch {
     if (compressed) await rm(cache.filename, { force: true }).catch(() => {});
     return null;
   }
 }
 
 async function writeCachedDerivative(cache, result) {
-  const payload = {
-    schemaVersion: DERIVATIVE_SCHEMA,
-    namespace: DERIVATIVE_NAMESPACE,
-    key: cache.key,
-    sourceSha256: cache.sourceSha256,
-    behaviorDigest: cache.behaviorDigest,
-    page: cache.page,
-    mime: cache.mime,
-    svgSha256: sha256Text(result.svg),
-    semanticSha256: sha256Text(JSON.stringify(result.semantic)),
-    result
-  };
-  const compressed = gzipSync(Buffer.from(JSON.stringify(payload)), { level: 6 });
-  if (compressed.length > MAX_COMPRESSED_ENTRY_BYTES) return;
-  const directory = path.dirname(cache.filename);
-  await mkdir(directory, { recursive: true });
-  const temporary = `${cache.filename}.tmp-${process.pid}-${Date.now()}`;
+  let temporary = null;
   try {
+    const payload = {
+      schemaVersion: DERIVATIVE_SCHEMA,
+      namespace: DERIVATIVE_NAMESPACE,
+      key: cache.key,
+      sourceSha256: cache.sourceSha256,
+      behaviorDigest: cache.behaviorDigest,
+      page: cache.page,
+      mime: cache.mime,
+      svgSha256: sha256Text(result.svg),
+      semanticSha256: sha256Text(JSON.stringify(result.semantic)),
+      result
+    };
+    const compressed = gzipSync(Buffer.from(JSON.stringify(payload)), { level: 6 });
+    if (compressed.length > MAX_COMPRESSED_ENTRY_BYTES) return;
+    const directory = path.dirname(cache.filename);
+    await mkdir(directory, { recursive: true });
+    temporary = `${cache.filename}.tmp-${process.pid}-${Date.now()}`;
     await writeFile(temporary, compressed);
     await rename(temporary, cache.filename);
   } catch {
-    await rm(temporary, { force: true }).catch(() => {});
+    if (temporary) await rm(temporary, { force: true }).catch(() => {});
     // Cache storage must never change extraction behavior or fail a world build.
   }
 }
