@@ -7,7 +7,7 @@ import {
   associateComprehensivePlanningLabel
 } from "../src/lib/planning-comprehensive-semantics.mjs";
 import { parseSvgDrawing } from "../src/lib/planning-vectorize.mjs";
-import { parseTesseractTsv } from "../src/lib/planning-raster-extraction.mjs";
+import { parseTesseractTsv, planningRasterDerivativeFingerprint } from "../src/lib/planning-raster-extraction.mjs";
 
 test("temporary construction fencing is excluded while permanent park fences remain eligible", () => {
   const excluded = classifyComprehensivePlanningLabel("Temporary red fencing to secure building site");
@@ -68,4 +68,15 @@ test("raster OCR TSV is normalized into the same semantic schema", () => {
   const anchors = parseTesseractTsv(tsv);
   assert.equal(anchors.length, 1);
   assert.equal(anchors[0].semantic.excludeFromWorld, true);
+});
+
+test("processed raster planning cache identity is content and behavior addressed", () => {
+  const sourceSha256 = "1".repeat(64);
+  const behaviorDigest = "2".repeat(64);
+  const baseline = planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest, page: 1, mime: "application/pdf" });
+  assert.equal(baseline, planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest, page: 1, mime: "application/pdf" }));
+  assert.notEqual(baseline, planningRasterDerivativeFingerprint({ sourceSha256: "3".repeat(64), behaviorDigest, page: 1, mime: "application/pdf" }));
+  assert.notEqual(baseline, planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest: "4".repeat(64), page: 1, mime: "application/pdf" }));
+  assert.notEqual(baseline, planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest, page: 2, mime: "application/pdf" }));
+  assert.notEqual(baseline, planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest, page: 1, mime: "image/png" }));
 });

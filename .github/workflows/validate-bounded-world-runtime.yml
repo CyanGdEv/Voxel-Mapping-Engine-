@@ -6,6 +6,7 @@ on:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'patches/v0120-phase30b/**'
+      - 'patches/v0120-phase30d/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
@@ -18,6 +19,7 @@ on:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'patches/v0120-phase30b/**'
+      - 'patches/v0120-phase30d/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
@@ -44,6 +46,7 @@ jobs:
           node scripts/install-phase30a-authority.mjs --self-test
           node scripts/install-phase30a-tests.mjs --self-test
           node scripts/install-phase30b-weighted-sampler.mjs --self-test
+          node patches/v0120-phase30d/install-native-pdf-derivative-cache.mjs --self-test
       - name: Validate concatenated direct runner syntax and ordering
         shell: bash
         run: |
@@ -62,6 +65,7 @@ jobs:
           grep -q 'TPMAP_PREPARE_ONLY=phase30b complete' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'TPMAP_PREPARE_ONLY=preflight complete' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'phase30b_capability_probe' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'phase30d_native_pdf_derivative_cache=enabled' "$RUNNER_TEMP/direct-runner.sh"
           ! grep -q 'classifyPlanningSemanticLabel' "$RUNNER_TEMP/direct-runner.sh"
           ! grep -q "require_marker 'PHASE30B_SEMANTIC_SITE_PLANS'" "$RUNNER_TEMP/direct-runner.sh"
           ! grep -q 'skipping redundant production test invocation' "$RUNNER_TEMP/direct-runner.sh"
@@ -69,22 +73,25 @@ jobs:
           test ! -e scripts/build-themepark-world-v0120-direct.sh.part-02zzz-fast-attempt-guard-close
           test ! -e scripts/build-themepark-world-v0120-direct.sh.part-02za-phase30a-repair
           test -e scripts/build-themepark-world-v0120-direct.sh.part-02y-phase30a-authority
+          test -e scripts/build-themepark-world-v0120-direct.sh.part-02zzzz1-phase30d-native-cache
           test -e scripts/build-themepark-world-v0120-direct.sh.part-02zzzzzzzzzz-fast-attempt-guard-close
 
           phase30a_line=$(grep -n 'part-02y-phase30a-authority' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           legacy_phase30_line=$(grep -n 'part-02z-phase30$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           phase30b_line=$(grep -n 'part-02zz-phase30b$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           material30b_line=$(grep -n 'part-02zz1-phase30b-material-patterns$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          native_cache_line=$(grep -n 'part-02zzzz1-phase30d-native-cache$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           final_guard_line=$(grep -n 'part-02zzzzzzzzzz-fast-attempt-guard-close' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           test "$phase30a_line" -lt "$legacy_phase30_line"
           test "$legacy_phase30_line" -lt "$phase30b_line"
           test "$phase30b_line" -lt "$material30b_line"
-          test "$material30b_line" -lt "$final_guard_line"
+          test "$material30b_line" -lt "$native_cache_line"
+          test "$native_cache_line" -lt "$final_guard_line"
 
           if grep -q 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt"; then
             phase30d_line=$(grep -n 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
             test "$phase30b_line" -lt "$phase30d_line"
-            test "$phase30d_line" -lt "$final_guard_line"
+            test "$phase30d_line" -lt "$native_cache_line"
           fi
       - name: Verify resilient workflow budget policy
         shell: bash
@@ -135,6 +142,9 @@ jobs:
           grep -q '# fail 0' ci-diagnostics/final-phase30d-comprehensive-plan-tests.log
           grep -q '# fail 0' ci-diagnostics/final-phase30-material-tests.log
           grep -q 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' generator/src/lib/fidelity.mjs
+          grep -q 'TPMAP_PHASE30D_CONTENT_ADDRESSED_RASTER_DERIVATIVES' generator/src/lib/planning-raster-extraction.mjs
+          grep -q 'TPMAP_PHASE30D_NATIVE_PDF_DERIVATIVE_CACHE' generator/src/lib/planning-vectorize.mjs
+          grep -q 'TPMAP_PHASE30D_PROCESSED_PLANNING_DERIVATIVE_CACHE' generator/src/lib/planning-processed-derivative-cache.mjs
           test ! -e generator/src/lib/planning-vectorize.mjs.rej
           test ! -e generator/src/lib/planning-vector-fusion.mjs.rej
           test -z "$(find generator -type f -name '*.rej' -print -quit)"
@@ -143,5 +153,6 @@ jobs:
           node --check generator/src/lib/planning-georeference.mjs
           node --check generator/src/lib/planning-comprehensive-semantics.mjs
           node --check generator/src/lib/planning-raster-extraction.mjs
+          node --check generator/src/lib/planning-processed-derivative-cache.mjs
           node --check generator/src/lib/fidelity.mjs
           node --check generator/src/lib/mcworld.mjs
