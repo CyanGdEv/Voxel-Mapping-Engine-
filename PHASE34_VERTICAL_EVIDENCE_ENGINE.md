@@ -42,6 +42,14 @@ Planning values are authoritative for the exact property they state. For example
 
 Disagreement is never hidden. When planning ridge/eave/pitch/direction materially disagrees with DSM-derived values, the selected planning value is applied and the difference is retained as a conflict for later QA. OSM-derived observations are never accepted as roof constraints in planning-only mode.
 
+## Vegetation digital twin
+
+`vegetation-reconstruction.mjs` uses planning-authoritative vegetation geometry with the separated terrain surfaces to create evidence-bounded vegetation objects. DTM supplies ground elevation; independent DSM supplies canopy-top observations; height is taken from explicit planning data when present, otherwise derived only when both ground and canopy top are resolved.
+
+Polygon vegetation is sampled across its actual planning footprint rather than only at the centroid. The reconstruction records ground elevation, canopy-top elevation, vegetation height, crown area, equivalent crown diameter, approximate crown volume, sample counts and property-level authority. Point tree geometry can use explicit crown-diameter annotations where present.
+
+The graph distinguishes `individual-tree`, `canopy-group`, and `woodland` using planning semantics and measured crown geometry. Species, trunk diameter and other biological properties are never invented without evidence. A generic ground-only elevation sampler can never fabricate canopy height or volume, and OSM-derived vegetation geometry is rejected in planning-only mode.
+
 ## Multi-point ride vertical profiles
 
 Ride elevation observations are projected onto the measured planning-authoritative ride centerline. Compatible anchors are ordered by distance along the track and interpolation is allowed only between accepted neighboring anchors. The solver never extrapolates before the first anchor or beyond the final anchor, and gaps above the configured safety limit stay unresolved.
@@ -58,8 +66,8 @@ These structures remain graph-only. The legacy Minecraft compiler stays unchange
 
 ## Next slices
 
-1. Add vegetation crown height/volume from DTM/DSM separation.
-2. Add ride clearance/tunnel/terrain-intersection classification against DTM.
-3. Add Minecraft-aware building shell compilation using the graph roof primitives.
-4. Add explicit façade/elevation constraints from planning elevation drawings.
-5. Cut graph-resolved building/ride/water/support vertical state into Minecraft generation one family at a time under explicit output tests.
+1. Add ride clearance/tunnel/terrain-intersection classification against DTM.
+2. Add Minecraft-aware building shell compilation using the graph roof primitives.
+3. Add explicit façade/elevation constraints from planning elevation drawings.
+4. Add individual-tree crown segmentation where sufficient DSM/LiDAR detail exists.
+5. Cut graph-resolved building/ride/water/support/vegetation vertical state into Minecraft generation one family at a time under explicit output tests.
