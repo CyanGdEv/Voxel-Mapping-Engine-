@@ -1,0 +1,108 @@
+  # Phase 34 — resolve vertical evidence on the Phase 33 reconstruction graph.
+  # These slices remain graph-only: legacy compiler feature objects are not
+  # mutated, so Minecraft output changes only after an explicit later cutover.
+  PHASE34_INSTALLER="$ROOT/patches/v0120-phase34/install-vertical-evidence-engine.mjs"
+  PHASE34_SURFACE_INSTALLER="$ROOT/patches/v0120-phase34/install-terrain-surface-model.mjs"
+  PHASE34_BUILDING_INSTALLER="$ROOT/patches/v0120-phase34/install-building-roof-reconstruction.mjs"
+  PHASE34_ROOF_PLANE_INSTALLER="$ROOT/patches/v0120-phase34/install-building-roof-plane-decomposition.mjs"
+  PHASE34_ROOF_CONSTRAINT_INSTALLER="$ROOT/patches/v0120-phase34/install-building-roof-planning-constraints.mjs"
+  PHASE34_VEGETATION_INSTALLER="$ROOT/patches/v0120-phase34/install-vegetation-reconstruction.mjs"
+  PHASE34_RIDE_PROFILE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
+  PHASE34_RIDE_3D_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-3d-geometry.mjs"
+  PHASE34_SUPPORT_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-support-reconstruction.mjs"
+  PHASE34_LOG="$DIAG/phase34-vertical-evidence.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --self-test 2>&1 | tee "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_BUILDING_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_BUILDING_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_BUILDING_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_ROOF_PLANE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_ROOF_PLANE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_ROOF_PLANE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_ROOF_CONSTRAINT_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_ROOF_CONSTRAINT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_ROOF_CONSTRAINT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-surface-model.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/building-roof-reconstruction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/building-roof-plane-decomposition.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/building-roof-planning-constraints.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vegetation-reconstruction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-3d-geometry.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-support-reconstruction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test \
+      test/vertical-evidence-engine.test.mjs \
+      test/terrain-surface-model.test.mjs \
+      test/building-roof-reconstruction.test.mjs \
+      test/building-roof-plane-decomposition.test.mjs \
+      test/building-roof-planning-constraints.test.mjs \
+      test/vegetation-reconstruction.test.mjs \
+      test/ride-vertical-profile.test.mjs \
+      test/ride-3d-geometry.test.mjs \
+      test/ride-support-reconstruction.test.mjs \
+      2>&1 | tee -a "$PHASE34_LOG"
+  )
+
+  printf '%s\n' \
+    'phase34_vertical_evidence=enabled' \
+    'model=ground-base-top' \
+    'authority=planning-explicit-over-derived-elevation' \
+    'observations=building-ffl,ride-elevation,water-level,terrain-level' \
+    'terrain_surfaces=dtm-ground,dsm-object-top' \
+    'terrain_height=derived-only-as-dsm-minus-dtm' \
+    'generic_elevation_sampler=ground-only-never-duplicated-as-dsm' \
+    'building_sampling=planning-footprint-aware-dtm-dsm-grid' \
+    'building_roofs=flat,shed,pitched,complex,unresolved' \
+    'building_roof_planes=explicit-plane-polygons,slope,aspect,ridge,eaves' \
+    'building_roof_constraints=planning-ridge,eave,pitch,direction-over-dsm' \
+    'building_roof_conflicts=retained-and-reported' \
+    'building_vertical_authority=planning-levels-over-sampled-surfaces' \
+    'vegetation=planning-geometry-plus-dtm-dsm-digital-twin' \
+    'vegetation_metrics=ground,canopy-top,height,crown-area,crown-diameter,crown-volume' \
+    'vegetation_classes=individual-tree,canopy-group,woodland' \
+    'vegetation_species=never-invented-without-evidence' \
+    'ride_profile=multi-anchor-measured-centerline' \
+    'ride_3d=planning-alignment-plus-evidence-bounded-y' \
+    'ride_3d_sampling=1m-default-configurable' \
+    'ride_3d_metrics=x-y-z,pitch,length3d' \
+    'ride_supports=planning-point-to-resolved-track-and-ground' \
+    'ride_support_metrics=footing,connection,height,length3d,lean' \
+    'attachments=paths-supports-dtm;buildings-vegetation-dtm-plus-dsm;rides-bridges-independent-over-dtm' \
+    'unsupported_ride_spans=y-null-never-extrapolated' \
+    'unresolved_supports=never-fabricated' \
+    'unresolved_roofs=never-forced-to-generic-extrusion' \
+    'conflicts=retained-and-reported' \
+    'missing_values=unresolved-never-guessed' \
+    'osm_policy=never-valid-vertical-world-evidence' \
+    'compiler_cutover=graph-only-no-legacy-feature-mutation' \
+    > "$DIAG/phase34-runtime-policy.txt"

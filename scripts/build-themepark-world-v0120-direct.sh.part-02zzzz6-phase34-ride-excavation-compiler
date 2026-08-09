@@ -1,0 +1,47 @@
+  # Phase 34 — graph-to-world ride cutover. First apply only verified cutting/tunnel
+  # mask cells to native phase-7 air, then replace legacy ride/support voxels only
+  # where Phase 34 has resolved graph-owned 3D geometry.
+  PHASE34_EXCAVATION_COMPILER_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-excavation-compiler.mjs"
+  PHASE34_RIDE_GRAPH_COMPILER_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-graph-compiler.mjs"
+  PHASE34_EXCAVATION_COMPILER_LOG="$DIAG/phase34-ride-excavation-compiler.log"
+  PHASE34_RIDE_GRAPH_COMPILER_LOG="$DIAG/phase34-ride-graph-compiler.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_COMPILER_INSTALLER" --self-test 2>&1 | tee "$PHASE34_EXCAVATION_COMPILER_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_COMPILER_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_EXCAVATION_COMPILER_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_COMPILER_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_EXCAVATION_COMPILER_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_GRAPH_COMPILER_INSTALLER" --self-test 2>&1 | tee "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_GRAPH_COMPILER_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_GRAPH_COMPILER_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-excavation-compiler.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-graph-compiler.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test test/ride-excavation-compiler.test.mjs test/ride-graph-compiler.test.mjs 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
+  )
+
+  printf '%s\n' \
+    'phase34_ride_excavation_compiler=enabled' \
+    'input=verified-phase34-excavation-mask-only' \
+    'writer=native-chunked-bedrock-operation-compiler' \
+    'operation=phase7-minecraft-air' \
+    'vertical_conversion=absolute-planning-elevation-minus-compiler-datum' \
+    'empty_mask=exact-compilation-no-op' \
+    'unsupported_schema=fail-closed-before-mutation' \
+    'outside_authorised_voxels=no-writes' \
+    'portal_support_track_order=phase8-phase9-preserved' \
+    > "$DIAG/phase34-ride-excavation-compiler-policy.txt"
+
+  printf '%s\n' \
+    'phase34_ride_graph_compiler=enabled' \
+    'track_source=graph-owned-resolved-3d-geometry' \
+    'support_source=graph-owned-resolved-planning-supports' \
+    'legacy_track_suppression=3d-bounded-resolved-spans-only' \
+    'legacy_support_suppression=resolved-support-neighborhood-only' \
+    'unresolved_graph_geometry=legacy-preserved' \
+    'portal_phase8=preserved' \
+    'track_phase9=planning-verified-blue-concrete' \
+    'osm_policy=fail-closed' \
+    > "$DIAG/phase34-ride-graph-compiler-policy.txt"
