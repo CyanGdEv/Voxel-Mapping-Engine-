@@ -58,6 +58,14 @@ Ride elevation observations are projected onto the measured planning-authoritati
 
 Resolved ride profiles feed `ride-3d-geometry.mjs`. The engine samples the exact planning alignment at 1 m by default and creates graph-owned `(x,y,z)` samples. Resolved neighboring samples form `resolved-3d` segments with true 3D length and pitch. Unsupported spans keep `y=null`.
 
+## Ride / terrain interaction reconstruction
+
+`ride-terrain-interaction.mjs` compares each resolved graph-owned 3D ride sample with bare-earth DTM at the same local coordinate. Samples are classified as `elevated`, `near-grade`, `cutting`, `tunnel`, or `unresolved` from configurable clearance thresholds. The default policy treats track at least 2 m above DTM as elevated, within 0.75 m of ground as near-grade, between the near-grade and tunnel thresholds as cutting, and at least 1.5 m below DTM as tunnel.
+
+Adjacent samples with the same state are condensed into measured interaction intervals along the planning-authoritative centerline. Cutting and tunnel intervals are emitted as explicit excavation-required intervals for a later terrain compiler cutover. Unresolved ride Y, missing DTM, or missing local DTM samples never produce a clearance estimate, tunnel classification or excavation request.
+
+The interaction stage runs after 3D ride reconstruction and before support reconstruction. It uses DTM only for ground relationship; it does not allow OSM geometry to influence the ride or terrain authority.
+
 ## Ride support reconstruction
 
 Planning support nodes feed `ride-support-reconstruction.mjs`. Each support is associated only with a compatible planning ride, then connected to the nearest resolved 3D track sample. Its footing consumes resolved DTM/ground state. Resolved supports record footing, track connection, height, horizontal offset, true 3D length, lean and confidence; unresolved evidence never produces an invented column.
@@ -66,7 +74,7 @@ These structures remain graph-only. The legacy Minecraft compiler stays unchange
 
 ## Next slices
 
-1. Add ride clearance/tunnel/terrain-intersection classification against DTM.
+1. Add Minecraft-aware tunnel/trench excavation compilation from graph interaction intervals.
 2. Add Minecraft-aware building shell compilation using the graph roof primitives.
 3. Add explicit façade/elevation constraints from planning elevation drawings.
 4. Add individual-tree crown segmentation where sufficient DSM/LiDAR detail exists.
