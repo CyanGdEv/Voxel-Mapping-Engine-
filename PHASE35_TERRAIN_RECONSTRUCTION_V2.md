@@ -20,15 +20,21 @@ Unassociated DTM structures remain natural terrain classes such as `natural-rock
 
 Verified structure cells compile through the native Bedrock operation representation at phase 6. This intentionally precedes Phase 34 ride excavation at phase 7, supports/tunnel portals at phase 8 and ride track at phase 9.
 
-The compiler emits explicit vertical geometry for natural rock faces, natural terrace breaks, retaining walls, cuttings, embankments and engineered terraces. Natural steep banks remain on the existing heightfield path until a dedicated slope-treatment compiler is introduced.
+The compiler emits explicit vertical geometry for natural rock faces, natural terrace breaks, retaining walls, cuttings, embankments and engineered terraces. Material selection is deterministic and classification-specific. Natural rock faces use stone/andesite/cobblestone/mossy-cobblestone variation; retaining and engineered structures use appropriate stone palettes; cuttings and embankments use deterministic rock/soil palettes. Material variation never changes the verified geometry footprint.
 
-Material selection is deterministic and classification-specific. Natural rock faces use stone/andesite/cobblestone/mossy-cobblestone variation; retaining and engineered structures use appropriate stone palettes; cuttings and embankments use deterministic rock/soil palettes. Material variation never changes the verified geometry footprint.
+## Natural steep-bank treatment
+
+`terrain-steep-bank-treatment.mjs` handles only structures whose final engineering class is `natural-steep-bank`. It does not smooth, interpolate or widen DTM geometry. Instead, where an exact DTM elevation lands within a bounded half-block window, it emits a phase-6 bottom slab over that exact morphology-cell footprint so the Minecraft surface represents the measured elevation more closely than whole-block quantisation alone.
+
+The first cut uses `normal_stone_slab`, `cobblestone_slab` and `mossy_cobblestone_slab` with deterministic variation. It never emits air and never applies to cuttings, embankments, retaining walls or engineered terraces.
+
+Directional stairs are deliberately deferred. The current compact native operation schema transports a palette index but no verified per-operation stair facing/half state. Emitting stairs now could produce incorrectly oriented geometry, so stair output remains fail-closed until block-state transport is verified end-to-end.
 
 ## Tunnel portal and cliff-face reconciliation
 
-`terrain-tunnel-portal-reconciliation.mjs` runs after phase-6 terrain structure compilation and before Phase 34 phase-7 excavation. It consumes only the verified `TPMAP_PHASE34_RIDE_EXCAVATION_MASK_V1` mask.
+`terrain-tunnel-portal-reconciliation.mjs` runs after phase-6 terrain structure and steep-bank compilation and before Phase 34 phase-7 excavation. It consumes only the verified `TPMAP_PHASE34_RIDE_EXCAVATION_MASK_V1` mask.
 
-For each ride, the first and last verified tunnel measures form bounded portal-mouth bands. Phase-6 terrain structure operations are split so no reconstructed cliff, cutting, retaining wall or terrace voxel remains inside an already-authorised tunnel/cutting excavation voxel. Terrain outside the verified mask is preserved exactly.
+For each ride, the first and last verified tunnel measures form bounded portal-mouth bands. Phase-6 terrain structure operations are split so no reconstructed cliff, cutting, retaining wall, terrace or steep-bank treatment voxel remains inside an already-authorised tunnel/cutting excavation voxel. Terrain outside the verified mask is preserved exactly.
 
 This stage does **not** emit `minecraft:air`, enlarge a tunnel, or create excavation authority. Phase 7 remains the only carving stage. Cutting overlap is reconciled but is not labelled as a tunnel portal. Invalid/duplicate excavation cells and unverified mask markers fail closed before mutation.
 
@@ -40,6 +46,8 @@ This stage does **not** emit `minecraft:air`, enlarge a tunnel, or create excava
 - Missing or capped evidence fails closed rather than silently reducing resolution.
 - Ordinary terrain heightfield generation is unchanged outside verified terrain-structure cells.
 - Terrain structure output uses exact morphology cells, not coarse bounding-box fills.
+- Natural steep-bank slabs are emitted only when they improve measured half-block elevation representation.
+- Directional stairs remain disabled until block-state orientation can be preserved safely.
 - Portal reconciliation can remove phase-6 terrain only inside the existing verified Phase 34 excavation mask.
 - Portal reconciliation emits no air and cannot widen excavation.
 - Phase 7 ride excavation remains the sole carve authority and follows phase-6 terrain/reconciliation.
@@ -47,8 +55,8 @@ This stage does **not** emit `minecraft:air`, enlarge a tunnel, or create excava
 
 ## Remaining Phase 35 slices
 
-1. Add dedicated steep-bank voxel treatment using stairs/slabs where the Minecraft representation benefits.
+1. Verify native block-state transport, then add correctly oriented stairs only where DTM slope direction supports them.
 2. Add retaining-wall caps, stepped courses and material detail where planning evidence supports them.
 3. Add geology-aware natural rock palettes where independent geology data is available.
 4. Add terrain QA against DTM and planning spot levels.
-5. Add bounded real-world `.mcworld` portal fixtures to visually validate reconstructed cliff/tunnel transitions.
+5. Add bounded real-world `.mcworld` fixtures for cliff/tunnel/retaining-wall/steep-bank transitions.
