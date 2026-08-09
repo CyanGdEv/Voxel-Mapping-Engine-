@@ -14,17 +14,17 @@ Planning evidence only applies to compatible object types within bounded spatial
 
 ## DTM / DSM surface separation
 
-`terrain-surface-model.mjs` now separates bare-earth ground from object/top surfaces instead of treating every elevation sample as the same quantity.
+`terrain-surface-model.mjs` separates bare-earth ground from object/top surfaces. `dtmElevationM` is ground elevation; `dsmElevationM` is an independently observed top/visible surface; `aboveGroundHeightM` is derived only when both exist as DSM minus DTM.
 
-- `dtmElevationM` is bare-earth/ground elevation beneath the object.
-- `dsmElevationM` is the visible/object-top surface where independent DSM or explicit top evidence exists.
-- `aboveGroundHeightM` is derived only when both surfaces exist, as `DSM - DTM`.
+A legacy generic `sampleLocal()` source is ground-compatible only and is never duplicated into DSM. Invalid pairs where DSM is below DTM are rejected. Paths/supports attach to DTM; buildings and vegetation use DTM base plus optional DSM top; water has its own surface; rides and bridges remain independent elevated geometry.
 
-A legacy generic `sampleLocal()` elevation source is accepted only as ground-compatible evidence. It is never reused as DSM, because duplicating one elevation into both channels would create fabricated zero-height buildings, vegetation and structures. Invalid surface pairs where DSM is below DTM are rejected and left unresolved.
+## Footprint-aware building and roof reconstruction
 
-Attachment semantics are explicit: paths, roads, terrain details, barriers and support footings attach to DTM; buildings/structures/vegetation have DTM base plus optional DSM top; water keeps an independent surface over a DTM bed; rides and bridges remain independent elevated objects over DTM.
+`building-roof-reconstruction.mjs` samples DTM and DSM across the actual planning-authoritative building polygon instead of relying on one centroid observation. Sampling is bounded and deterministic, with a 2 m default grid and a hard per-building cap.
 
-The pipeline now hands the runtime elevation source into the graph vertical solver so dedicated `sampleDtmLocal` / `sampleDsmLocal`-style providers can be consumed when present without weakening planning authority.
+Planning FFL/base/top evidence remains authoritative over sampled surfaces. DTM supplies robust building ground/base context where planning levels are absent; independent DSM supplies roof/top observations. A generic ground sampler can resolve a base but can never fabricate a roof.
+
+The first roof classifier distinguishes `flat`, `shed`, `pitched`, `complex`, and `unresolved`. It uses robust DSM relief statistics plus a least-squares surface fit to identify a dominant roof rise direction when the evidence supports it. The reconstruction records eave/top/ridge evidence, relief, ridge/rise direction, confidence, footprint sample counts and property-level authority. Ambiguous or undersampled roofs stay unresolved rather than becoming generic extrusions.
 
 ## Multi-point ride vertical profiles
 
@@ -32,26 +32,18 @@ Ride elevation observations are projected onto the measured planning-authoritati
 
 ## Graph-derived 3D ride geometry
 
-Resolved ride profiles feed `ride-3d-geometry.mjs`. The engine samples the exact planning alignment at 1 m by default (configurable) and creates graph-owned `(x,y,z)` samples. Resolved neighboring samples form `resolved-3d` segments with true 3D length and pitch. Unsupported profile spans keep `y=null` and become `unresolved-vertical-gap` segments, so no hidden elevation is fabricated.
+Resolved ride profiles feed `ride-3d-geometry.mjs`. The engine samples the exact planning alignment at 1 m by default and creates graph-owned `(x,y,z)` samples. Resolved neighboring samples form `resolved-3d` segments with true 3D length and pitch. Unsupported spans keep `y=null`.
 
 ## Ride support reconstruction
 
-Planning support nodes feed `ride-support-reconstruction.mjs`. Each support is associated only with a compatible planning ride, then connected to the nearest resolved 3D track sample inside a bounded distance. Its footing consumes the resolved DTM/ground state on the support node.
+Planning support nodes feed `ride-support-reconstruction.mjs`. Each support is associated only with a compatible planning ride, then connected to the nearest resolved 3D track sample. Its footing consumes resolved DTM/ground state. Resolved supports record footing, track connection, height, horizontal offset, true 3D length, lean and confidence; unresolved evidence never produces an invented column.
 
-A resolved support records footing `(x,y,z)`, track connection `(x,y,z)`, track measure, vertical height, horizontal offset, true 3D member length, lean angle and confidence. If the track span is unresolved, ground elevation is missing, the compatible ride is too far away, or the track connection is not above the footing, the support remains unresolved rather than inventing a column.
-
-Planning references and source-document hashes prevent nearby independent rides from cross-linking. OSM-derived support geometry is rejected in planning-only mode.
-
-These ride, support and surface structures are still graph-only. The legacy Minecraft compiler remains unchanged until dedicated output tests prove a safe feature-family cutover.
-
-## Conflict handling
-
-Conflicting values remain in per-node vertical-resolution diagnostics. Higher-authority evidence is selected but disagreement remains auditable for later automated QA.
+These structures remain graph-only. The legacy Minecraft compiler stays unchanged until dedicated output tests prove a safe feature-family cutover.
 
 ## Next slices
 
-1. Add footprint-aware terrain-surface sampling rather than centroid-only DTM/DSM observations.
-2. Resolve building roof planes/top surfaces from DSM plus planning elevations/sections.
+1. Split pitched/complex building roofs into multiple roof planes and explicit ridge/eave lines.
+2. Add planning elevation/section annotations as roof-plane constraints.
 3. Add vegetation crown height/volume from DTM/DSM separation.
-4. Add ride clearance/tunnel/terrain-intersection classification from solved 3D geometry against DTM.
-5. Cut graph-resolved ride/building/water/support vertical state into Minecraft generation one family at a time under explicit output tests.
+4. Add ride clearance/tunnel/terrain-intersection classification against DTM.
+5. Cut graph-resolved building/ride/water/support vertical state into Minecraft generation one family at a time under explicit output tests.
