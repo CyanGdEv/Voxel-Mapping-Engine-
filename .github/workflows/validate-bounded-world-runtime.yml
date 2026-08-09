@@ -106,7 +106,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends poppler-utils gdal-bin python3-opencv
+          sudo apt-get install -y --no-install-recommends poppler-utils gdal-bin python3-opencv tesseract-ocr
       - name: Execute locked-source production preparation through final Phase 30 preflight
         shell: bash
         env:
@@ -123,6 +123,7 @@ jobs:
           test -f ci-diagnostics/prepared-generator-integrity.log
           grep -q 'TPMAP_PREPARE_ONLY=preflight complete' ci-diagnostics/prepared-generator-integrity.log
           grep -q 'PREP_OK Phase 30B final behavior suite' ci-diagnostics/prepared-generator-integrity.log
+          grep -q 'PREP_OK Phase 30D comprehensive plan behavior suite' ci-diagnostics/prepared-generator-integrity.log
           grep -q 'PREP_OK Phase 30 final material/palette suite' ci-diagnostics/prepared-generator-integrity.log
           grep -q 'PREP_OK Phase 30 current material-library integration probe' ci-diagnostics/prepared-generator-integrity.log
           grep -q 'PREP_OK prepared generator final integrity' ci-diagnostics/prepared-generator-integrity.log
@@ -131,6 +132,7 @@ jobs:
           grep -q '# fail 0' ci-diagnostics/phase30b-material-pattern-tests.log
           grep -q '# fail 0' ci-diagnostics/phase30b-material-library-tests.log
           grep -q '# fail 0' ci-diagnostics/final-phase30b-capability-tests.log
+          grep -q '# fail 0' ci-diagnostics/final-phase30d-comprehensive-plan-tests.log
           grep -q '# fail 0' ci-diagnostics/final-phase30-material-tests.log
           grep -q 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' generator/src/lib/fidelity.mjs
           test ! -e generator/src/lib/planning-vectorize.mjs.rej
@@ -138,5 +140,8 @@ jobs:
           test -z "$(find generator -type f -name '*.rej' -print -quit)"
           node --check generator/src/lib/planning-vectorize.mjs
           node --check generator/src/lib/planning-vector-fusion.mjs
+          node --check generator/src/lib/planning-georeference.mjs
+          node --check generator/src/lib/planning-comprehensive-semantics.mjs
+          node --check generator/src/lib/planning-raster-extraction.mjs
           node --check generator/src/lib/fidelity.mjs
           node --check generator/src/lib/mcworld.mjs

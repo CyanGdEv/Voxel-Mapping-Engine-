@@ -120,7 +120,6 @@
   # archive and stop here, before any external map/elevation acquisition or
   # expensive world compilation. This makes the partial-Phase-30B recovery path
   # reproducible in Actions instead of relying on a full Alton build to test it.
-  if [[ "${TPMAP_PREPARE_ONLY:-}" == "phase30b" ]]; then
-    echo "TPMAP_PREPARE_ONLY=phase30b complete"
-    exit 0
-  fi
+  # Completion is deferred until the semantic-contract repair and Phase 30D
+  # comprehensive extractor have run. Exiting here allowed an empty historical
+  # semantic test file to bypass both stages.

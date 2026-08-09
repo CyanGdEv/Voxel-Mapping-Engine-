@@ -30,11 +30,15 @@
     require_marker 'PHASE30B_EXTENDED_BLOCK_LIBRARY_V1' "$GEN/src/lib/mcworld.mjs" 'Phase 30B material writer library'
     require_marker 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$GEN/src/lib/mcworld.mjs" 'Phase 30 scenery block writer library'
 
-    # Phase 30D is optional on current main. If its source transform is present,
-    # require both runtime integration points before world compilation.
+    # Phase 30D comprehensive plan extraction is mandatory when its installer is
+    # present. Validate geometry, OCR/raster, georeference, fusion and world-use
+    # integration points independently before expensive compilation.
     if [[ -f "$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs" ]]; then
-      require_marker 'PHASE30D_RASTER_PLANNING_GEOMETRY' "$GEN/src/lib/planning-vectorize.mjs" 'Phase 30D raster planning vectorization'
-      require_marker 'PHASE30D_RASTER_PLANNING_GEOMETRY' "$GEN/src/lib/planning-georeference.mjs" 'Phase 30D raster planning georeference'
+      require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_VECTOR_PIPELINE' "$GEN/src/lib/planning-vectorize.mjs" 'Phase 30D comprehensive planning vectorization'
+      require_marker 'TPMAP_PHASE30D_RASTER_PLANNING_GEOREFERENCE' "$GEN/src/lib/planning-georeference.mjs" 'Phase 30D raster planning georeference'
+      require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_FUSION' "$GEN/src/lib/planning-vector-fusion.mjs" 'Phase 30D comprehensive planning fusion'
+      require_marker 'TPMAP_PHASE30D_RIDE_SUPPORT_POINTS' "$GEN/src/lib/raster.mjs" 'Phase 30D ride support world compilation'
+      require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_PLAN_DATA' "$GEN/src/lib/planning-comprehensive-semantics.mjs" 'Phase 30D planning semantic library'
     fi
 
     for module in \
@@ -43,6 +47,9 @@
       "$GEN/src/lib/mcworld.mjs" \
       "$GEN/src/lib/planning-vectorize.mjs" \
       "$GEN/src/lib/planning-vector-fusion.mjs" \
+      "$GEN/src/lib/planning-georeference.mjs" \
+      "$GEN/src/lib/planning-comprehensive-semantics.mjs" \
+      "$GEN/src/lib/planning-raster-extraction.mjs" \
       "$GEN/src/lib/source-fusion.mjs"; do
       if ! "$TPMAP_NODE_BIN" --check "$module" >> "$preflight_log" 2>&1; then
         echo "PREP_FAIL syntax $(basename "$module")" | tee -a "$preflight_log" >&2
@@ -78,6 +85,21 @@
     else
       cat "$phase30b_final_log" >> "$preflight_log"
       echo "PREP_OK Phase 30B final behavior suite" >> "$preflight_log"
+    fi
+
+    if [[ -f "$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs" ]]; then
+      local phase30d_final_log="$DIAG/final-phase30d-comprehensive-plan-tests.log"
+      if ! (
+        cd "$GEN"
+        "$TPMAP_NODE_BIN" --test test/planning-comprehensive-semantics.test.mjs
+      ) > "$phase30d_final_log" 2>&1; then
+        cat "$phase30d_final_log" >> "$preflight_log"
+        echo "PREP_FAIL Phase 30D comprehensive plan behavior suite" | tee -a "$preflight_log" >&2
+        preparation_failed=true
+      else
+        cat "$phase30d_final_log" >> "$preflight_log"
+        echo "PREP_OK Phase 30D comprehensive plan behavior suite" >> "$preflight_log"
+      fi
     fi
 
     # Material tests are intentionally placed here, after the Phase 30 Bedrock
