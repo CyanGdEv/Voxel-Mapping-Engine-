@@ -2,7 +2,13 @@
   # The source-strategy retries share one prepared generator. Patch application,
   # installer self-tests and phase regression tests are source-independent, so
   # they run once before the first expensive world compile and are then reused.
-  TPMAP_WORLD_RUN_STARTED_AT="${TPMAP_WORLD_RUN_STARTED_AT:-$SECONDS}"
+  #
+  # IMPORTANT: do not start the world-generation wall clock here. Phase 30/30D
+  # preparation and behavior preflights can legitimately take several minutes,
+  # especially now that comprehensive planning extraction is mandatory. The
+  # bounded world budget must measure only the actual generator build attempts;
+  # otherwise preparation steals time from the compiler and a healthy build is
+  # terminated with exit 124 before it has had its advertised 34-minute budget.
   TPMAP_WORLD_RUN_BUDGET_SECONDS="${TPMAP_WORLD_RUN_BUDGET_SECONDS:-2040}"
   TPMAP_NODE_BIN="${TPMAP_NODE_BIN:-$(command -v node)}"
 
