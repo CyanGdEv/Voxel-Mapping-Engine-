@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+const MARKER='TPMAP_PLANNING_AREA_AUTHORITY_V1';
+const args=process.argv.slice(2), opt={selfTest:false,generator:null,validateOnly:false};
+for(let i=0;i<args.length;i++){if(args[i]==='--self-test')opt.selfTest=true;else if(args[i]==='--generator')opt.generator=args[++i];else if(args[i]==='--validate-only')opt.validateOnly=true;else throw new Error(`Unknown option ${args[i]}`)}
+function repl(s,a,b,label){if(s.includes(b))return s;if(!s.includes(a))throw new Error(`planning-area anchor missing: ${label}`);return s.replace(a,b)}
+function range(s,a,b,v,label){if(s.includes(v.trim()))return s;const i=s.indexOf(a),j=s.indexOf(b,i+a.length);if(i<0||j<0)throw new Error(`planning-area range missing: ${label}`);return s.slice(0,i)+v+s.slice(j)}
+export function transformPlanningGeoreference(s){
+ if(!s.includes(MARKER))s=s.replace('const DEFAULT_DPI = 240;\n',`const DEFAULT_DPI = 240;\nconst ${MARKER} = true;\n`);
+ const old=`function documentPriority(document) {\n  let score = Number(document.score) || 0;\n  if (["as-built", "approved"].includes(document.state)) score += 30;\n  if (["site-plan", "block-plan", "ride-layout", "access-plan", "landscape-plan"].includes(document.role)) score += 20;\n  if (["approved", "implemented", "granted"].includes(document.applicationStatus)) score += 15;\n  return score;\n}`;
+ const neu=`function documentPriority(document) {\n  let score = Number(document.score) || 0;\n  if (["as-built", "approved"].includes(document.state)) score += 30;\n  if (["site-plan", "block-plan", "ride-layout", "access-plan", "landscape-plan"].includes(document.role)) score += 20;\n  if (["approved", "implemented", "granted"].includes(document.applicationStatus)) score += 15;\n  const evidence = planningDrawingEvidenceText(document);\n  if (/\\bsite\\s+plan\\b/.test(evidence)) score += 85;\n  if (/\\bblock\\s+plan\\b/.test(evidence)) score += 80;\n  if (/\\b(?:general\\s+arrangement|ga\\s+plan|track\\s+layout|ride\\s+layout)\\b/.test(evidence)) score += 75;\n  if (/\\b(?:landscape|planting)\\s+plan\\b/.test(evidence)) score += 60;\n  if (/\\b(?:proposed|existing|approved|as[- ]?built)\\b[^\\n]{0,80}\\b(?:plan|layout)\\b|\\b(?:plan|layout)\\b[^\\n]{0,80}\\b(?:proposed|existing|approved|as[- ]?built)\\b/.test(evidence)) score += 35;\n  if (/\\bshowing\\b[^\\n]{0,100}\\b(?:path|ride|track|building|landscap|groundwork)/.test(evidence)) score += 30;\n  if (/\\b\\d{2,4}[-/]\\d{2,4}[-/][a-z0-9]{1,8}\\b/i.test(evidence)) score += 18;\n  if (/\\b(?:statement|assessment|report|cover(?:ing)?\\s+letter|application\\s+form|schedule|methodology|archaeolog|heritage|design\\s+and\\s+access)\\b/.test(evidence)) score -= 95;\n  return score;\n}\nfunction planningDrawingEvidenceText(document) {\n  return [document.filename,document.linkText,document.name,document.title,document.description,typeof document.text === "string" ? document.text : document.text?.excerpt].filter(Boolean).join(" ").replace(/\\s+/g," ").toLowerCase();\n}`;
+ s=repl(s,old,neu,'document priority');
+ s=repl(s,'      const manifest = report.documents[index].automaticCandidate;\n','      const manifest = consensus.selectedCandidates?.get(id) || report.documents[index].automaticCandidate;\n','selected candidate');
+ if(!s.includes('documentPriority,\n  planningDrawingEvidenceText,'))s=repl(s,'  collectGeometryDocuments,\n  coordinateNumber\n};','  collectGeometryDocuments,\n  documentPriority,\n  planningDrawingEvidenceText,\n  coordinateNumber\n};','test exports');
+ return s;
+}
+export function transformPlanningAutoRegistration(s){
