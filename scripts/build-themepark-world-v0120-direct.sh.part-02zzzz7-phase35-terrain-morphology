@@ -1,11 +1,13 @@
   # Phase 35 — classify bare-earth DTM morphology, associate only explicit
   # planning-authoritative terrain engineering, compile verified vertical terrain
-  # structures at phase 6, then reconcile them with the verified Phase 34
-  # excavation mask before phase-7 carving/support/track output.
+  # structures at phase 6, apply bounded natural steep-bank half-block treatment,
+  # then reconcile terrain with the verified Phase 34 excavation mask before
+  # phase-7 carving/support/track output.
   PHASE35_TERRAIN_MORPHOLOGY_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-morphology.mjs"
   PHASE35_TERRAIN_ASSOCIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-planning-structure-association.mjs"
   PHASE35_TERRAIN_COMPILER_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-structure-compiler.mjs"
   PHASE35_PORTAL_RECONCILIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-tunnel-portal-reconciliation.mjs"
+  PHASE35_STEEP_BANK_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-steep-bank-treatment.mjs"
   PHASE35_TERRAIN_MORPHOLOGY_LOG="$DIAG/phase35-terrain-morphology.log"
 
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --self-test 2>&1 | tee "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -24,9 +26,16 @@
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
+  # Install this after portal reconciliation so its pipeline transform can anchor
+  # against the complete Phase 35 ordering and insert itself before reconciliation.
+  "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-morphology.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-planning-structure-association.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-structure-compiler.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-steep-bank-treatment.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-tunnel-portal-reconciliation.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
@@ -36,6 +45,7 @@
       test/terrain-morphology.test.mjs \
       test/terrain-planning-structure-association.test.mjs \
       test/terrain-structure-compiler.test.mjs \
+      test/terrain-steep-bank-treatment.test.mjs \
       test/terrain-tunnel-portal-reconciliation.test.mjs \
       2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   )
@@ -51,12 +61,15 @@
     'natural_unassociated_cliff=natural-rock-face' \
     'terrain_structure_compiler=phase6-native-bedrock-operations' \
     'terrain_materials=deterministic-rock-soil-moss-engineered-palettes' \
+    'steep_bank_treatment=natural-steep-bank-half-block-quantisation' \
+    'steep_bank_materials=normal-stone,cobblestone,mossy-cobblestone-slabs' \
+    'steep_bank_stairs=deferred-until-directional-block-state-transport-is-verified' \
+    'steep_bank_policy=no-smoothing-no-widening-no-air' \
     'portal_reconciliation=verified-phase34-mask-only' \
     'portal_mouths=first-and-last-verified-tunnel-measure-bands' \
     'portal_air_authority=phase7-only-no-new-air-or-mask-expansion' \
     'ordinary_heightfield=unchanged-outside-verified-structures' \
-    'natural_steep_bank=preserve-heightfield-until-dedicated-slope-treatment' \
-    'phase_order=terrain6,reconciliation,excavation7,supports-portals8,track9' \
+    'phase_order=terrain6,steep-bank6,reconciliation,excavation7,supports-portals8,track9' \
     'missing_dtm=unresolved-no-fabrication' \
     'sampling=deterministic-bounded-grid' \
     > "$DIAG/phase35-terrain-morphology-policy.txt"
