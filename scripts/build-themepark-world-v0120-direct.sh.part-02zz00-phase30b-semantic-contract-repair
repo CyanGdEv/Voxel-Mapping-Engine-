@@ -9,20 +9,22 @@
   # generator and leave .rej files behind.
   #
   # This stage therefore validates the externally observable contract only. It
-  # retains the stale/empty-test protection that originally motivated this
-  # fragment, but it never mutates the prepared generator.
+  # retains stale/empty-test protection, but proves it from executed TAP output
+  # instead of source formatting.
   phase30b_semantic_contract_probe() {
     [[ -f "$GEN/src/lib/planning-vectorize.mjs" ]] || return 1
     [[ -f "$GEN/src/lib/planning-vector-fusion.mjs" ]] || return 1
     [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || return 1
 
-    # An empty historical semantic test file must never satisfy the contract.
-    # The preceding recovery stage and this postcondition both exercise the real
-    # extraction/fusion behavior, so source-token greps are intentionally not an
-    # authority here: later prepared-generator transforms may rename/restructure
-    # internals without changing the externally observable planning semantics.
+    local semantic_file_log="$DIAG/phase30b-semantic-file-probe.log"
     local semantic_test_count
-    semantic_test_count="$(grep -Ec '(^|[^A-Za-z])test\(' "$GEN/test/planning-site-semantics.test.mjs" || true)"
+    (
+      cd "$GEN"
+      node --test test/planning-site-semantics.test.mjs
+    ) > "$semantic_file_log" 2>&1 || return 1
+
+    semantic_test_count="$(awk '/^# tests [0-9]+$/ { count=$3 } END { if (count != "") print count }' "$semantic_file_log")"
+    [[ "$semantic_test_count" =~ ^[0-9]+$ ]] || return 1
     [[ "$semantic_test_count" -ge 3 ]] || return 1
 
     (
@@ -36,6 +38,9 @@
   }
 
   if ! phase30b_semantic_contract_probe; then
+    if [[ -f "$DIAG/phase30b-semantic-file-probe.log" ]]; then
+      cat "$DIAG/phase30b-semantic-file-probe.log" >&2
+    fi
     if [[ -f "$DIAG/phase30b-semantic-contract-probe.log" ]]; then
       cat "$DIAG/phase30b-semantic-contract-probe.log" >&2
     fi
@@ -54,6 +59,6 @@
 
   printf '%s\n' \
     'phase30b_semantic_contract=verified' \
-    'phase30b_semantic_contract_validation=behavioral-postcondition-no-second-patch-replay' \
+    'phase30b_semantic_contract_validation=runtime-tap-postcondition-no-second-patch-replay' \
     'semantic_test_minimum=3' \
     > "$DIAG/phase30b-semantic-contract.txt"
