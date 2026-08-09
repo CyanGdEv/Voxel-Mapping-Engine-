@@ -20,15 +20,19 @@ const IMPLEMENTATIONS=new Set([
   'ride-vertical-profile.mjs','ride-3d-geometry.mjs','ride-support-reconstruction.mjs','ride-terrain-interaction.mjs',
   'ride-excavation-mask.mjs','ride-excavation-compiler.mjs','ride-graph-compiler.mjs','terrain-morphology.mjs',
   'terrain-planning-structure-association.mjs','terrain-structure-compiler.mjs','terrain-steep-bank-treatment.mjs',
-  'terrain-tunnel-portal-reconciliation.mjs','retaining-wall-detail.mjs','terrain-qa.mjs','block-state-transport.mjs'
+  'terrain-tunnel-portal-reconciliation.mjs','retaining-wall-detail.mjs','terrain-qa.mjs','block-state-transport.mjs',
+  'mcworld.mjs','bedrock.mjs'
 ]);
+const STATEFUL_ANCHOR='  "minecraft:azalea_leaves", "minecraft:birch_leaves", "minecraft:brown_terracotta", "minecraft:calcite", "minecraft:cyan_terracotta", "minecraft:dark_oak_leaves", "minecraft:deepslate", "minecraft:gray_concrete_powder", "minecraft:light_gray_concrete_powder", "minecraft:mud_bricks", "minecraft:oak_planks", "minecraft:orange_terracotta", "minecraft:packed_mud", "minecraft:podzol", "minecraft:polished_andesite", "minecraft:red_terracotta", "minecraft:smooth_sandstone", "minecraft:yellow_terracotta"';
 
 async function install(root,validate){
   const verticalFile=path.join(root,'src/lib/vertical-evidence-engine.mjs');
   const pipelineFile=path.join(root,'src/lib/pipeline.mjs');
+  const mcworldFile=path.join(root,'src/lib/mcworld.mjs');
   if(!validate){
     await writeFile(verticalFile,repairVerticalEngine(await readFile(verticalFile,'utf8')));
     await writeFile(pipelineFile,repairPipeline(await readFile(pipelineFile,'utf8')));
+    await writeFile(mcworldFile,prepareStatefulTransportAnchor(await readFile(mcworldFile,'utf8')));
     await repairGeneratedTestImports(root);
   }
   const vertical=await readFile(verticalFile,'utf8');
@@ -40,8 +44,7 @@ async function install(root,validate){
 }
 
 export function repairVerticalEngine(source){
-  let out=source;
-  out=repairFinite(out);
+  let out=repairFinite(source);
   out=ensureImports(out);
   out=canonicalizeStages(out);
   if(!out.includes('TPMAP_ALTON_POSTMERGE_VERTICAL_INTEGRATION_V2')){
@@ -49,8 +52,7 @@ export function repairVerticalEngine(source){
     if(!out.includes(marker)) throw new Error('Alton compatibility: Phase 34 vertical marker missing');
     out=out.replace(marker,marker+'\nconst TPMAP_ALTON_POSTMERGE_VERTICAL_INTEGRATION_V2 = true;');
   }
-  validateVertical(out);
-  return out;
+  validateVertical(out); return out;
 }
 
 function repairFinite(source){
@@ -83,28 +85,13 @@ function canonicalizeStages(source){
   const ride='  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);';
   if(!source.includes(ride)) throw new Error('Alton compatibility: ride profile stage missing');
   const blocks=[
-    [
-      '  const terrainSurfaceModel = buildTerrainSurfaceModel(graph, options.verticalSources || null, options);',
-      '  validateTerrainSurfaceModel(graph);','  diagnostics.terrainSurfaceModel = terrainSurfaceModel;'
-    ],[
-      '  const terrainMorphology = classifyTerrainMorphology(graph, options.verticalSources || null, options);',
-      '  validateTerrainMorphology(graph);','  diagnostics.terrainMorphology = terrainMorphology;'
-    ],[
-      '  const terrainPlanningAssociation = associatePlanningTerrainStructures(graph, options);',
-      '  validatePlanningTerrainStructures(graph);','  diagnostics.terrainPlanningAssociation = terrainPlanningAssociation;'
-    ],[
-      '  const buildingRoofReconstruction = reconstructBuildingRoofs(graph, options.verticalSources || null, options);',
-      '  validateBuildingReconstructions(graph);','  diagnostics.buildingRoofReconstruction = buildingRoofReconstruction;'
-    ],[
-      '  const buildingRoofPlaneDecomposition = decomposeBuildingRoofPlanes(graph, options);',
-      '  validateBuildingRoofPlaneDecompositions(graph);','  diagnostics.buildingRoofPlaneDecomposition = buildingRoofPlaneDecomposition;'
-    ],[
-      '  const buildingRoofPlanningConstraints = applyBuildingRoofPlanningConstraints(graph, options);',
-      '  validateBuildingRoofPlanningConstraints(graph);','  diagnostics.buildingRoofPlanningConstraints = buildingRoofPlanningConstraints;'
-    ],[
-      '  const vegetationReconstruction = reconstructVegetation(graph, options.verticalSources || null, options);',
-      '  validateVegetationReconstructions(graph);','  diagnostics.vegetationReconstruction = vegetationReconstruction;'
-    ]
+    ['  const terrainSurfaceModel = buildTerrainSurfaceModel(graph, options.verticalSources || null, options);','  validateTerrainSurfaceModel(graph);','  diagnostics.terrainSurfaceModel = terrainSurfaceModel;'],
+    ['  const terrainMorphology = classifyTerrainMorphology(graph, options.verticalSources || null, options);','  validateTerrainMorphology(graph);','  diagnostics.terrainMorphology = terrainMorphology;'],
+    ['  const terrainPlanningAssociation = associatePlanningTerrainStructures(graph, options);','  validatePlanningTerrainStructures(graph);','  diagnostics.terrainPlanningAssociation = terrainPlanningAssociation;'],
+    ['  const buildingRoofReconstruction = reconstructBuildingRoofs(graph, options.verticalSources || null, options);','  validateBuildingReconstructions(graph);','  diagnostics.buildingRoofReconstruction = buildingRoofReconstruction;'],
+    ['  const buildingRoofPlaneDecomposition = decomposeBuildingRoofPlanes(graph, options);','  validateBuildingRoofPlaneDecompositions(graph);','  diagnostics.buildingRoofPlaneDecomposition = buildingRoofPlaneDecomposition;'],
+    ['  const buildingRoofPlanningConstraints = applyBuildingRoofPlanningConstraints(graph, options);','  validateBuildingRoofPlanningConstraints(graph);','  diagnostics.buildingRoofPlanningConstraints = buildingRoofPlanningConstraints;'],
+    ['  const vegetationReconstruction = reconstructVegetation(graph, options.verticalSources || null, options);','  validateVegetationReconstructions(graph);','  diagnostics.vegetationReconstruction = vegetationReconstruction;']
   ];
   let out=source;
   for(const lines of blocks){
@@ -116,16 +103,21 @@ function canonicalizeStages(source){
 }
 
 export function repairPipeline(source){
-  let out=source;
-  out=out.replace(/solveParkVerticalEvidence\(reconstructionGraph,\s*options\)/g,
-    'solveParkVerticalEvidence(reconstructionGraph, { ...options, verticalSources: sources })');
+  let out=source.replace(/solveParkVerticalEvidence\(reconstructionGraph,\s*options\)/g,'solveParkVerticalEvidence(reconstructionGraph, { ...options, verticalSources: sources })');
   if(!out.includes('verticalSources: sources')) throw new Error('Alton compatibility: vertical source handoff missing');
   if(!out.includes('TPMAP_ALTON_POSTMERGE_PIPELINE_COMPATIBILITY_V2')){
     const anchor='const TPMAP_PHASE34_VERTICAL_EVIDENCE_PIPELINE = true;';
-    out=out.includes(anchor)?out.replace(anchor,anchor+'\nconst TPMAP_ALTON_POSTMERGE_PIPELINE_COMPATIBILITY_V2 = true;'):
-      'const TPMAP_ALTON_POSTMERGE_PIPELINE_COMPATIBILITY_V2 = true;\n'+out;
+    out=out.includes(anchor)?out.replace(anchor,anchor+'\nconst TPMAP_ALTON_POSTMERGE_PIPELINE_COMPATIBILITY_V2 = true;'):'const TPMAP_ALTON_POSTMERGE_PIPELINE_COMPATIBILITY_V2 = true;\n'+out;
   }
   validatePipeline(out); return out;
+}
+
+export function prepareStatefulTransportAnchor(source){
+  if(source.includes('TPMAP_PHASE35_BLOCK_STATE_TRANSPORT_MCWORLD')) return source;
+  if(source.includes(STATEFUL_ANCHOR)) return source;
+  const open='const BEDROCK_BLOCKS = new Set([';
+  if(!source.includes(open)) throw new Error('Alton compatibility: BEDROCK_BLOCKS set anchor missing');
+  return source.replace(open,open+'\n'+STATEFUL_ANCHOR+',');
 }
 
 async function repairGeneratedTestImports(root){
@@ -133,8 +125,7 @@ async function repairGeneratedTestImports(root){
   for(const name of await readdir(testDir)){
     if(!name.endsWith('.test.mjs')) continue;
     const file=path.join(testDir,name); let source=await readFile(file,'utf8');
-    source=source.replace(/from\s+(['"])\.\/([A-Za-z0-9._-]+\.mjs)\1/g,(whole,q,moduleName)=>
-      IMPLEMENTATIONS.has(moduleName)?`from ${q}../src/lib/${moduleName}${q}`:whole);
+    source=source.replace(/from\s+(['"])\.\/([A-Za-z0-9._-]+\.mjs)\1/g,(whole,q,moduleName)=>IMPLEMENTATIONS.has(moduleName)?`from ${q}../src/lib/${moduleName}${q}`:whole);
     await writeFile(file,source);
   }
 }
@@ -144,22 +135,13 @@ async function validateGeneratedTestImports(root){
   for(const name of await readdir(testDir)){
     if(!name.endsWith('.test.mjs')) continue;
     const source=await readFile(path.join(testDir,name),'utf8');
-    const bad=[...source.matchAll(/from\s+['"]\.\/([A-Za-z0-9._-]+\.mjs)['"]/g)]
-      .map(m=>m[1]).filter(moduleName=>IMPLEMENTATIONS.has(moduleName));
+    const bad=[...source.matchAll(/from\s+['"]\.\/([A-Za-z0-9._-]+\.mjs)['"]/g)].map(m=>m[1]).filter(moduleName=>IMPLEMENTATIONS.has(moduleName));
     if(bad.length) throw new Error(`Alton compatibility: ${name} still imports test-local ${bad.join(',')}`);
   }
 }
 
 function validateVertical(source){
-  const required=[
-    'TPMAP_ALTON_POSTMERGE_VERTICAL_INTEGRATION_V2','value === null || value === undefined',
-    'buildTerrainSurfaceModel(graph, options.verticalSources || null, options)',
-    'classifyTerrainMorphology(graph, options.verticalSources || null, options)',
-    'associatePlanningTerrainStructures(graph, options)',
-    'reconstructBuildingRoofs(graph, options.verticalSources || null, options)',
-    'decomposeBuildingRoofPlanes(graph, options)','applyBuildingRoofPlanningConstraints(graph, options)',
-    'reconstructVegetation(graph, options.verticalSources || null, options)','solveRideVerticalProfiles(graph, options)'
-  ];
+  const required=['TPMAP_ALTON_POSTMERGE_VERTICAL_INTEGRATION_V2','value === null || value === undefined','buildTerrainSurfaceModel(graph, options.verticalSources || null, options)','classifyTerrainMorphology(graph, options.verticalSources || null, options)','associatePlanningTerrainStructures(graph, options)','reconstructBuildingRoofs(graph, options.verticalSources || null, options)','decomposeBuildingRoofPlanes(graph, options)','applyBuildingRoofPlanningConstraints(graph, options)','reconstructVegetation(graph, options.verticalSources || null, options)','solveRideVerticalProfiles(graph, options)'];
   for(const token of required) if(!source.includes(token)) throw new Error(`Alton compatibility: vertical engine missing ${token}`);
   const order=required.slice(2).map(token=>source.indexOf(token));
   for(let i=1;i<order.length;i++) if(!(order[i]>order[i-1])) throw new Error('Alton compatibility: Phase 34/35 vertical ordering invalid');
@@ -170,16 +152,10 @@ function validatePipeline(source){if(!source.includes('verticalSources: sources'
 function escapeRegExp(value){return value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 
 function selfTestTransforms(){
-  const vertical=[
-    '// TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1','import { solveRideVerticalProfiles } from "./ride-vertical-profile.mjs";',
-    'export function solveParkVerticalEvidence(graph, options={}) {','  const diagnostics={};',
-    '  const buildingRoofReconstruction = reconstructBuildingRoofs(graph, options.verticalSources || null, options);',
-    '  validateBuildingReconstructions(graph);','  diagnostics.buildingRoofReconstruction = buildingRoofReconstruction;',
-    '  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);','  return diagnostics;','}',
-    'function finite(value) {','  const n = Number(value);','  return Number.isFinite(n) ? n : null;','}'
-  ].join('\n');
+  const vertical=['// TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1','import { solveRideVerticalProfiles } from "./ride-vertical-profile.mjs";','export function solveParkVerticalEvidence(graph, options={}) {','  const diagnostics={};','  const buildingRoofReconstruction = reconstructBuildingRoofs(graph, options.verticalSources || null, options);','  validateBuildingReconstructions(graph);','  diagnostics.buildingRoofReconstruction = buildingRoofReconstruction;','  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);','  return diagnostics;','}','function finite(value) {','  const n = Number(value);','  return Number.isFinite(n) ? n : null;','}'].join('\n');
   const repaired=repairVerticalEngine(vertical); if(repaired!==repairVerticalEngine(repaired))throw new Error('Alton compatibility: vertical repair not idempotent');
   const pipeline='const TPMAP_PHASE34_VERTICAL_EVIDENCE_PIPELINE = true;\nconst verticalResolution = solveParkVerticalEvidence(reconstructionGraph, options);';
   const p=repairPipeline(pipeline);if(p!==repairPipeline(p))throw new Error('Alton compatibility: pipeline repair not idempotent');
+  const mc='const BEDROCK_BLOCKS = new Set([\n  "minecraft:stone"\n]);'; const m=prepareStatefulTransportAnchor(mc);if(!m.includes(STATEFUL_ANCHOR))throw new Error('Alton compatibility: stateful anchor repair failed');
   console.log('Alton post-merge preflight compatibility v2 self-test passed');
 }
