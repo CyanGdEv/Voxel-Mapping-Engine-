@@ -1,8 +1,8 @@
   # Phase 35 — classify bare-earth DTM morphology, associate only explicit
   # planning-authoritative terrain engineering, compile verified vertical terrain
   # structures at phase 6, transport stateful blocks safely, refine planning-backed
-  # retaining walls, apply bounded natural steep-bank treatment, then reconcile
-  # against Phase 34 excavation.
+  # retaining walls, apply bounded natural steep-bank treatment, run read-only
+  # vertical QA, then reconcile against Phase 34 excavation.
   PHASE35_TERRAIN_MORPHOLOGY_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-morphology.mjs"
   PHASE35_TERRAIN_ASSOCIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-planning-structure-association.mjs"
   PHASE35_TERRAIN_COMPILER_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-structure-compiler.mjs"
@@ -10,6 +10,7 @@
   PHASE35_BLOCK_STATE_INSTALLER="$ROOT/patches/v0120-phase35/install-block-state-transport.mjs"
   PHASE35_STEEP_BANK_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-steep-bank-treatment.mjs"
   PHASE35_RETAINING_WALL_INSTALLER="$ROOT/patches/v0120-phase35/install-retaining-wall-detail.mjs"
+  PHASE35_TERRAIN_QA_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-qa.mjs"
   PHASE35_TERRAIN_MORPHOLOGY_LOG="$DIAG/phase35-terrain-morphology.log"
 
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --self-test 2>&1 | tee "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -28,29 +29,30 @@
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
-  # Stateful palette support must exist before the steep-bank compiler can emit
-  # oriented stairs. Existing plain-string operations remain byte-compatible.
   "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
-  # Install this after portal reconciliation so its pipeline transform can anchor
-  # against the complete Phase 35 ordering and insert itself before reconciliation.
   "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
-  # Retaining-wall detail anchors against the completed steep-bank pipeline but
-  # inserts itself before that stage so engineered walls are refined first.
   "$TPMAP_NODE_BIN" "$PHASE35_RETAINING_WALL_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_RETAINING_WALL_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_RETAINING_WALL_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
+  # Terrain QA is intentionally installed last among the phase-6 layers. Its
+  # pipeline stage runs after wall/steep-bank refinement but before tunnel carving.
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_QA_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_QA_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_QA_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-morphology.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-planning-structure-association.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-structure-compiler.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/retaining-wall-detail.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-steep-bank-treatment.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-qa.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-tunnel-portal-reconciliation.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/mcworld.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/bedrock.mjs"
@@ -65,6 +67,7 @@
       test/block-state-transport.test.mjs \
       test/retaining-wall-detail.test.mjs \
       test/terrain-steep-bank-treatment.test.mjs \
+      test/terrain-qa.test.mjs \
       test/terrain-tunnel-portal-reconciliation.test.mjs \
       2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   )
@@ -87,15 +90,16 @@
     'retaining_wall_cap=only-explicit-planning-coping-cap-semantics' \
     'retaining_wall_default=no-unspecified-expansion-or-decoration' \
     'steep_bank_treatment=natural-steep-bank-dtm-normal-directed-stairs-with-slab-fallback' \
-    'steep_bank_materials=normal-stone,cobblestone,mossy-cobblestone-stairs-and-slabs' \
-    'steep_bank_stair_orientation=dtm-horizontal-normal-downhill;opposite-vector-is-ascent' \
-    'steep_bank_diagonal_policy=ambiguous-cardinal-direction-falls-back-to-slab' \
     'steep_bank_policy=no-smoothing-no-widening-no-air' \
+    'terrain_qa=read-only-dtm-and-planning-terrain-level-comparison' \
+    'terrain_qa_metrics=mean,p95,max,overbuild,underbuild,outliers,unresolved' \
+    'terrain_qa_default_warn_m=0.75' \
+    'terrain_qa_default_outlier_m=1.5' \
+    'terrain_qa_policy=no-auto-repair-no-osm-elevation-authority' \
     'portal_reconciliation=verified-phase34-mask-only' \
-    'portal_mouths=first-and-last-verified-tunnel-measure-bands' \
     'portal_air_authority=phase7-only-no-new-air-or-mask-expansion' \
     'ordinary_heightfield=unchanged-outside-verified-structures' \
-    'phase_order=terrain6,retaining-wall6,steep-bank6,reconciliation,excavation7,supports-portals8,track9' \
+    'phase_order=terrain6,retaining-wall6,steep-bank6,qa,reconciliation,excavation7,supports-portals8,track9' \
     'missing_dtm=unresolved-no-fabrication' \
     'sampling=deterministic-bounded-grid' \
     > "$DIAG/phase35-terrain-morphology-policy.txt"
