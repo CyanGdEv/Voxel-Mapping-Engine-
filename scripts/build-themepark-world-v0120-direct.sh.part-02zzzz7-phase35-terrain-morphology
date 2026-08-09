@@ -8,9 +8,11 @@
   PHASE35_TERRAIN_COMPILER_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-structure-compiler.mjs"
   PHASE35_PORTAL_RECONCILIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-tunnel-portal-reconciliation.mjs"
   PHASE35_BLOCK_STATE_INSTALLER="$ROOT/patches/v0120-phase35/install-block-state-transport.mjs"
+  PHASE35_BLOCK_STATE_INPUT_NORMALIZER="$ROOT/scripts/prepare-phase35-block-state-input.mjs"
   PHASE35_STEEP_BANK_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-steep-bank-treatment.mjs"
   PHASE35_RETAINING_WALL_INSTALLER="$ROOT/patches/v0120-phase35/install-retaining-wall-detail.mjs"
   PHASE35_TERRAIN_QA_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-qa.mjs"
+  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   PHASE35_TERRAIN_MORPHOLOGY_LOG="$DIAG/phase35-terrain-morphology.log"
 
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --self-test 2>&1 | tee "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -29,6 +31,13 @@
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
+  # Newer material phases legitimately extend BEDROCK_BLOCKS. Canonicalize the
+  # Set declaration structurally so the checksum-era Phase 35 transform does not
+  # confuse palette growth with an incompatible generator layout.
+  "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INPUT_NORMALIZER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INPUT_NORMALIZER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INPUT_NORMALIZER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
   "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -46,6 +55,11 @@
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_QA_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_QA_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_QA_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
+  # Normalize tests copied by the Phase 35 installers and re-assert that no new
+  # numeric helper can coerce unresolved vertical evidence into elevation zero.
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-morphology.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-planning-structure-association.mjs"
