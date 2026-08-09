@@ -1,32 +1,130 @@
-  # Post-merge production compatibility repair. PR-level phase validation previously
-  # exercised slices in isolation; the first real Alton run exposed ordering/test-path
-  # drift in the fully assembled Phase 30D + 34 + 35 generator. Repair only those
-  # deterministic integration contracts before the existing final fail-closed gate.
+  # Final assembled-generator compatibility certification. This runs after every
+  # Phase 30/34/35 transform and MUST fail closed: run_attempt is called from a
+  # conditional context, so relying on ambient `set -e` can otherwise log a
+  # failed installer and continue into an expensive doomed build.
   ALTON_POSTMERGE_COMPAT_INSTALLER="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
   ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
+  ALTON_STATEFUL_INSTALLER="$ROOT/patches/v0120-phase35/install-block-state-transport.mjs"
 
-  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  if ! (
+    set -euo pipefail
+    : > "$ALTON_POSTMERGE_COMPAT_LOG"
 
-  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
-  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+    "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+    "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
 
-  # Re-run the exact vertical evidence test that exposed null->0, plus the final
-  # planning vector regression after its post-Phase30D cardinality contract repair.
-  (
-    cd "$GEN"
-    "$TPMAP_NODE_BIN" --test \
-      test/vertical-evidence-engine.test.mjs \
-      test/planning-vectorize.test.mjs \
-      2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  )
+    # The original Phase 35 stateful writer install may have run against a newer
+    # BEDROCK_BLOCKS layout than its historical anchor. The compatibility pass
+    # above creates a semantically equivalent anchor, then we rerun the original
+    # installer so direct .mcworld NBT and addon BlockPermutation support are real.
+    "$TPMAP_NODE_BIN" "$ALTON_STATEFUL_INSTALLER" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+    "$TPMAP_NODE_BIN" "$ALTON_STATEFUL_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+    "$TPMAP_NODE_BIN" "$ALTON_STATEFUL_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+
+    # The stateful installer copies a fresh test after the first compatibility
+    # import repair, so run compatibility once more to normalize that test too.
+    "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+    "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+
+    # Replay the real Phase 30B semantic contract at the FINAL assembled source.
+    # Diagnostics 24 prove Phase 30D passed this behavior earlier and a later
+    # transform removed site-path-centerline-candidate behavior before preflight.
+    phase30b_final_semantic_probe() {
+      [[ -f "$GEN/src/lib/planning-vectorize.mjs" ]] || return 1
+      [[ -f "$GEN/src/lib/planning-vector-fusion.mjs" ]] || return 1
+      [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || return 1
+      grep -q 'extractPlanningSemanticAnchors' "$GEN/src/lib/planning-vectorize.mjs" || return 1
+      grep -q 'site-path-centerline-candidate' "$GEN/src/lib/planning-vectorize.mjs" || return 1
+      grep -q 'site-path-centerline-candidate' "$GEN/src/lib/planning-vector-fusion.mjs" || return 1
+      grep -q 'planning_semantic' "$GEN/src/lib/planning-vectorize.mjs" || return 1
+      local count
+      count="$(grep -Ec '(^|[^A-Za-z])test\(' "$GEN/test/planning-site-semantics.test.mjs" || true)"
+      [[ "$count" -ge 3 ]] || return 1
+      (
+        cd "$GEN"
+        "$TPMAP_NODE_BIN" --test test/planning-site-semantics.test.mjs test/planning-vector-fusion.test.mjs
+      )
+    }
+
+    if ! phase30b_final_semantic_probe >> "$ALTON_POSTMERGE_COMPAT_LOG" 2>&1; then
+      echo 'Final Phase 30B semantic contract drift detected; replaying checksum-locked repair.' | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+      contract_b64="$(mktemp)"; contract_patch="$(mktemp)"
+      trap 'rm -f "$contract_b64" "$contract_patch"' EXIT
+      contract_parts=()
+      for index in 00 01 02 03 04 05 06 07; do
+        part="$ROOT/patches/v0120-phase30b/v0120-phase30b-site-semantics.b64.part-$index"
+        [[ -f "$part" ]] || { echo "Missing Phase 30B patch chunk $index" >&2; exit 64; }
+        contract_parts+=("$part")
+      done
+      cat "${contract_parts[@]}" | tr -d '[:space:]' > "$contract_b64"
+      base64 --decode "$contract_b64" > "$contract_patch"
+      actual_sha="$(sha256sum "$contract_patch" | cut -d' ' -f1)"
+      expected_sha='433069358a9ab0b0dcac44955379003710cd6534fb2c0ed540d676eda660d0b3'
+      [[ "$actual_sha" == "$expected_sha" ]] || { echo "Phase 30B final patch checksum mismatch expected=$expected_sha actual=$actual_sha" >&2; exit 64; }
+      set +e
+      patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$contract_patch" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+      patch_status=${PIPESTATUS[0]}
+      set -e
+      echo "phase30b_final_semantic_patch_exit=$patch_status" | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+      "$TPMAP_NODE_BIN" "$ROOT/scripts/complete-phase30b-semantic-contract.mjs" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+      "$TPMAP_NODE_BIN" "$ROOT/scripts/complete-phase30b-semantic-contract.mjs" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+      phase30b_final_semantic_probe >> "$ALTON_POSTMERGE_COMPAT_LOG" 2>&1
+      rm -f "$GEN/src/lib/planning-vectorize.mjs.rej" "$GEN/src/lib/planning-vector-fusion.mjs.rej"
+    fi
+
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/mcworld.mjs"
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/bedrock.mjs"
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vectorize.mjs"
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vector-fusion.mjs"
+
+    # Final behavior certification against the same assembled generator the real
+    # Alton build will compile. This deliberately includes every Phase 34/35 test
+    # family that previously logged ERR_MODULE_NOT_FOUND without stopping.
+    (
+      cd "$GEN"
+      "$TPMAP_NODE_BIN" --test \
+        test/planning-site-semantics.test.mjs \
+        test/planning-vectorize.test.mjs \
+        test/planning-vector-fusion.test.mjs \
+        test/planning-pink-qa.test.mjs \
+        test/vertical-evidence-engine.test.mjs \
+        test/terrain-surface-model.test.mjs \
+        test/building-roof-reconstruction.test.mjs \
+        test/building-roof-plane-decomposition.test.mjs \
+        test/building-roof-planning-constraints.test.mjs \
+        test/vegetation-reconstruction.test.mjs \
+        test/ride-vertical-profile.test.mjs \
+        test/ride-3d-geometry.test.mjs \
+        test/ride-support-reconstruction.test.mjs \
+        test/ride-terrain-interaction.test.mjs \
+        test/ride-excavation-mask.test.mjs \
+        test/ride-excavation-compiler.test.mjs \
+        test/ride-graph-compiler.test.mjs \
+        test/terrain-morphology.test.mjs \
+        test/terrain-planning-structure-association.test.mjs \
+        test/terrain-structure-compiler.test.mjs \
+        test/terrain-steep-bank-treatment.test.mjs \
+        test/terrain-tunnel-portal-reconciliation.test.mjs \
+        test/retaining-wall-detail.test.mjs \
+        test/terrain-qa.test.mjs \
+        test/block-state-transport.test.mjs \
+        2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+    )
+  ); then
+    echo 'Alton final assembled-generator compatibility certification failed; refusing world compilation.' | tee -a "$ALTON_POSTMERGE_COMPAT_LOG" >&2
+    touch "$DIAG/deterministic-build-failure.marker"
+    return 64
+  fi
 
   printf '%s\n' \
-    'alton_postmerge_compatibility=enabled' \
+    'alton_postmerge_compatibility=v2-certified' \
+    'compatibility_failure_policy=explicit-fail-closed' \
     'vertical_null_policy=null-undefined-empty-remain-unresolved-never-zero' \
     'phase34_35_vertical_order=terrain-surface,morphology,planning-association,buildings,vegetation,ride-profile' \
+    'phase30b_final_semantic_contract=replayed-after-all-later-transforms' \
+    'phase35_state_transport=mcworld-nbt-and-addon-blockpermutation-validated' \
     'generated_test_imports=src-lib-not-test-local' \
-    'phase30b_final_vector_contract=required-candidate-classes-not-obsolete-total-cardinality' \
     'authority_thresholds=unchanged' \
     > "$DIAG/alton-postmerge-preflight-policy.txt"
