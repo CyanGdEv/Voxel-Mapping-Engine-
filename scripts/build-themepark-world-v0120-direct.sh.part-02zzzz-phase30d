@@ -1,0 +1,45 @@
+  # Phase 30D comprehensive park-plan extraction. This runs after Phase 30B's
+  # checksum-locked semantic-contract repair and every current material install,
+  # while still sorting before the final prepared-generator integrity gate.
+  PHASE30D_INSTALLER="$ROOT/patches/v0120-phase30d/raster-planning-vectorization.mjs"
+  PHASE30D_LOG="$DIAG/phase30d-comprehensive-plan-extraction.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE30D_INSTALLER" --self-test 2>&1 | tee "$PHASE30D_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE30D_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE30D_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-comprehensive-semantics.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-raster-extraction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vectorize.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vector-fusion.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-georeference.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/raster.mjs"
+
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test \
+      test/planning-comprehensive-semantics.test.mjs \
+      test/planning-site-semantics.test.mjs \
+      test/planning-vectorize.test.mjs \
+      test/planning-vector-fusion.test.mjs \
+      test/planning-georeference.test.mjs \
+      test/planning-pink-qa.test.mjs \
+      2>&1 | tee -a "$PHASE30D_LOG"
+  )
+
+  printf '%s\n' \
+    'phase30d_comprehensive_plan_data=enabled' \
+    'semantic_classes=36' \
+    'inputs=vector-pdf,raster-pdf,png,jpeg,tiff' \
+    'extraction=svg-vectors,pdf-positioned-text,opencv-contours-hough,tesseract-positioned-ocr' \
+    'world_features=ride-track,ride-elevation,ride-supports,paths,path-materials,buildings,building-ffl,rockwork,fences,walls,noise-barriers,trees,tree-canopy,tree-protection,woodland,hedges,shrubs,groundcover,meadow,water,drainage,terrain-levels,contours,earthworks' \
+    'explicit_exclusion=temporary-construction-fence' \
+    'red_colour_policy=corroboration-only-never-sole-exclusion-signal' \
+    'unlabelled_site_plan_geometry=withheld' \
+    'all_accepted_plans=processed-up-to-deterministic-safety-cap' \
+    > "$DIAG/phase30d-runtime-policy.txt"
+
+  if [[ "${TPMAP_PREPARE_ONLY:-}" == "phase30b" ]]; then
+    echo "TPMAP_PREPARE_ONLY=phase30b complete"
+    exit 0
+  fi

@@ -157,7 +157,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            gdal-bin unzip poppler-utils python3-opencv wget ca-certificates
+            gdal-bin unzip poppler-utils python3-opencv tesseract-ocr wget ca-certificates
           python3 -c 'import cv2; print("opencv=" + cv2.__version__)'
 
       - name: Refresh planning evidence when cache is unavailable
