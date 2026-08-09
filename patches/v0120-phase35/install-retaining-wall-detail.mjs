@@ -18,7 +18,7 @@ async function install(root,validate){
   }
   const m=await readFile(moduleFile,'utf8'),t=await readFile(testFile,'utf8'),p=await readFile(pipelineFile,'utf8');
   for(const token of ['TPMAP_PHASE35_RETAINING_WALL_DETAIL_V1','applyRetainingWallDetailToCompilation','validateRetainingWallDetailCompilation'])if(!m.includes(token))throw new Error(`Phase 35 retaining-wall module missing ${token}`);
-  for(const token of ['explicit material refines wall body while DTM keeps vertical extent','explicit thickness expands only axis-aligned wall normal','explicit coping adds one top course above DTM wall top','no explicit planning detail is exact no-op'])if(!t.includes(token))throw new Error(`Phase 35 retaining-wall tests missing ${token}`);
+  for(const token of ['explicit material refines wall body while DTM keeps vertical extent','explicit thickness expands only axis-aligned wall normal','explicit coping replaces the measured top course without height growth','no explicit planning detail is exact no-op'])if(!t.includes(token))throw new Error(`Phase 35 retaining-wall tests missing ${token}`);
   validatePipeline(p);console.log(JSON.stringify({status:validate?'validated':'installed',marker:'TPMAP_PHASE35_RETAINING_WALL_DETAIL_V1'}));
 }
 
