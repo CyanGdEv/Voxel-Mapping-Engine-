@@ -1,0 +1,12 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { applyRideGraphToCompilation, validateRideGraphCompilation } from "./ride-graph-compiler.mjs";
+
+function compilation(){return{meta:{elevationDatumM:100,bounds:{minX:0,minZ:0,maxX:31,maxZ:31}},palette:["minecraft:blue_concrete","minecraft:iron_bars","minecraft:yellow_concrete","minecraft:stone_bricks"],chunks:[{x:0,z:0,o:[[9,0,2,0,4,2,0,0],[9,2,20,0,2,20,0,0],[8,2,1,0,2,8,0,1],[8,4,1,0,4,2,0,3]]}],stats:{operations:4,rawOperations:4}};}
+function graph(){return{nodes:[{id:"ride-a",type:"ride-track",authority:{planningAuthoritative:true},geometry3d:{segments:[{mode:"resolved-3d",start:[0,102,0],end:[4,104,0]}]}},{id:"support-a",type:"ride-support",authority:{planningAuthoritative:true},supportReconstruction:{status:"resolved",footing:{x:2,y:100,z:0},connection:{x:2,y:103,z:0}}}]};}
+
+test("resolved graph track replaces nearby legacy phase-9 voxels but preserves high crossing",()=>{const c=compilation(),d=applyRideGraphToCompilation(c,graph());assert.equal(d.status,"applied");assert.ok(d.legacyTrackVoxelsRemoved>=1);assert.equal(c.chunks.flatMap(x=>x.o).some(o=>o[0]===9&&o[2]===20),true);validateRideGraphCompilation(c,d);});
+test("planning elevations translate through compiler datum",()=>{const c=compilation();applyRideGraphToCompilation(c,graph());const blue=c.palette.indexOf("minecraft:blue_concrete");const ys=c.chunks.flatMap(x=>x.o).filter(o=>o[0]===9&&o[7]===blue).flatMap(o=>[o[2],o[5]]);assert.ok(ys.includes(2));assert.ok(ys.includes(4));});
+test("resolved support replaces nearby inferred iron/yellow while portal stone bricks survive",()=>{const c=compilation(),d=applyRideGraphToCompilation(c,graph());assert.ok(d.legacySupportVoxelsRemoved>0);assert.equal(c.chunks.flatMap(x=>x.o).some(o=>o[0]===8&&c.palette[o[7]]==="minecraft:stone_bricks"),true);});
+test("unresolved graph is exact compilation no-op",()=>{const c=compilation(),before=JSON.stringify(c);const d=applyRideGraphToCompilation(c,{nodes:[{id:"r",type:"ride-track",authority:{planningAuthoritative:true},geometry3d:{segments:[{mode:"unresolved-vertical-gap"}]}}]});assert.equal(d.status,"no-op");assert.equal(JSON.stringify(c),before);});
+test("OSM-derived graph ride fails closed",()=>{assert.throws(()=>applyRideGraphToCompilation(compilation(),{nodes:[{id:"osm",type:"ride-track",authority:{osmDerived:true},geometry3d:{segments:[]}}]}),/OSM-derived ride/);});
