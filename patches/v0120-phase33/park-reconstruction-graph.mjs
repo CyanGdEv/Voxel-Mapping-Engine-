@@ -95,8 +95,24 @@ export function buildParkReconstructionGraph({ parkName, map, sources = {}, accu
     }
   };
 
+  Object.defineProperty(graph, "compilerFeatures", {
+    enumerable: false,
+    value: [...map.features]
+  });
   validateParkReconstructionGraph(graph, { requirePlanningOnlyClean: mode === "planning-only" });
   return graph;
+}
+
+export function reconstructionCompilerMap(map) {
+  const graph = map?.reconstructionGraph;
+  if (!graph) throw new Error("Phase 33 compiler boundary requires map.reconstructionGraph");
+  validateParkReconstructionGraph(graph, { requirePlanningOnlyClean: graph.authorityMode === "planning-only" });
+  if (!Array.isArray(graph.compilerFeatures)) throw new Error("Phase 33 reconstruction graph lacks compiler feature references");
+  if (graph.compilerFeatures.length !== map.features.length) throw new Error("Phase 33 compiler feature cardinality changed unexpectedly");
+  for (let index = 0; index < graph.compilerFeatures.length; index += 1) {
+    if (graph.compilerFeatures[index] !== map.features[index]) throw new Error(`Phase 33 compiler feature order/reference mismatch at ${index}`);
+  }
+  return { ...map, features: graph.compilerFeatures };
 }
 
 export function validateParkReconstructionGraph(graph, options = {}) {
