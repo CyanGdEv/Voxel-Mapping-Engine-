@@ -1,0 +1,28 @@
+  # Phase 33 — build a typed park reconstruction graph after all existing
+  # planning/source transforms are installed. This is additive: the graph is
+  # emitted before raster compilation, while the current compiler remains the
+  # output authority until later Phase 33 slices migrate it node-by-node.
+  PHASE33_INSTALLER="$ROOT/patches/v0120-phase33/install-reconstruction-graph.mjs"
+  PHASE33_LOG="$DIAG/phase33-reconstruction-graph.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE33_INSTALLER" --self-test 2>&1 | tee "$PHASE33_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE33_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE33_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE33_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE33_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/park-reconstruction-graph.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test test/park-reconstruction-graph.test.mjs 2>&1 | tee -a "$PHASE33_LOG"
+  )
+
+  printf '%s\n' \
+    'phase33_reconstruction_graph=enabled' \
+    'authority=planning-only-fail-closed' \
+    'position=after-enrichment-before-rasterization' \
+    'compiler_cutover=additive-foundation-current-raster-unchanged' \
+    'nodes=typed-physical-park-objects' \
+    'relationships=ride-supports,bridge-water,path-building,barrier-path,ride-building,path-ride' \
+    'vertical=ground-base-top-evidence-slots' \
+    'material=property-level-evidence-slots' \
+    > "$DIAG/phase33-runtime-policy.txt"
