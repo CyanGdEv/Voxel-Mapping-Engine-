@@ -42,8 +42,9 @@ jobs:
           mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
           cat "${parts[@]}" > "$RUNNER_TEMP/phase30-production-prep.sh"
           chmod +x "$RUNNER_TEMP/phase30-production-prep.sh"
-          bash "$RUNNER_TEMP/phase30-production-prep.sh"
+          bash "$RUNNER_TEMP/phase30-production-prep.sh" > "$RUNNER_TEMP/production-prep.log" 2>&1
           rc=$?
+          cat "$RUNNER_TEMP/production-prep.log"
           echo "prep_exit_code=$rc" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$rc" > "$RUNNER_TEMP/prep-exit-code.txt"
           exit "$rc"
@@ -53,6 +54,8 @@ jobs:
         run: |
           echo "=== preparation exit code ==="
           cat "$RUNNER_TEMP/prep-exit-code.txt" 2>/dev/null || true
+          echo "=== full production preparation tail ==="
+          tail -n 320 "$RUNNER_TEMP/production-prep.log" 2>/dev/null || true
           echo "=== failed compatibility stage ==="
           cat ci-diagnostics/alton-postmerge-preflight-failed-stage.txt 2>/dev/null || true
           echo "=== compatibility log tail ==="
@@ -71,3 +74,5 @@ jobs:
           path: |
             ci-diagnostics/**
             ${{ runner.temp }}/prep-exit-code.txt
+            ${{ runner.temp }}/production-prep.log
+            ${{ runner.temp }}/phase30-production-prep.sh
