@@ -192,6 +192,16 @@ NODE
     return 65
   fi
 
+  # The world clock starts only after all source-independent preparation and
+  # integrity checks have succeeded. Preserve the same start time across source
+  # fallbacks so the three strategies still share one bounded compilation budget.
+  if [[ -z "${TPMAP_WORLD_RUN_STARTED_AT:-}" ]]; then
+    TPMAP_WORLD_RUN_STARTED_AT="$SECONDS"
+    printf 'world_budget_started_after_preflight=true\nstarted_at_seconds=%s\nbudget_seconds=%s\n' \
+      "$TPMAP_WORLD_RUN_STARTED_AT" "$TPMAP_WORLD_RUN_BUDGET_SECONDS" \
+      >> "$DIAG/world-runtime-budget.txt"
+  fi
+
   # Wrap only the actual generator build. This keeps the existing runner intact
   # while adding one wall-clock budget and source-independent failure detection.
   node() {
