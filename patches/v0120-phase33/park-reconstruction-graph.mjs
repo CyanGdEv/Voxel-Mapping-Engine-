@@ -28,6 +28,7 @@ export function buildParkReconstructionGraph({ parkName, map, sources = {}, accu
     inputFeatures: map.features.length,
     physicalNodes: 0,
     evidenceOnlySkipped: 0,
+    evidenceObservationNodes: 0,
     unsupportedSkipped: 0,
     geometryMissingSkipped: 0,
     nodesWithVerticalEvidence: 0,
@@ -40,11 +41,19 @@ export function buildParkReconstructionGraph({ parkName, map, sources = {}, accu
   };
 
   const nodes = [];
+  const evidenceNodes = [];
   for (const feature of map.features) {
+    const evidenceNode = featureToEvidenceObservation(feature, sources, mode);
+    if (evidenceNode) {
+      evidenceNodes.push(evidenceNode);
+      stats.evidenceObservationNodes += 1;
+      continue;
+    }
     const node = featureToNode(feature, sources, mode, stats);
     if (node) nodes.push(node);
   }
   nodes.sort((a, b) => a.id.localeCompare(b.id));
+  evidenceNodes.sort((a, b) => a.id.localeCompare(b.id));
   stats.physicalNodes = nodes.length;
 
   const relationships = inferRelationships(nodes);
@@ -53,6 +62,10 @@ export function buildParkReconstructionGraph({ parkName, map, sources = {}, accu
   for (const relationship of relationships) {
     stats.relationshipTypes[relationship.type] = (stats.relationshipTypes[relationship.type] || 0) + 1;
   }
+
+  const countsByType = countBy(nodes, (node) => node.type);
+  const countsByLifecycle = countBy(nodes, (node) => node.lifecycle.state);
+  const countsByGeometryAuthority = countBy(nodes, (node) => node.authority.geometry);
 
   const graph = {
     schemaVersion: SCHEMA_VERSION,
@@ -71,12 +84,13 @@ export function buildParkReconstructionGraph({ parkName, map, sources = {}, accu
       accuracy: accuracy ? { score: accuracy.score ?? null, grade: accuracy.grade ?? null, exact3d: accuracy.exact3d ?? null } : null
     },
     nodes,
+    evidenceNodes,
     relationships,
     summary: {
       ...stats,
-      countsByType: countBy(nodes, (node) => node.type),
-      countsByLifecycle: countBy(nodes, (node) => node.lifecycle.state),
-      countsByGeometryAuthority: countBy(nodes, (node) => node.authority.geometry),
+      countsByType,
+      countsByLifecycle,
+      countsByGeometryAuthority,
       relationshipPolicy: "deterministic-high-value-spatial-relations-v1"
     }
   };
@@ -89,7 +103,7 @@ export function validateParkReconstructionGraph(graph, options = {}) {
   if (graph?.schemaVersion !== SCHEMA_VERSION || graph?.marker !== "TPMAP_PHASE33_PARK_RECONSTRUCTION_GRAPH_V1") {
     throw new Error("Phase 33 reconstruction graph schema mismatch");
   }
-  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.relationships)) throw new Error("Phase 33 reconstruction graph arrays are missing");
+  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.evidenceNodes) || !Array.isArray(graph.relationships)) throw new Error("Phase 33 reconstruction graph arrays are missing");
   const ids = new Set();
   for (const node of graph.nodes) {
     if (!node?.id || ids.has(node.id)) throw new Error(`Phase 33 reconstruction graph duplicate/invalid node id: ${node?.id}`);
@@ -98,6 +112,14 @@ export function validateParkReconstructionGraph(graph, options = {}) {
     if (!node.authority?.geometry) throw new Error(`Phase 33 node ${node.id} lacks geometry authority`);
     if (options.requirePlanningOnlyClean && node.authority.osmDerived) throw new Error(`Phase 33 planning-only graph contains OSM-derived node ${node.id}`);
   }
+  const evidenceIds = new Set();
+  for (const node of graph.evidenceNodes) {
+    if (!node?.id || evidenceIds.has(node.id)) throw new Error(`Phase 33 duplicate/invalid evidence node id: ${node?.id}`);
+    evidenceIds.add(node.id);
+    if (!node.geometry?.bounds || !node.geometry?.centroid) throw new Error(`Phase 33 evidence node ${node.id} lacks normalized geometry`);
+    if (options.requirePlanningOnlyClean && node.authority?.osmDerived) throw new Error(`Phase 33 planning-only graph contains OSM-derived evidence node ${node.id}`);
+  }
+
   const relationIds = new Set();
   for (const relation of graph.relationships) {
     if (!relation?.id || relationIds.has(relation.id)) throw new Error(`Phase 33 duplicate/invalid relationship id: ${relation?.id}`);
@@ -105,6 +127,96 @@ export function validateParkReconstructionGraph(graph, options = {}) {
     if (!ids.has(relation.from) || !ids.has(relation.to)) throw new Error(`Phase 33 relationship references a missing node: ${relation.id}`);
   }
   return graph;
+}
+
+export function compactParkReconstructionGraph(graph) {
+  validateParkReconstructionGraph(graph, { requirePlanningOnlyClean: graph.authorityMode === "planning-only" });
+  const compactNode = (node) => ({
+    id: node.id,
+    sourceFeatureId: node.sourceFeatureId,
+    name: node.name || undefined,
+    type: node.type,
+    subtype: node.subtype || undefined,
+    bounds: [node.geometry.bounds.minX, node.geometry.bounds.minZ, node.geometry.bounds.maxX, node.geometry.bounds.maxZ],
+    centroid: node.geometry.centroid,
+    vertical: [node.vertical.groundElevationM, node.vertical.baseElevationM, node.vertical.heightM, node.vertical.topElevationM],
+    material: node.material.resolved || undefined,
+    lifecycle: node.lifecycle.state,
+    geometryAuthority: node.authority.geometry,
+    planningReference: node.evidence.planningReference || undefined,
+    sourceHash: node.evidence.sourceHash || undefined,
+    confidence: node.confidence.overall
+  });
+  const compactEvidence = (node) => ({
+    id: node.id,
+    sourceFeatureId: node.sourceFeatureId,
+    observationType: node.observationType,
+    centroid: node.geometry.centroid,
+    vertical: [node.vertical.groundElevationM, node.vertical.explicitElevationM, node.vertical.heightM],
+    planningReference: node.evidence.planningReference || undefined,
+    sourceHash: node.evidence.sourceHash || undefined,
+    confidence: node.confidence.overall
+  });
+  const compactRelationship = (relation) => ({
+    id: relation.id,
+    type: relation.type,
+    from: relation.from,
+    to: relation.to,
+    distanceM: relation.distanceM,
+    vertical: relation.vertical,
+    confidence: relation.confidence
+  });
+  return {
+    schemaVersion: graph.schemaVersion,
+    marker: graph.marker,
+    parkName: graph.parkName,
+    authorityMode: graph.authorityMode,
+    coordinateSystem: graph.coordinateSystem,
+    sourceState: graph.sourceState,
+    summary: graph.summary,
+    nodes: graph.nodes.map(compactNode),
+    evidenceNodes: graph.evidenceNodes.map(compactEvidence),
+    relationships: graph.relationships.map(compactRelationship)
+  };
+}
+
+function featureToEvidenceObservation(feature, sources, mode) {
+  const tags = feature?.tags || {};
+  const featureClass = String(tags.planning_feature_class || tags.planning_semantic_class || "").toLowerCase();
+  const subtype = String(feature?.subtype || "").toLowerCase();
+  const observationType = ["ride-elevation", "building-level", "water-level", "terrain-level"].includes(featureClass)
+    ? featureClass
+    : subtype.includes("planning-ride-elevation") ? "ride-elevation"
+      : subtype.includes("planning-building-level") ? "building-level"
+        : subtype.includes("planning-water-level") ? "water-level"
+          : subtype.includes("planning-terrain-level") ? "terrain-level" : null;
+  if (!observationType) return null;
+  if (mode === "planning-only" && osmDerivation(feature)) throw new Error(`Phase 33 rejected OSM-derived evidence feature ${feature.id}`);
+  const local = feature.localGeometry;
+  if (!local?.type || !Array.isArray(local.coordinates)) return null;
+  const bounds = geometryBounds(local);
+  const centroid = geometryCentroid(local, bounds);
+  if (!bounds || !centroid) return null;
+  const geometry = { type: local.type, bounds, centroid, sourceGeometryRef: String(feature.id) };
+  Object.defineProperty(geometry, "local", { enumerable: false, value: local });
+  Object.defineProperty(geometry, "geographic", { enumerable: false, value: feature.geometry || null });
+  return {
+    id: `evidence:${feature.id}`,
+    sourceFeatureId: String(feature.id),
+    observationType,
+    geometry,
+    vertical: verticalModel(feature, centroid, sources.elevation),
+    lifecycle: lifecycleModel(feature),
+    semantics: semanticModel(feature),
+    authority: {
+      geometry: geometryAuthorityFor(feature),
+      attributes: attributeAuthorityFor(feature),
+      planningAuthoritative: isPlanningFeature(feature),
+      osmDerived: Boolean(osmDerivation(feature))
+    },
+    evidence: evidenceModel(feature),
+    confidence: confidenceModel(feature)
+  };
 }
 
 function featureToNode(feature, sources, mode, stats) {
@@ -143,20 +255,24 @@ function featureToNode(feature, sources, mode, stats) {
   const material = materialModel(feature);
   if (material.evidence.length) stats.nodesWithMaterialEvidence += 1;
 
-  return {
+  const geometry = {
+    type: local.type,
+    bounds,
+    centroid,
+    dimension: geometryDimension(local),
+    measure: geometryMeasure(local),
+    sourceGeometryRef: String(feature.id)
+  };
+  Object.defineProperty(geometry, "local", { enumerable: false, value: local });
+  Object.defineProperty(geometry, "geographic", { enumerable: false, value: feature.geometry || null });
+
+  const node = {
     id: String(feature.id),
     sourceFeatureId: String(feature.id),
     name: feature.name || null,
     type,
     subtype: feature.subtype || null,
-    geometry: {
-      geographic: feature.geometry || null,
-      local,
-      bounds,
-      centroid,
-      dimension: geometryDimension(local),
-      measure: geometryMeasure(local)
-    },
+    geometry,
     vertical,
     material,
     lifecycle: lifecycleModel(feature),
@@ -170,6 +286,8 @@ function featureToNode(feature, sources, mode, stats) {
     evidence: evidenceModel(feature),
     confidence: confidenceModel(feature)
   };
+  Object.defineProperty(node, "sourceFeature", { enumerable: false, value: feature });
+  return node;
 }
 
 function reconstructionType(feature) {
@@ -319,50 +437,96 @@ function inferRelationships(nodes) {
   const relationships = [];
   const seen = new Set();
 
-  connectNearest({ from: byType.get("ride-support") || [], to: byType.get("ride-track") || [], maxDistanceM: 30, type: "supports-ride", relationships, seen });
-  connectSpatial({ from: byType.get("bridge") || [], to: byType.get("water") || [], maxDistanceM: 3, type: "bridge-crosses-water", requireBoundsOverlap: true, relationships, seen });
-  connectSpatial({ from: byType.get("building") || [], to: byType.get("path") || [], maxDistanceM: 12, type: "path-connects-building", reverse: true, relationships, seen });
-  connectSpatial({ from: byType.get("barrier") || [], to: byType.get("path") || [], maxDistanceM: 5, type: "barrier-bounds-path", relationships, seen });
-  connectSpatial({ from: byType.get("ride-track") || [], to: byType.get("building") || [], maxDistanceM: 10, type: "ride-near-building", relationships, seen });
-  connectSpatial({ from: byType.get("path") || [], to: byType.get("ride-track") || [], maxDistanceM: 4, type: "path-interacts-ride", relationships, seen });
+  connectNearestN({ from: byType.get("ride-support") || [], to: byType.get("ride-track") || [], maxDistanceM: 30, maxPerSource: 1, type: "supports-ride", relationships, seen });
+  connectNearestN({ from: byType.get("bridge") || [], to: byType.get("water") || [], maxDistanceM: 3, maxPerSource: 2, type: "bridge-crosses-water", requireBoundsOverlap: true, relationships, seen });
+  connectNearestN({ from: byType.get("building") || [], to: byType.get("path") || [], maxDistanceM: 12, maxPerSource: 3, type: "path-connects-building", reverse: true, relationships, seen });
+  connectNearestN({ from: byType.get("barrier") || [], to: byType.get("path") || [], maxDistanceM: 5, maxPerSource: 2, type: "barrier-bounds-path", relationships, seen });
+  connectNearestN({ from: byType.get("ride-track") || [], to: byType.get("building") || [], maxDistanceM: 10, maxPerSource: 4, type: "ride-near-building", relationships, seen });
+  connectNearestN({ from: byType.get("path") || [], to: byType.get("ride-track") || [], maxDistanceM: 4, maxPerSource: 2, type: "path-interacts-ride", relationships, seen });
+
   return relationships;
 }
 
-function connectNearest({ from, to, maxDistanceM, type, relationships, seen }) {
+function connectNearestN({ from, to, maxDistanceM, maxPerSource, type, relationships, seen, reverse = false, requireBoundsOverlap = false }) {
   if (!from.length || !to.length) return;
-  const index = makeCentroidIndex(to, Math.max(CELL_SIZE_M, maxDistanceM));
+  const index = makeBoundsIndex(to, Math.max(CELL_SIZE_M, maxDistanceM * 2));
   for (const source of from) {
-    const candidates = nearby(index, source.geometry.centroid, maxDistanceM);
-    let best = null;
-    for (const target of candidates) {
-      if (target.id === source.id) continue;
-      const distanceM = boundsDistance(source.geometry.bounds, target.geometry.bounds);
-      if (distanceM > maxDistanceM) continue;
-      if (!best || distanceM < best.distanceM || (distanceM === best.distanceM && target.id < best.target.id)) best = { target, distanceM };
-    }
-    if (best) addRelationship(relationships, seen, source, best.target, type, best.distanceM);
-  }
-}
-
-function connectSpatial({ from, to, maxDistanceM, type, relationships, seen, reverse = false, requireBoundsOverlap = false }) {
-  if (!from.length || !to.length) return;
-  const index = makeCentroidIndex(to, Math.max(CELL_SIZE_M, maxDistanceM * 2));
-  for (const source of from) {
-    const candidates = nearby(index, source.geometry.centroid, Math.max(maxDistanceM, 16));
+    const candidates = nearbyBounds(index, source.geometry.bounds, maxDistanceM);
+    const eligible = [];
     for (const target of candidates) {
       if (target.id === source.id) continue;
       const distanceM = boundsDistance(source.geometry.bounds, target.geometry.bounds);
       if (requireBoundsOverlap && distanceM !== 0) continue;
       if (!requireBoundsOverlap && distanceM > maxDistanceM) continue;
-      addRelationship(relationships, seen, reverse ? target : source, reverse ? source : target, type, distanceM);
+      eligible.push({ target, distanceM });
+    }
+    eligible.sort((a, b) => a.distanceM - b.distanceM || a.target.id.localeCompare(b.target.id));
+    for (const candidate of eligible.slice(0, Math.max(1, maxPerSource || 1))) {
+      addRelationship(
+        relationships, seen,
+        reverse ? candidate.target : source,
+        reverse ? source : candidate.target,
+        type, candidate.distanceM
+      );
     }
   }
+}
+
+function makeBoundsIndex(nodes, cellSize) {
+  const cells = new Map();
+  const overflow = [];
+  for (const node of nodes) {
+    const bounds = node.geometry.bounds;
+    const minCx = Math.floor(bounds.minX / cellSize), maxCx = Math.floor(bounds.maxX / cellSize);
+    const minCz = Math.floor(bounds.minZ / cellSize), maxCz = Math.floor(bounds.maxZ / cellSize);
+    const cellCount = (maxCx - minCx + 1) * (maxCz - minCz + 1);
+    if (cellCount > 256) {
+      overflow.push(node);
+      continue;
+    }
+    for (let cx = minCx; cx <= maxCx; cx += 1) {
+      for (let cz = minCz; cz <= maxCz; cz += 1) {
+        const key = `${cx}:${cz}`;
+        const bucket = cells.get(key) || [];
+        bucket.push(node);
+        cells.set(key, bucket);
+      }
+    }
+  }
+  for (const bucket of cells.values()) bucket.sort((a, b) => a.id.localeCompare(b.id));
+  overflow.sort((a, b) => a.id.localeCompare(b.id));
+  return { cells, overflow, cellSize };
+}
+
+function nearbyBounds(index, bounds, radiusM) {
+  const minCx = Math.floor((bounds.minX - radiusM) / index.cellSize);
+  const maxCx = Math.floor((bounds.maxX + radiusM) / index.cellSize);
+  const minCz = Math.floor((bounds.minZ - radiusM) / index.cellSize);
+  const maxCz = Math.floor((bounds.maxZ + radiusM) / index.cellSize);
+  const result = [];
+  const seen = new Set();
+  for (let cx = minCx; cx <= maxCx; cx += 1) {
+    for (let cz = minCz; cz <= maxCz; cz += 1) {
+      for (const node of index.cells.get(`${cx}:${cz}`) || []) {
+        if (seen.has(node.id)) continue;
+        seen.add(node.id);
+        result.push(node);
+      }
+    }
+  }
+  for (const node of index.overflow) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    result.push(node);
+  }
+  return result;
 }
 
 function addRelationship(output, seen, from, to, type, distanceM) {
   const key = `${type}\0${from.id}\0${to.id}`;
   if (seen.has(key)) return;
   seen.add(key);
+  const vertical = inferVerticalRelation(from, to);
   output.push({
     id: `rel:${type}:${stablePairId(from.id, to.id)}`,
     type,
@@ -370,7 +534,7 @@ function addRelationship(output, seen, from, to, type, distanceM) {
     to: to.id,
     priority: RELATION_PRIORITIES[type] || 50,
     distanceM: round3(distanceM),
-    vertical: inferVerticalRelation(from, to),
+    vertical,
     confidence: relationshipConfidence(from, to, distanceM, type)
   });
 }
@@ -379,7 +543,8 @@ function inferVerticalRelation(a, b) {
   const aBase = a.vertical.baseElevationM, bBase = b.vertical.baseElevationM;
   if (aBase === null || bBase === null) return { status: "unresolved", relation: null, deltaM: null };
   const deltaM = round3(aBase - bBase);
-  return { status: "resolved-from-current-evidence", relation: Math.abs(deltaM) < 0.75 ? "same-level" : deltaM > 0 ? "above" : "below", deltaM };
+  const relation = Math.abs(deltaM) < 0.75 ? "same-level" : deltaM > 0 ? "above" : "below";
+  return { status: "resolved-from-current-evidence", relation, deltaM };
 }
 
 function relationshipConfidence(a, b, distanceM, type) {
@@ -388,37 +553,6 @@ function relationshipConfidence(a, b, distanceM, type) {
   const scale = type === "supports-ride" ? 30 : type === "path-connects-building" ? 12 : 10;
   const proximity = Math.max(0.35, 1 - distanceM / Math.max(scale, 1));
   return round3(Math.min(aConfidence, bConfidence) * proximity);
-}
-
-function makeCentroidIndex(nodes, cellSize) {
-  const cells = new Map();
-  for (const node of nodes) {
-    const [x, z] = node.geometry.centroid;
-    const key = cellKey(x, z, cellSize);
-    const bucket = cells.get(key) || [];
-    bucket.push(node);
-    cells.set(key, bucket);
-  }
-  for (const bucket of cells.values()) bucket.sort((a, b) => a.id.localeCompare(b.id));
-  return { cells, cellSize };
-}
-
-function nearby(index, centroid, radiusM) {
-  const [x, z] = centroid;
-  const range = Math.max(1, Math.ceil(radiusM / index.cellSize));
-  const cx = Math.floor(x / index.cellSize), cz = Math.floor(z / index.cellSize);
-  const result = [];
-  for (let dx = -range; dx <= range; dx += 1) {
-    for (let dz = -range; dz <= range; dz += 1) {
-      const bucket = index.cells.get(`${cx + dx}:${cz + dz}`);
-      if (bucket) result.push(...bucket);
-    }
-  }
-  return result;
-}
-
-function cellKey(x, z, cellSize) {
-  return `${Math.floor(x / cellSize)}:${Math.floor(z / cellSize)}`;
 }
 
 function geometryBounds(geometry) {
