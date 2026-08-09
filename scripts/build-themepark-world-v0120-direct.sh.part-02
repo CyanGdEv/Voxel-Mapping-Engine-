@@ -19,6 +19,7 @@ SOURCE_ARGS=(
   --planning-override-min-confidence "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}"
   --planning-override-min-overlap "${TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP:-0.18}"
   --planning-override-max-offset-m "${TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M:-25}"
+  --planning-world-authority "${TPMAP_PLANNING_WORLD_AUTHORITY:-planning-only}"
   --planning-document-mode "${TPMAP_PLANNING_DOCUMENT_MODE:-extract}"
   --planning-document-max-applications "${TPMAP_PLANNING_DOCUMENT_MAX_APPLICATIONS:-80}"
   --planning-document-max-documents "${TPMAP_PLANNING_DOCUMENT_MAX_DOCUMENTS:-240}"
@@ -61,8 +62,9 @@ add_optional_repo_file "${TPMAP_SOURCE_CONFIG_PATH:-}" --source-config "Suppleme
 add_optional_repo_file "${TPMAP_OS_OPENMAP_LOCAL_PATH:-}" --os-openmap-local "OS OpenMap Local"
 add_optional_repo_file "${TPMAP_PLANNING_GEOMETRY_PATH:-}" --planning-geometry "Planning authority geometry"
 
-printf 'mode=%s\nmin_confidence=%s\nmin_overlap=%s\nmax_offset_m=%s\ngeometry_path=%s\n' \
-  "${TPMAP_PLANNING_OVERRIDE_MODE:-gated}" "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}" \
+printf 'mode=%s\nworld_authority=%s\nosm_world_policy=%s\nmin_confidence=%s\nmin_overlap=%s\nmax_offset_m=%s\ngeometry_path=%s\n' \
+  "${TPMAP_PLANNING_OVERRIDE_MODE:-gated}" "${TPMAP_PLANNING_WORLD_AUTHORITY:-planning-only}" \
+  "reference-only-never-rendered" "${TPMAP_PLANNING_OVERRIDE_MIN_CONFIDENCE:-0.86}" \
   "${TPMAP_PLANNING_OVERRIDE_MIN_OVERLAP:-0.18}" "${TPMAP_PLANNING_OVERRIDE_MAX_OFFSET_M:-25}" \
   "${TPMAP_PLANNING_GEOMETRY_PATH:-}" > "$DIAG/planning-authority-config.txt"
 

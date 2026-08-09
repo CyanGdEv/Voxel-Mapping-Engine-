@@ -37,6 +37,9 @@
       require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_VECTOR_PIPELINE' "$GEN/src/lib/planning-vectorize.mjs" 'Phase 30D comprehensive planning vectorization'
       require_marker 'TPMAP_PHASE30D_RASTER_PLANNING_GEOREFERENCE' "$GEN/src/lib/planning-georeference.mjs" 'Phase 30D raster planning georeference'
       require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_FUSION' "$GEN/src/lib/planning-vector-fusion.mjs" 'Phase 30D comprehensive planning fusion'
+      require_marker 'TPMAP_PHASE30D_PLANNING_ONLY_WORLD_AUTHORITY' "$GEN/src/lib/planning-world-authority.mjs" 'Phase 30D planning-only world authority'
+      require_marker 'TPMAP_PHASE30D_OSM_REFERENCE_ONLY_FUSION' "$GEN/src/lib/source-fusion.mjs" 'Phase 30D OSM reference-only cutover'
+      require_marker 'TPMAP_PHASE30D_PLANNING_BOUNDARY_AUTHORITY' "$GEN/src/lib/osm.mjs" 'Phase 30D planning coverage boundary'
       require_marker 'TPMAP_PHASE30D_RIDE_SUPPORT_POINTS' "$GEN/src/lib/raster.mjs" 'Phase 30D ride support world compilation'
       require_marker 'TPMAP_PHASE30D_COMPREHENSIVE_PLAN_DATA' "$GEN/src/lib/planning-comprehensive-semantics.mjs" 'Phase 30D planning semantic library'
     fi
@@ -47,6 +50,7 @@
       "$GEN/src/lib/mcworld.mjs" \
       "$GEN/src/lib/planning-vectorize.mjs" \
       "$GEN/src/lib/planning-vector-fusion.mjs" \
+      "$GEN/src/lib/planning-world-authority.mjs" \
       "$GEN/src/lib/planning-georeference.mjs" \
       "$GEN/src/lib/planning-comprehensive-semantics.mjs" \
       "$GEN/src/lib/planning-raster-extraction.mjs" \
@@ -91,7 +95,9 @@
       local phase30d_final_log="$DIAG/final-phase30d-comprehensive-plan-tests.log"
       if ! (
         cd "$GEN"
-        "$TPMAP_NODE_BIN" --test test/planning-comprehensive-semantics.test.mjs
+        "$TPMAP_NODE_BIN" --test \
+          test/planning-comprehensive-semantics.test.mjs \
+          test/planning-world-authority.test.mjs
       ) > "$phase30d_final_log" 2>&1; then
         cat "$phase30d_final_log" >> "$preflight_log"
         echo "PREP_FAIL Phase 30D comprehensive plan behavior suite" | tee -a "$preflight_log" >&2

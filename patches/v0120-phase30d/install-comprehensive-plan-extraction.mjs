@@ -28,18 +28,26 @@ async function install(root, validate) {
   const vectorFile = path.join(root, "src/lib/planning-vectorize.mjs");
   const fusionFile = path.join(root, "src/lib/planning-vector-fusion.mjs");
   const rasterFile = path.join(root, "src/lib/raster.mjs");
+  const sourceFusionFile = path.join(root, "src/lib/source-fusion.mjs");
+  const osmFile = path.join(root, "src/lib/osm.mjs");
+  const argsFile = path.join(root, "src/lib/args.mjs");
   const georeferenceFile = path.join(root, "src/lib/planning-georeference.mjs");
   const moduleFile = path.join(root, "src/lib/planning-comprehensive-semantics.mjs");
   const rasterModuleFile = path.join(root, "src/lib/planning-raster-extraction.mjs");
+  const worldAuthorityModuleFile = path.join(root, "src/lib/planning-world-authority.mjs");
   const pythonFile = path.join(root, "src/tools/planning_raster_vectorize.py");
   const testFile = path.join(root, "test/planning-comprehensive-semantics.test.mjs");
+  const worldAuthorityTestFile = path.join(root, "test/planning-world-authority.test.mjs");
+  const vectorFusionTestFile = path.join(root, "test/planning-vector-fusion.test.mjs");
 
   if (!validate) {
     await mkdir(path.dirname(pythonFile), { recursive: true });
     await writeFile(moduleFile, await readFile(path.join(here, "planning-comprehensive-semantics.mjs"), "utf8"));
     await writeFile(rasterModuleFile, await readFile(path.join(here, "planning-raster-extraction.mjs"), "utf8"));
+    await writeFile(worldAuthorityModuleFile, await readFile(path.join(here, "planning-world-authority.mjs"), "utf8"));
     await writeFile(pythonFile, await readFile(path.join(here, "planning-raster-vectorize.py"), "utf8"));
     await writeFile(testFile, await readFile(path.join(here, "planning-comprehensive-semantics.test.mjs"), "utf8"));
+    await writeFile(worldAuthorityTestFile, await readFile(path.join(here, "planning-world-authority.test.mjs"), "utf8"));
 
     const vectorSource = await readFile(vectorFile, "utf8");
     await writeFile(vectorFile, transformVectorize(vectorSource));
@@ -49,9 +57,21 @@ async function install(root, validate) {
     await writeFile(georeferenceFile, transformGeoreference(georeferenceSource));
     const rasterSource = await readFile(rasterFile, "utf8");
     await writeFile(rasterFile, transformRaster(rasterSource));
+    const sourceFusionSource = await readFile(sourceFusionFile, "utf8");
+    await writeFile(sourceFusionFile, transformSourceFusion(sourceFusionSource));
+    const osmSource = await readFile(osmFile, "utf8");
+    await writeFile(osmFile, transformOsm(osmSource));
+    const argsSource = await readFile(argsFile, "utf8");
+    await writeFile(argsFile, transformArgs(argsSource));
+    const vectorFusionTestSource = await readFile(vectorFusionTestFile, "utf8");
+    await writeFile(vectorFusionTestFile, transformVectorFusionTest(vectorFusionTestSource));
   }
 
-  await validateInstallation({ vectorFile, fusionFile, rasterFile, georeferenceFile, moduleFile, rasterModuleFile, pythonFile, testFile });
+  await validateInstallation({
+    vectorFile, fusionFile, rasterFile, sourceFusionFile, osmFile, argsFile, georeferenceFile,
+    moduleFile, rasterModuleFile, worldAuthorityModuleFile, pythonFile, testFile, worldAuthorityTestFile,
+    vectorFusionTestFile
+  });
   console.log(JSON.stringify({ status: validate ? "validated" : "installed", marker: "TPMAP_PHASE30D_COMPREHENSIVE_PLAN_DATA" }));
 }
 
@@ -251,6 +271,122 @@ export function transformFusion(source) {
   return output;
 }
 
+export function transformSourceFusion(source) {
+  if (source.includes("TPMAP_PHASE30D_OSM_REFERENCE_ONLY_FUSION")) return source;
+  let output = replaceOnce(source,
+    'import { readJson, sha256, sha256File } from "./io.mjs";',
+    'import { readJson, sha256, sha256File } from "./io.mjs";\n' +
+    'import { applyPlanningWorldAuthority } from "./planning-world-authority.mjs";\n' +
+    'const TPMAP_PHASE30D_OSM_REFERENCE_ONLY_FUSION = true;',
+    "planning-only world authority import");
+  output = replaceOnce(output,
+    '  summary.acceptedFeatures = summary.overture.accepted + summary.publicData.accepted + summary.acquired.accepted;',
+    '  const planningWorldAuthority = applyPlanningWorldAuthority(features, options);\n' +
+    '  summary.planningAuthority.world = planningWorldAuthority;\n' +
+    '  summary.policy.worldAuthority = planningWorldAuthority.osmReferenceOnly\n' +
+    '    ? "Planning geometry and attributes are the world source of truth; OSM and OSM-derived Overture features are registration-only and are removed before rasterization."\n' +
+    '    : "Legacy multi-source map fusion";\n' +
+    '  summary.acceptedFeatures = summary.overture.accepted + summary.publicData.accepted + summary.acquired.accepted;',
+    "planning-only world cutover");
+  output = replaceFunction(output, "function inheritMissingFeatureEvidence", `function inheritMissingFeatureEvidence(planning, replaced) {
+  // Planning is authoritative for both geometry and attributes. The OSM object
+  // may be consulted to register/locate a drawing, but none of its name, tags,
+  // dimensions, elevation or height may cross into the world feature.
+  const planningVectorRole = String(planning.tags?.planning_vector_role || planning.source?.planningVectorSubtype || "");
+  planning.source = {
+    ...(planning.source || {}),
+    geometryAuthority: "planning-data",
+    attributeAuthority: "planning-data",
+    osmReferenceOnly: true
+  };
+  planning.tags = {
+    ...(planning.tags || {}),
+    planning_geometry_authority: "planning-data",
+    planning_attribute_authority: "planning-data"
+  };
+  if (planning.source?.dataset === "planning-drawing-vector" && /^site-/.test(planningVectorRole)) {
+    planning.source.geometryAuthority = "planning-drawing";
+    planning.source.attributeAuthority = "planning-drawing";
+    planning.tags.planning_geometry_authority = "planning-drawing";
+    planning.tags.planning_attribute_authority = "planning-drawing";
+  }
+}`);
+  validateSourceFusion(output);
+  return output;
+}
+
+export function transformOsm(source) {
+  if (source.includes("TPMAP_PHASE30D_PLANNING_BOUNDARY_AUTHORITY") && source.includes("world.postOverride")) return source;
+  let output = source;
+  if (!output.includes("TPMAP_PHASE30D_PLANNING_BOUNDARY_AUTHORITY")) {
+    output = replaceOnce(output,
+      'import { fuseAdditionalMapSources } from "./source-fusion.mjs";',
+      'import { fuseAdditionalMapSources } from "./source-fusion.mjs";\n' +
+      'import { applyPlanningWorldAuthority, planningWorldBoundary } from "./planning-world-authority.mjs";\n' +
+      'const TPMAP_PHASE30D_PLANNING_BOUNDARY_AUTHORITY = true;',
+      "planning boundary authority import");
+    output = replaceOnce(output,
+      '  const boundary = selectBoundary(features, sources, projector);',
+      '  const boundary = String(options.planningWorldAuthority || "legacy").toLowerCase() === "planning-only"\n' +
+      '    ? planningWorldBoundary(features, sources.parkName)\n' +
+      '    : selectBoundary(features, sources, projector);',
+      "planning-only boundary selection");
+  } else if (!output.includes("applyPlanningWorldAuthority, planningWorldBoundary")) {
+    output = replaceOnce(output,
+      'import { planningWorldBoundary } from "./planning-world-authority.mjs";',
+      'import { applyPlanningWorldAuthority, planningWorldBoundary } from "./planning-world-authority.mjs";',
+      "planning boundary authority import upgrade");
+  }
+  output = replaceOnce(output,
+    '  const structureHeightStats = applyLidarBuildingHeights(features, sources.elevation);',
+    '  // Apply the invariant again after user overrides so no late input can\n' +
+    '  // reintroduce OSM or OSM-derived geometry into world compilation.\n' +
+    '  if (String(options.planningWorldAuthority || "legacy").toLowerCase() === "planning-only") {\n' +
+    '    const postOverride = applyPlanningWorldAuthority(features, options);\n' +
+    '    sourceFusion.planningAuthority.world.postOverride = postOverride;\n' +
+    '    sourceFusion.planningAuthority.world.zeroOsmWorldFeatures = postOverride.zeroOsmWorldFeatures;\n' +
+    '  }\n' +
+    '  const structureHeightStats = applyLidarBuildingHeights(features, sources.elevation);',
+    "post-override OSM cutover");
+  if (!output.includes("planningWorldBoundary(features, sources.parkName)") || !output.includes("world.postOverride")) {
+    throw new Error("Phase 30D planning boundary/final OSM transform is incomplete");
+  }
+  return output;
+}
+
+export function transformArgs(source) {
+  if (source.includes("TPMAP_PHASE30D_PLANNING_WORLD_AUTHORITY_ARG")) return source;
+  let output = replaceOnce(source,
+    '  "planning-datasets", "planning-data-url", "planning-geometry",',
+    '  "planning-datasets", "planning-data-url", "planning-geometry", "planning-world-authority",\n' +
+    '  // TPMAP_PHASE30D_PLANNING_WORLD_AUTHORITY_ARG',
+    "planning world authority argument");
+  output = replaceOnce(output,
+    '  if (options.planningOverrideMode && !["off", "gated", "authoritative"].includes(options.planningOverrideMode)) {',
+    '  if (options.planningWorldAuthority && !["legacy", "planning-only"].includes(options.planningWorldAuthority)) {\n' +
+    '    throw new UserError("--planning-world-authority must be legacy or planning-only");\n' +
+    '  }\n' +
+    '  if (options.planningOverrideMode && !["off", "gated", "authoritative"].includes(options.planningOverrideMode)) {',
+    "planning world authority validation");
+  if (!output.includes("--planning-world-authority must be legacy or planning-only")) throw new Error("Phase 30D planning authority argument transform is incomplete");
+  return output;
+}
+
+export function transformVectorFusionTest(source) {
+  if (source.includes("TPMAP_PHASE30D_NO_OSM_ATTRIBUTE_INHERITANCE_TEST")) return source;
+  return replaceOnce(source,
+    '  assert.equal(existing[0].name, "Existing footpath");\n' +
+    '  assert.equal(existing[0].tags.surface, "asphalt");\n' +
+    '  assert.equal(existing[0].subtype, "footway");',
+    '  // TPMAP_PHASE30D_NO_OSM_ATTRIBUTE_INHERITANCE_TEST\n' +
+    '  assert.equal(existing[0].name, null);\n' +
+    '  assert.equal(existing[0].tags.surface, undefined);\n' +
+    '  assert.equal(existing[0].tags.highway, undefined);\n' +
+    '  assert.equal(existing[0].subtype, "planning-access-path");\n' +
+    '  assert.equal(existing[0].source.attributeAuthority, "planning-data");',
+    "planning vector test rejects OSM attribute inheritance");
+}
+
 export function transformRaster(source) {
   if (source.includes("TPMAP_PHASE30D_RIDE_SUPPORT_POINTS")) return source;
   return replaceOnce(source,
@@ -409,6 +545,14 @@ function validateFusion(source) {
   ]) if (!source.includes(token)) throw new Error(`Phase 30D fusion pipeline lacks ${token}`);
 }
 
+function validateSourceFusion(source) {
+  for (const token of [
+    "TPMAP_PHASE30D_OSM_REFERENCE_ONLY_FUSION", "applyPlanningWorldAuthority",
+    "planningAuthority.world", "osmReferenceOnly: true", "planning_attribute_authority"
+  ]) if (!source.includes(token)) throw new Error(`Phase 30D source fusion lacks ${token}`);
+  if (source.includes("retainedOsmTags")) throw new Error("Phase 30D source fusion still inherits OSM tags");
+}
+
 async function validateInstallation(files) {
   for (const filename of Object.values(files)) {
     const source = await readFile(filename, "utf8");
@@ -416,8 +560,14 @@ async function validateInstallation(files) {
   }
   validateVector(await readFile(files.vectorFile, "utf8"));
   validateFusion(await readFile(files.fusionFile, "utf8"));
+  validateSourceFusion(await readFile(files.sourceFusionFile, "utf8"));
   if (!(await readFile(files.rasterFile, "utf8")).includes("TPMAP_PHASE30D_RIDE_SUPPORT_POINTS")) throw new Error("Phase 30D raster support compiler is incomplete");
   if (!(await readFile(files.georeferenceFile, "utf8")).includes("TPMAP_PHASE30D_RASTER_PLANNING_GEOREFERENCE")) throw new Error("Phase 30D raster georeference is incomplete");
+  const osmSource = await readFile(files.osmFile, "utf8");
+  if (!osmSource.includes("TPMAP_PHASE30D_PLANNING_BOUNDARY_AUTHORITY") || !osmSource.includes("world.postOverride")) throw new Error("Phase 30D planning boundary/final OSM authority is incomplete");
+  if (!(await readFile(files.argsFile, "utf8")).includes("TPMAP_PHASE30D_PLANNING_WORLD_AUTHORITY_ARG")) throw new Error("Phase 30D planning authority argument is incomplete");
+  if (!(await readFile(files.worldAuthorityModuleFile, "utf8")).includes("TPMAP_PHASE30D_PLANNING_ONLY_WORLD_AUTHORITY")) throw new Error("Phase 30D planning-only authority module is incomplete");
+  if (!(await readFile(files.vectorFusionTestFile, "utf8")).includes("TPMAP_PHASE30D_NO_OSM_ATTRIBUTE_INHERITANCE_TEST")) throw new Error("Phase 30D OSM attribute regression test is incomplete");
 }
 
 function runSelfTest() {

@@ -7,6 +7,20 @@ positioned Tesseract OCR. Both paths feed the same typed feature schema and the
 same planning-authority, provenance, licence, confidence, status and georeference
 gates.
 
+## Planning-only world authority
+
+The production build runs with `--planning-world-authority planning-only`.
+OpenStreetMap may be consulted before fusion to locate the park and register a
+drawing, but no OSM feature, OSM tag, OSM height/elevation or OSM-derived
+Overture feature is allowed into the normalized world feature set. The cutover
+happens before boundary selection, fidelity enrichment and raster compilation.
+
+Accepted planning geometry supplies the world coverage boundary. If no accepted
+planning feature exists, the build fails closed instead of silently falling back
+to an OSM/geocoder boundary. Independent non-OSM evidence such as terrain or
+survey measurements may still fill an attribute that a plan does not state, but
+it cannot replace planning geometry or a planning attribute.
+
 ## Data retained
 
 - Rides: track/rail alignment, footprints, high and low elevation points, running
@@ -25,8 +39,9 @@ gates.
 Each candidate keeps its document/application reference, URL, content hash, page,
 extraction method, georeference method/error, semantic label/class, existing/new/
 retained/removed state, measurements and confidence. Accepted plan candidates are
-then promoted through the normal planning-authority fusion layer and compiled by
-the existing world feature handlers.
+then promoted through the planning-authority fusion layer and compiled by the
+existing world feature handlers. A final invariant records that zero OSM-derived
+world features remain before compilation.
 
 ## Explicit construction-fence exclusion
 
