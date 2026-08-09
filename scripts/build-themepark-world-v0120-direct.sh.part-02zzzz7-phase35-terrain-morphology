@@ -1,8 +1,9 @@
-  # Phase 35 — classify bare-earth DTM morphology, then associate only explicit
-  # planning-authoritative retaining/cutting/embankment/terrace evidence. These
-  # stages remain graph-only and never mutate source terrain.
+  # Phase 35 — classify bare-earth DTM morphology, associate only explicit
+  # planning-authoritative terrain engineering, then compile verified vertical
+  # terrain structures at phase 6 before Phase 34 excavation/support/track output.
   PHASE35_TERRAIN_MORPHOLOGY_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-morphology.mjs"
   PHASE35_TERRAIN_ASSOCIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-planning-structure-association.mjs"
+  PHASE35_TERRAIN_COMPILER_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-structure-compiler.mjs"
   PHASE35_TERRAIN_MORPHOLOGY_LOG="$DIAG/phase35-terrain-morphology.log"
 
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --self-test 2>&1 | tee "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -13,14 +14,21 @@
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_ASSOCIATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_ASSOCIATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_COMPILER_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_COMPILER_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_COMPILER_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-morphology.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-planning-structure-association.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-structure-compiler.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
   (
     cd "$GEN"
     "$TPMAP_NODE_BIN" --test \
       test/terrain-morphology.test.mjs \
       test/terrain-planning-structure-association.test.mjs \
+      test/terrain-structure-compiler.test.mjs \
       2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   )
 
@@ -28,13 +36,16 @@
     'phase35_terrain_morphology=enabled' \
     'input=bare-earth-dtm-only' \
     'classes=level,slope,steep-bank,cliff-face,terrace-break,unresolved' \
-    'structures=contiguous-high-gradient-groups' \
+    'structures=contiguous-high-gradient-groups-with-exact-cells' \
     'planning_association=retaining-wall,cutting,embankment,engineered-terrace' \
     'planning_association_policy=explicit-planning-semantics-only' \
     'generic_fence_near_cliff=never-promoted-to-retaining-wall' \
     'natural_unassociated_cliff=natural-rock-face' \
-    'terrain_mutation=none-this-slice' \
+    'terrain_structure_compiler=phase6-native-bedrock-operations' \
+    'terrain_materials=deterministic-rock-soil-moss-engineered-palettes' \
+    'ordinary_heightfield=unchanged-outside-verified-structures' \
+    'natural_steep_bank=preserve-heightfield-until-dedicated-slope-treatment' \
+    'phase_order=terrain6,excavation7,supports-portals8,track9' \
     'missing_dtm=unresolved-no-fabrication' \
     'sampling=deterministic-bounded-grid' \
-    'compiler_cutover=deferred-until-structure-validation' \
     > "$DIAG/phase35-terrain-morphology-policy.txt"
