@@ -1,0 +1,73 @@
+name: Diagnose Bounded World Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diagnose-bounded-world-runtime.yml'
+      - 'patches/v0120-phase30b/**'
+      - 'patches/v0120-phase30d/**'
+      - 'patches/v0120-phase35/**'
+      - 'patches/v0120-postmerge/**'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
+      - 'scripts/complete-phase30b-semantic-contract.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-production-preparation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install preparation dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils gdal-bin python3-opencv tesseract-ocr
+      - name: Execute exact locked-source production preparation
+        id: prep
+        shell: bash
+        env:
+          TPMAP_PREPARE_ONLY: preflight
+          TPMAP_PRESET: alton-towers
+          TPMAP_ACCURACY: benchmark
+          TPMAP_SHARED_CACHE_DIR: ''
+        run: |
+          set +e
+          mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          cat "${parts[@]}" > "$RUNNER_TEMP/phase30-production-prep.sh"
+          chmod +x "$RUNNER_TEMP/phase30-production-prep.sh"
+          bash "$RUNNER_TEMP/phase30-production-prep.sh"
+          rc=$?
+          echo "prep_exit_code=$rc" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$rc" > "$RUNNER_TEMP/prep-exit-code.txt"
+          exit "$rc"
+      - name: Surface deterministic failure diagnostics
+        if: always()
+        shell: bash
+        run: |
+          echo "=== preparation exit code ==="
+          cat "$RUNNER_TEMP/prep-exit-code.txt" 2>/dev/null || true
+          echo "=== failed compatibility stage ==="
+          cat ci-diagnostics/alton-postmerge-preflight-failed-stage.txt 2>/dev/null || true
+          echo "=== compatibility log tail ==="
+          tail -n 240 ci-diagnostics/alton-postmerge-preflight-compatibility.log 2>/dev/null || true
+          echo "=== prepared integrity tail ==="
+          tail -n 240 ci-diagnostics/prepared-generator-integrity.log 2>/dev/null || true
+          echo "=== deterministic markers ==="
+          find ci-diagnostics -maxdepth 1 -type f \( -name '*failure*' -o -name '*failed*' -o -name '*.marker' \) -print 2>/dev/null || true
+      - name: Upload bounded-runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bounded-runtime-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ci-diagnostics/**
+            ${{ runner.temp }}/prep-exit-code.txt
