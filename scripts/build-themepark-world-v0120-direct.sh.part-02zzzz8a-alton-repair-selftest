@@ -1,0 +1,6 @@
+  # Cheap structural smoke-test for the helpers introduced after the full Alton
+  # generation exposed cross-phase integration drift. The actual generator
+  # transforms have already run above; this verifies their repository sources are
+  # syntactically valid and their standalone transforms remain idempotent.
+  "$TPMAP_NODE_BIN" "$ROOT/scripts/validate-alton-real-run-repair.mjs" \
+    2>&1 | tee "$DIAG/alton-real-run-repair-selftest.log"
