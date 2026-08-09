@@ -1,0 +1,23 @@
+  # Phase 30D performance layer: cache expensive native PDF SVG rendering and
+  # positioned-text extraction by exact document bytes + extractor behavior.
+  # Geometry parsing, semantic association, georeference and planning authority
+  # remain live on every build, so this changes execution cost only.
+  PHASE30D_NATIVE_CACHE_INSTALLER="$ROOT/patches/v0120-phase30d/install-native-pdf-derivative-cache.mjs"
+  PHASE30D_NATIVE_CACHE_LOG="$DIAG/phase30d-native-pdf-derivative-cache.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE30D_NATIVE_CACHE_INSTALLER" --self-test 2>&1 | tee "$PHASE30D_NATIVE_CACHE_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_NATIVE_CACHE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE30D_NATIVE_CACHE_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_NATIVE_CACHE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE30D_NATIVE_CACHE_LOG"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-processed-derivative-cache.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vectorize.mjs"
+  grep -q 'TPMAP_PHASE30D_NATIVE_PDF_DERIVATIVE_CACHE' "$GEN/src/lib/planning-vectorize.mjs"
+  grep -q 'TPMAP_PHASE30D_PROCESSED_PLANNING_DERIVATIVE_CACHE' "$GEN/src/lib/planning-processed-derivative-cache.mjs"
+
+  printf '%s\n' \
+    'phase30d_native_pdf_derivative_cache=enabled' \
+    'cache_identity=document-sha256,page,mime,extractor-behavior,native-tool-versions' \
+    'cached_work=pdf-svg-render,positioned-pdf-text' \
+    'still_recomputed=svg-parse,semantic-association,georeference,feature-gates,planning-authority' \
+    'corrupt_or_mismatched_cache=recompute' \
+    'cache_write_failure=non-fatal-recompute-path-preserved' \
+    >> "$DIAG/phase30d-runtime-policy.txt"
