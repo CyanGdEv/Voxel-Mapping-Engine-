@@ -12,6 +12,9 @@
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-raster-extraction.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vectorize.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-vector-fusion.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-world-authority.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/source-fusion.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/osm.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-georeference.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/raster.mjs"
 
@@ -22,6 +25,7 @@
       test/planning-site-semantics.test.mjs \
       test/planning-vectorize.test.mjs \
       test/planning-vector-fusion.test.mjs \
+      test/planning-world-authority.test.mjs \
       test/planning-georeference.test.mjs \
       test/planning-pink-qa.test.mjs \
       2>&1 | tee -a "$PHASE30D_LOG"
@@ -37,6 +41,9 @@
     'red_colour_policy=corroboration-only-never-sole-exclusion-signal' \
     'unlabelled_site_plan_geometry=withheld' \
     'all_accepted_plans=processed-up-to-deterministic-safety-cap' \
+    'world_authority=planning-only' \
+    'osm_policy=registration-reference-only-never-rasterized' \
+    'osm_attributes=never-inherited-by-planning-features' \
     > "$DIAG/phase30d-runtime-policy.txt"
 
   if [[ "${TPMAP_PREPARE_ONLY:-}" == "phase30b" ]]; then
