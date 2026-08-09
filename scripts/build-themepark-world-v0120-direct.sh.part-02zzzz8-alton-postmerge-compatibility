@@ -1,0 +1,32 @@
+  # Post-merge production compatibility repair. PR-level phase validation previously
+  # exercised slices in isolation; the first real Alton run exposed ordering/test-path
+  # drift in the fully assembled Phase 30D + 34 + 35 generator. Repair only those
+  # deterministic integration contracts before the existing final fail-closed gate.
+  ALTON_POSTMERGE_COMPAT_INSTALLER="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
+  ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
+
+  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+
+  # Re-run the exact vertical evidence test that exposed null->0, plus the final
+  # planning vector regression after its post-Phase30D cardinality contract repair.
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test \
+      test/vertical-evidence-engine.test.mjs \
+      test/planning-vectorize.test.mjs \
+      2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  )
+
+  printf '%s\n' \
+    'alton_postmerge_compatibility=enabled' \
+    'vertical_null_policy=null-undefined-empty-remain-unresolved-never-zero' \
+    'phase34_35_vertical_order=terrain-surface,morphology,planning-association,buildings,vegetation,ride-profile' \
+    'generated_test_imports=src-lib-not-test-local' \
+    'phase30b_final_vector_contract=required-candidate-classes-not-obsolete-total-cardinality' \
+    'authority_thresholds=unchanged' \
+    > "$DIAG/alton-postmerge-preflight-policy.txt"
