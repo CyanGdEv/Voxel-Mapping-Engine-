@@ -10,9 +10,7 @@ Only planning-authoritative nodes with explicit engineering semantics can promot
 
 ## Native terrain structure compiler
 
-Verified terrain structures compile at phase 6, before Phase 34 excavation at phase 7, supports/portals at phase 8 and ride track at phase 9. Ordinary terrain outside verified structure cells remains on the existing heightfield path.
-
-Natural rock faces and engineered structures use deterministic class-specific palettes. Exact morphology cells are compiled rather than coarse bounding-box fills.
+Verified terrain structures compile at phase 6, before Phase 34 excavation at phase 7, supports/portals at phase 8 and ride track at phase 9. Ordinary terrain outside verified structure cells remains on the existing heightfield path. Natural rock faces and engineered structures use deterministic class-specific palettes. Exact morphology cells are compiled rather than coarse bounding-box fills.
 
 ## Stateful block transport and steep banks
 
@@ -22,20 +20,20 @@ The compiler palette supports backward-compatible stateful block descriptors `{n
 
 ## Retaining-wall detail
 
-`retaining-wall-detail.mjs` refines only terrain structures already associated with explicit planning retaining-wall evidence.
+`retaining-wall-detail.mjs` refines only terrain structures already associated with explicit planning retaining-wall evidence. DTM remains the vertical source of truth. Each exact structure cell supplies the wall base and top elevation, so long walls naturally compile into stepped top courses wherever measured terrain changes.
 
-DTM remains the vertical source of truth. Each exact structure cell supplies the wall base and top elevation. Because adjacent cells keep their own top elevations, long walls naturally compile into stepped top courses wherever the measured terrain changes rather than being forced to one constant wall height.
+Planning metadata may refine a wall only when explicit: `wall_thickness`, `thickness` or `width` may expand an axis-aligned wall normal; broad/diagonal planning bounds do not receive guessed expansion; explicit material tags may refine the body palette; and explicit coping/cap semantics may replace the measured top course. Coping never increases verified wall height. Missing material/thickness/cap evidence is an exact no-op.
 
-Planning metadata may refine the wall only when it is explicit:
+## Terrain QA
 
-- `wall_thickness`, `thickness` or `width` may expand an axis-aligned wall normal, bounded to a safe maximum;
-- broad/diagonal planning bounds do not receive guessed thickness expansion;
-- explicit material tags may select stone brick, smooth stone/concrete, cobblestone or andesite treatment;
-- explicit `coping`, `cap`, `wall_cap` or `capped` semantics may replace the measured top course;
-- coping never increases the verified DTM wall height;
-- missing material/thickness/cap evidence produces an exact no-op for this detail layer, leaving the already-compiled verified retaining-wall body unchanged.
+`terrain-qa.mjs` is a read-only validation stage that runs after all phase-6 terrain refinements and before tunnel reconciliation/carving. It compares the compiled phase-6 surface against two independent evidence families:
 
-The wall-detail stage emits no air and cannot promote a generic barrier into a retaining structure.
+- every resolved DTM morphology cell;
+- accepted planning `terrain-level` observations/spot levels near compiled terrain.
+
+It reports mean absolute error, p95 error, maximum error, overbuild count, underbuild count, outliers and unresolved samples. The default warning tolerance is 0.75 m and default outlier threshold is 1.5 m; both are configurable. Slab surfaces are evaluated at half-block height while full blocks and stairs use their full voxel envelope.
+
+QA never edits the palette, chunk operations or geometry, never auto-repairs outliers, and ignores OSM-derived terrain-level evidence. Missing compiled terrain is reported as unresolved instead of fabricated. Running QA before portal reconciliation prevents deliberately excavated tunnel mouths from being misreported as missing Phase-35 terrain.
 
 ## Tunnel portal reconciliation
 
@@ -44,22 +42,23 @@ Terrain structures, retaining-wall detail and steep-bank surface blocks are reco
 ## Authority and fidelity invariants
 
 - Planning remains world authority wherever planning data exists.
-- OSM is never introduced as physical terrain/engineering authority.
+- OSM is never introduced as physical terrain/engineering/elevation authority.
 - DTM is independent bare-earth vertical evidence.
 - Missing or ambiguous evidence remains unresolved rather than fabricated.
 - Ordinary heightfield output is unchanged outside verified structures.
 - Retaining-wall height follows DTM; width/material/coping require explicit planning evidence.
 - Stateful stairs preserve Bedrock orientation end-to-end.
+- Terrain QA is diagnostic only and never mutates world geometry.
 - Phase 7 remains the sole excavation authority.
 - Existing Phase 34 supports/portals and graph-owned 3D ride track remain phase 8/9.
 
 ## Current phase order
 
-`terrain structures (6) -> retaining-wall detail (6) -> DTM-directed steep-bank stairs/slabs (6) -> portal reconciliation -> verified excavation (7) -> supports/portals (8) -> 3D ride track (9)`
+`terrain structures (6) -> retaining-wall detail (6) -> DTM-directed steep-bank stairs/slabs (6) -> terrain QA (read-only) -> portal reconciliation -> verified excavation (7) -> supports/portals (8) -> 3D ride track (9)`
 
 ## Remaining Phase 35 slices
 
 1. Add geology-aware natural rock palettes where independent geology evidence is available.
-2. Add terrain QA against DTM and planning spot levels.
-3. Add bounded real-world `.mcworld` fixtures for cliff/tunnel/retaining-wall/steep-bank transitions.
-4. Add visual/output comparison of reconstructed terrain against the prior whole-block representation.
+2. Add bounded real-world `.mcworld` fixtures for cliff/tunnel/retaining-wall/steep-bank transitions.
+3. Add visual/output comparison of reconstructed terrain against the prior whole-block representation.
+4. Optionally promote calibrated terrain-QA thresholds into release gates after real-world fixture validation.
