@@ -2,61 +2,64 @@
 
 Phase 35 moves terrain beyond a single heightfield by detecting terrain morphology, associating explicit planning engineering semantics, and compiling verified vertical terrain structures into the native Bedrock operation stream.
 
-## Morphology classification
+## Morphology and planning association
 
-The first slice consumes bare-earth DTM only. It samples the park bounds on a deterministic bounded grid and derives local slope, relief and break-of-slope strength without altering the source terrain.
+Bare-earth DTM is sampled on a deterministic bounded grid and classified as `level`, `slope`, `steep-bank`, `cliff-face`, `terrace-break` or `unresolved`. Contiguous high-gradient cells retain their exact DTM cells and local min/max elevation evidence.
 
-Resolved cells are classified as `level`, `slope`, `steep-bank`, `cliff-face` or `terrace-break`. Missing DTM samples remain `unresolved` and never receive inferred heights.
+Only planning-authoritative nodes with explicit engineering semantics can promote a terrain structure to `retaining-wall`, `cutting`, `embankment` or `engineered-terrace`. Generic fences/barriers never become retaining walls by proximity alone. OSM-derived engineering evidence is rejected.
 
-Contiguous `steep-bank`, `cliff-face` and `terrace-break` cells are grouped into explicit terrain-structure candidates. Each structure retains its exact classified DTM cells plus local minimum/maximum elevation evidence; compiler output never fills the structure's bounding rectangle.
+## Native terrain structure compiler
 
-## Planning terrain association
+Verified terrain structures compile at phase 6, before Phase 34 excavation at phase 7, supports/portals at phase 8 and ride track at phase 9. Ordinary terrain outside verified structure cells remains on the existing heightfield path.
 
-Only planning-authoritative nodes with explicit engineering semantics can promote a detected terrain structure to `retaining-wall`, `cutting`, `embankment` or `engineered-terrace`. A generic fence/barrier near a steep face is never promoted by proximity alone. Conflicting nearby planning roles remain ambiguous rather than guessed. OSM-derived engineering evidence is rejected.
+Natural rock faces and engineered structures use deterministic class-specific palettes. Exact morphology cells are compiled rather than coarse bounding-box fills.
 
-Unassociated DTM structures remain natural terrain classes such as `natural-rock-face`, `natural-steep-bank` and `natural-terrace-break`.
+## Stateful block transport and steep banks
 
-## Minecraft terrain structure compiler
+The compiler palette now supports backward-compatible stateful block descriptors `{name, states}` in addition to legacy string block IDs. Direct `.mcworld` output writes those states into the chunk NBT palette and validates a stateful sample by reading it back. Behavior-pack output uses `BlockPermutation.resolve(...)` for stateful single-voxel writes.
 
-Verified structure cells compile through the native Bedrock operation representation at phase 6. This intentionally precedes Phase 34 ride excavation at phase 7, supports/tunnel portals at phase 8 and ride track at phase 9.
+`natural-steep-bank` terrain can therefore use DTM-normal-directed stairs where the horizontal normal is cardinal-dominant. The DTM normal points downhill; the stair ascent is the opposite direction. Diagonal or ambiguous normals fall back to the certified slab treatment. The treatment never smooths, widens or excavates terrain.
 
-The compiler emits explicit vertical geometry for natural rock faces, natural terrace breaks, retaining walls, cuttings, embankments and engineered terraces. Material selection is deterministic and classification-specific. Natural rock faces use stone/andesite/cobblestone/mossy-cobblestone variation; retaining and engineered structures use appropriate stone palettes; cuttings and embankments use deterministic rock/soil palettes. Material variation never changes the verified geometry footprint.
+## Retaining-wall detail
 
-## Natural steep-bank treatment
+`retaining-wall-detail.mjs` refines only terrain structures already associated with explicit planning retaining-wall evidence.
 
-`terrain-steep-bank-treatment.mjs` handles only structures whose final engineering class is `natural-steep-bank`. It does not smooth, interpolate or widen DTM geometry. Instead, where an exact DTM elevation lands within a bounded half-block window, it emits a phase-6 bottom slab over that exact morphology-cell footprint so the Minecraft surface represents the measured elevation more closely than whole-block quantisation alone.
+DTM remains the vertical source of truth. Each exact structure cell supplies the wall base and top elevation, so wall height and stepped top courses follow measured terrain rather than a generic constant-height wall.
 
-The first cut uses `normal_stone_slab`, `cobblestone_slab` and `mossy_cobblestone_slab` with deterministic variation. It never emits air and never applies to cuttings, embankments, retaining walls or engineered terraces.
+Planning metadata may refine the wall only when it is explicit:
 
-Directional stairs are deliberately deferred. The current compact native operation schema transports a palette index but no verified per-operation stair facing/half state. Emitting stairs now could produce incorrectly oriented geometry, so stair output remains fail-closed until block-state transport is verified end-to-end.
+- `wall_thickness`, `thickness` or `width` may expand an axis-aligned wall normal, bounded to a safe maximum;
+- broad/diagonal planning bounds do not receive guessed thickness expansion;
+- explicit material tags may select stone brick, smooth stone/concrete, cobblestone or andesite treatment;
+- explicit `coping`, `cap`, `wall_cap` or `capped` semantics may replace the measured top course;
+- coping never increases the verified DTM wall height;
+- missing material/thickness/cap evidence produces no inferred decoration or expansion.
 
-## Tunnel portal and cliff-face reconciliation
+The wall-detail stage emits no air and cannot promote a generic barrier into a retaining structure.
 
-`terrain-tunnel-portal-reconciliation.mjs` runs after phase-6 terrain structure and steep-bank compilation and before Phase 34 phase-7 excavation. It consumes only the verified `TPMAP_PHASE34_RIDE_EXCAVATION_MASK_V1` mask.
+## Tunnel portal reconciliation
 
-For each ride, the first and last verified tunnel measures form bounded portal-mouth bands. Phase-6 terrain structure operations are split so no reconstructed cliff, cutting, retaining wall, terrace or steep-bank treatment voxel remains inside an already-authorised tunnel/cutting excavation voxel. Terrain outside the verified mask is preserved exactly.
-
-This stage does **not** emit `minecraft:air`, enlarge a tunnel, or create excavation authority. Phase 7 remains the only carving stage. Cutting overlap is reconciled but is not labelled as a tunnel portal. Invalid/duplicate excavation cells and unverified mask markers fail closed before mutation.
+Terrain structures, retaining-wall detail and steep-bank surface blocks are reconciled against only the verified `TPMAP_PHASE34_RIDE_EXCAVATION_MASK_V1` mask before phase-7 excavation. The reconciliation stage can split/remove phase-6 terrain only inside already-authorised excavation cells. It emits no air and cannot widen a tunnel or cutting.
 
 ## Authority and fidelity invariants
 
-- Planning geometry remains world authority wherever planning data exists.
-- OSM is not introduced as terrain or physical-object authority.
-- DTM is used only as independent bare-earth vertical evidence.
-- Missing or capped evidence fails closed rather than silently reducing resolution.
-- Ordinary terrain heightfield generation is unchanged outside verified terrain-structure cells.
-- Terrain structure output uses exact morphology cells, not coarse bounding-box fills.
-- Natural steep-bank slabs are emitted only when they improve measured half-block elevation representation.
-- Directional stairs remain disabled until block-state orientation can be preserved safely.
-- Portal reconciliation can remove phase-6 terrain only inside the existing verified Phase 34 excavation mask.
-- Portal reconciliation emits no air and cannot widen excavation.
-- Phase 7 ride excavation remains the sole carve authority and follows phase-6 terrain/reconciliation.
-- Existing Phase 34 supports/tunnel portals and 3D track output remain phase 8/9 and are not weakened.
+- Planning remains world authority wherever planning data exists.
+- OSM is never introduced as physical terrain/engineering authority.
+- DTM is independent bare-earth vertical evidence.
+- Missing or ambiguous evidence remains unresolved rather than fabricated.
+- Ordinary heightfield output is unchanged outside verified structures.
+- Retaining-wall height follows DTM; width/material/coping require explicit planning evidence.
+- Stateful stairs preserve Bedrock orientation end-to-end.
+- Phase 7 remains the sole excavation authority.
+- Existing Phase 34 supports/portals and graph-owned 3D ride track remain phase 8/9.
+
+## Current phase order
+
+`terrain structures (6) -> retaining-wall detail (6) -> DTM-directed steep-bank stairs/slabs (6) -> portal reconciliation -> verified excavation (7) -> supports/portals (8) -> 3D ride track (9)`
 
 ## Remaining Phase 35 slices
 
-1. Verify native block-state transport, then add correctly oriented stairs only where DTM slope direction supports them.
-2. Add retaining-wall caps, stepped courses and material detail where planning evidence supports them.
-3. Add geology-aware natural rock palettes where independent geology data is available.
-4. Add terrain QA against DTM and planning spot levels.
-5. Add bounded real-world `.mcworld` fixtures for cliff/tunnel/retaining-wall/steep-bank transitions.
+1. Add geology-aware natural rock palettes where independent geology evidence is available.
+2. Add terrain QA against DTM and planning spot levels.
+3. Add bounded real-world `.mcworld` fixtures for cliff/tunnel/retaining-wall/steep-bank transitions.
+4. Add visual/output comparison of reconstructed terrain against the prior whole-block representation.
