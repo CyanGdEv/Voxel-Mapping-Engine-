@@ -1,0 +1,32 @@
+  # Phase 34 — build continuous ride-track elevation profiles from multiple
+  # planning HP/LP/spot-level observations. Interpolation is evidence-bounded:
+  # no extrapolation beyond the first/last accepted anchor and large unsupported
+  # gaps stay unresolved.
+  PHASE34_RIDE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
+  PHASE34_RIDE_LOG="$DIAG/phase34-ride-vertical-profile.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_INSTALLER" --self-test 2>&1 | tee "$PHASE34_RIDE_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test \
+      test/vertical-evidence-engine.test.mjs \
+      test/ride-vertical-profile.test.mjs \
+      2>&1 | tee -a "$PHASE34_RIDE_LOG"
+  )
+
+  printf '%s\n' \
+    'phase34_ride_vertical_profile=enabled' \
+    'inputs=planning-ride-elevation-hp-lp-spot-levels' \
+    'association=planning-reference,document-hash,track-proximity' \
+    'projection=nearest-measure-on-track-centerline' \
+    'interpolation=linear-between-supported-planning-anchors' \
+    'extrapolation=forbidden' \
+    'large_gaps=unresolved' \
+    'osm_policy=never-valid-ride-vertical-evidence' \
+    'compiler_cutover=profile-solved-graph-only' \
+    > "$DIAG/phase34-ride-profile-policy.txt"
