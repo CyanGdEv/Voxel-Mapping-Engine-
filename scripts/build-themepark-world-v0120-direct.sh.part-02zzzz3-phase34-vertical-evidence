@@ -1,18 +1,34 @@
   # Phase 34 — resolve vertical evidence on the Phase 33 reconstruction graph.
-  # This first slice is graph-only: legacy compiler feature objects are not
-  # mutated, so block output changes only after a later explicit compiler cutover.
+  # This slice remains graph-only: legacy compiler feature objects are not
+  # mutated, so Minecraft output changes only after an explicit later cutover.
   PHASE34_INSTALLER="$ROOT/patches/v0120-phase34/install-vertical-evidence-engine.mjs"
+  PHASE34_RIDE_PROFILE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
+  PHASE34_RIDE_3D_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-3d-geometry.mjs"
   PHASE34_LOG="$DIAG/phase34-vertical-evidence.log"
 
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --self-test 2>&1 | tee "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-3d-geometry.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
   (
     cd "$GEN"
-    "$TPMAP_NODE_BIN" --test test/vertical-evidence-engine.test.mjs 2>&1 | tee -a "$PHASE34_LOG"
+    "$TPMAP_NODE_BIN" --test \
+      test/vertical-evidence-engine.test.mjs \
+      test/ride-vertical-profile.test.mjs \
+      test/ride-3d-geometry.test.mjs \
+      2>&1 | tee -a "$PHASE34_LOG"
   )
 
   printf '%s\n' \
@@ -20,6 +36,11 @@
     'model=ground-base-top' \
     'authority=planning-explicit-over-derived-elevation' \
     'observations=building-ffl,ride-elevation,water-level,terrain-level' \
+    'ride_profile=multi-anchor-measured-centerline' \
+    'ride_3d=planning-alignment-plus-evidence-bounded-y' \
+    'ride_3d_sampling=1m-default-configurable' \
+    'ride_3d_metrics=x-y-z,pitch,length3d' \
+    'unsupported_ride_spans=y-null-never-extrapolated' \
     'terrain=lidar-or-terrain-sampler-ground-evidence' \
     'conflicts=retained-and-reported' \
     'missing_values=unresolved-never-guessed' \
