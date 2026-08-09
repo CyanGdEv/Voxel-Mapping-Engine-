@@ -12,9 +12,19 @@
   # retains stale/empty-test protection, but proves it from executed TAP output
   # instead of source formatting.
   phase30b_semantic_contract_probe() {
-    [[ -f "$GEN/src/lib/planning-vectorize.mjs" ]] || return 1
-    [[ -f "$GEN/src/lib/planning-vector-fusion.mjs" ]] || return 1
-    [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || return 1
+    local preflight_log="$DIAG/phase30b-semantic-postcondition-inputs.log"
+    : > "$preflight_log"
+    for required in \
+      "$GEN/src/lib/planning-vectorize.mjs" \
+      "$GEN/src/lib/planning-vector-fusion.mjs" \
+      "$GEN/test/planning-site-semantics.test.mjs"; do
+      if [[ -f "$required" ]]; then
+        printf 'present=%s\n' "$required" >> "$preflight_log"
+      else
+        printf 'missing=%s\n' "$required" >> "$preflight_log"
+        return 1
+      fi
+    done
 
     local semantic_file_log="$DIAG/phase30b-semantic-file-probe.log"
     local semantic_test_count
@@ -24,6 +34,7 @@
     ) > "$semantic_file_log" 2>&1 || return 1
 
     semantic_test_count="$(awk '/^# tests [0-9]+$/ { count=$3 } END { if (count != "") print count }' "$semantic_file_log")"
+    printf 'semantic_test_count=%s\n' "${semantic_test_count:-missing}" >> "$preflight_log"
     [[ "$semantic_test_count" =~ ^[0-9]+$ ]] || return 1
     [[ "$semantic_test_count" -ge 3 ]] || return 1
 
@@ -38,10 +49,16 @@
   }
 
   if ! phase30b_semantic_contract_probe; then
+    if [[ -f "$DIAG/phase30b-semantic-postcondition-inputs.log" ]]; then
+      echo "=== Phase 30B semantic postcondition inputs ===" >&2
+      cat "$DIAG/phase30b-semantic-postcondition-inputs.log" >&2
+    fi
     if [[ -f "$DIAG/phase30b-semantic-file-probe.log" ]]; then
+      echo "=== Phase 30B semantic file TAP probe ===" >&2
       cat "$DIAG/phase30b-semantic-file-probe.log" >&2
     fi
     if [[ -f "$DIAG/phase30b-semantic-contract-probe.log" ]]; then
+      echo "=== Phase 30B semantic contract suite ===" >&2
       cat "$DIAG/phase30b-semantic-contract-probe.log" >&2
     fi
     echo "Phase 30B semantic contract postcondition failed after the authoritative recovery stage." \
