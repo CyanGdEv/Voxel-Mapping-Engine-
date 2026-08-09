@@ -32,9 +32,10 @@ export function applyRetainingWallDetailToCompilation(compilation, graph, option
       if(![cell.x,cell.z,cell.localMinElevationM,cell.localMaxElevationM].every(Number.isFinite))continue;
       let y1=Math.round(cell.localMinElevationM-datumM),y2=Math.round(cell.localMaxElevationM-datumM); if(y2<y1)[y1,y2]=[y2,y1]; if(y2<=y1)continue;
       const footprint=thickness?expandCell(cell,node.geometry?.bounds,thickness):[[Math.round(cell.x),Math.round(cell.z)]];
+      const bodyBlock=material||DEFAULT_BODY;
       for(const [x,z] of footprint){
-        if(material){for(let y=y1;y<=y2;y++)setWrite(writes,{x,y,z,block:material,kind:'material-body',wallId:s.id});}
-        if(cap){const capY=y2+1;setWrite(writes,{x,y:capY,z,block:capBlock(cap,material),kind:'cap',wallId:s.id});}
+        if(material||thickness){for(let y=y1;y<=y2;y++)setWrite(writes,{x,y,z,block:bodyBlock,kind:'body',wallId:s.id});}
+        if(cap){const capY=y2+1;setWrite(writes,{x,y:capY,z,block:capBlock(material),kind:'cap',wallId:s.id});}
       }
       touched ||= Boolean(thickness||cap||material);
       if(writes.size>MAX_EXTRA)throw new Error(`Phase 35 retaining-wall detail exceeded safe write cap ${MAX_EXTRA}`);
@@ -59,7 +60,7 @@ export function validateRetainingWallDetailCompilation(compilation,diagnostics){
 function explicitThickness(tags,max){for(const k of ['wall_thickness','thickness','width']){const n=Number(tags?.[k]);if(Number.isFinite(n)&&n>=1&&n<=max)return Math.max(1,Math.round(n));}return 0;}
 function explicitCap(tags){const text=[tags?.coping,tags?.cap,tags?.wall_cap,tags?.capped].filter(v=>v!=null).join(' ').toLowerCase();return /^(1|true|yes|stone|masonry|concrete|coping|cap)$/.test(text.trim())||/coping|capped/.test(text);}
 function explicitMaterial(tags){const raw=String(tags?.material||tags?.wall_material||'').toLowerCase().replaceAll('_','-');for(const [k,v] of Object.entries(MATERIALS))if(raw.includes(k))return v;return null;}
-function capBlock(cap,material){return material||DEFAULT_BODY;}
+function capBlock(material){return material||DEFAULT_BODY;}
 function expandCell(cell,bounds,thickness){const x=Math.round(cell.x),z=Math.round(cell.z);if(thickness<=1)return[[x,z]];if(!bounds||![bounds.minX,bounds.maxX,bounds.minZ,bounds.maxZ].every(Number.isFinite))return[[x,z]];const sx=bounds.maxX-bounds.minX,sz=bounds.maxZ-bounds.minZ;if(Math.min(sx,sz)>1.5)return[[x,z]];const out=[];const half=Math.floor((thickness-1)/2),extra=thickness-1-half;if(sx<=sz){for(let dx=-half;dx<=extra;dx++)out.push([x+dx,z]);}else{for(let dz=-half;dz<=extra;dz++)out.push([x,z+dz]);}return out;}
 function setWrite(map,w){const k=`${w.x},${w.y},${w.z}`;const cur=map.get(k);if(!cur||w.kind==='cap'||cur.kind!=='cap')map.set(k,w);}
 function paletteKey(v){return typeof v==='string'?v:JSON.stringify(v);}
