@@ -1,12 +1,12 @@
   # Phase 35 — classify bare-earth DTM morphology, associate only explicit
   # planning-authoritative terrain engineering, compile verified vertical terrain
-  # structures at phase 6, apply bounded natural steep-bank half-block treatment,
-  # then reconcile terrain with the verified Phase 34 excavation mask before
-  # phase-7 carving/support/track output.
+  # structures at phase 6, transport stateful blocks safely, apply bounded natural
+  # steep-bank slab/stair treatment, then reconcile against Phase 34 excavation.
   PHASE35_TERRAIN_MORPHOLOGY_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-morphology.mjs"
   PHASE35_TERRAIN_ASSOCIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-planning-structure-association.mjs"
   PHASE35_TERRAIN_COMPILER_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-structure-compiler.mjs"
   PHASE35_PORTAL_RECONCILIATION_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-tunnel-portal-reconciliation.mjs"
+  PHASE35_BLOCK_STATE_INSTALLER="$ROOT/patches/v0120-phase35/install-block-state-transport.mjs"
   PHASE35_STEEP_BANK_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-steep-bank-treatment.mjs"
   PHASE35_TERRAIN_MORPHOLOGY_LOG="$DIAG/phase35-terrain-morphology.log"
 
@@ -26,6 +26,12 @@
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
   "$TPMAP_NODE_BIN" "$PHASE35_PORTAL_RECONCILIATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
 
+  # Stateful palette support must exist before the steep-bank compiler can emit
+  # oriented stairs. Existing plain-string operations remain byte-compatible.
+  "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_BLOCK_STATE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
   # Install this after portal reconciliation so its pipeline transform can anchor
   # against the complete Phase 35 ordering and insert itself before reconciliation.
   "$TPMAP_NODE_BIN" "$PHASE35_STEEP_BANK_INSTALLER" --self-test 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -37,6 +43,8 @@
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-structure-compiler.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-steep-bank-treatment.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-tunnel-portal-reconciliation.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/mcworld.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/bedrock.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
   (
@@ -45,6 +53,7 @@
       test/terrain-morphology.test.mjs \
       test/terrain-planning-structure-association.test.mjs \
       test/terrain-structure-compiler.test.mjs \
+      test/block-state-transport.test.mjs \
       test/terrain-steep-bank-treatment.test.mjs \
       test/terrain-tunnel-portal-reconciliation.test.mjs \
       2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
@@ -61,9 +70,12 @@
     'natural_unassociated_cliff=natural-rock-face' \
     'terrain_structure_compiler=phase6-native-bedrock-operations' \
     'terrain_materials=deterministic-rock-soil-moss-engineered-palettes' \
-    'steep_bank_treatment=natural-steep-bank-half-block-quantisation' \
-    'steep_bank_materials=normal-stone,cobblestone,mossy-cobblestone-slabs' \
-    'steep_bank_stairs=deferred-until-directional-block-state-transport-is-verified' \
+    'block_state_transport=stateful-palette-v1-direct-mcworld-nbt-addon-blockpermutation' \
+    'block_state_compatibility=plain-string-palette-unchanged' \
+    'steep_bank_treatment=natural-steep-bank-dtm-normal-directed-stairs-with-slab-fallback' \
+    'steep_bank_materials=normal-stone,cobblestone,mossy-cobblestone-stairs-and-slabs' \
+    'steep_bank_stair_orientation=dtm-horizontal-normal-downhill;opposite-vector-is-ascent' \
+    'steep_bank_diagonal_policy=ambiguous-cardinal-direction-falls-back-to-slab' \
     'steep_bank_policy=no-smoothing-no-widening-no-air' \
     'portal_reconciliation=verified-phase34-mask-only' \
     'portal_mouths=first-and-last-verified-tunnel-measure-bands' \
