@@ -1,0 +1,26 @@
+  # Phase 35 — classify bare-earth DTM morphology before downstream ride/support
+  # reconstruction. This stage is graph-only and never mutates the source terrain.
+  PHASE35_TERRAIN_MORPHOLOGY_INSTALLER="$ROOT/patches/v0120-phase35/install-terrain-morphology.mjs"
+  PHASE35_TERRAIN_MORPHOLOGY_LOG="$DIAG/phase35-terrain-morphology.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --self-test 2>&1 | tee "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE35_TERRAIN_MORPHOLOGY_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-morphology.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test test/terrain-morphology.test.mjs 2>&1 | tee -a "$PHASE35_TERRAIN_MORPHOLOGY_LOG"
+  )
+
+  printf '%s\n' \
+    'phase35_terrain_morphology=enabled' \
+    'input=bare-earth-dtm-only' \
+    'classes=level,slope,steep-bank,cliff-face,terrace-break,unresolved' \
+    'structures=contiguous-high-gradient-groups' \
+    'terrain_mutation=none-this-slice' \
+    'missing_dtm=unresolved-no-fabrication' \
+    'sampling=deterministic-bounded-grid' \
+    'compiler_cutover=deferred-until-structure-validation' \
+    > "$DIAG/phase35-terrain-morphology-policy.txt"
