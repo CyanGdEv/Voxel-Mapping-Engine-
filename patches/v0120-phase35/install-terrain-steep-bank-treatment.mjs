@@ -17,9 +17,9 @@ async function install(root,validate){
     await writeFile(pipelineFile,transformPipeline(await readFile(pipelineFile,'utf8')));
   }
   const m=await readFile(moduleFile,'utf8'),t=await readFile(testFile,'utf8'),p=await readFile(pipelineFile,'utf8');
-  for(const token of ['TPMAP_PHASE35_STEEP_BANK_TREATMENT_V1','applySteepBankTreatmentToCompilation','validateSteepBankTreatmentCompilation'])if(!m.includes(token))throw new Error(`Phase 35 steep-bank module missing ${token}`);
-  for(const token of ['natural steep bank emits exact half-block treatment at phase 6','engineered cutting is never treated as natural steep bank','treatment never emits air or directional stairs','invalid morphology marker fails closed before mutation'])if(!t.includes(token))throw new Error(`Phase 35 steep-bank tests missing ${token}`);
-  validatePipeline(p); console.log(JSON.stringify({status:validate?'validated':'installed',marker:'TPMAP_PHASE35_STEEP_BANK_TREATMENT_V1'}));
+  for(const token of ['TPMAP_PHASE35_STEEP_BANK_TREATMENT_V2','applySteepBankTreatmentToCompilation','validateSteepBankTreatmentCompilation','weirdo_direction'])if(!m.includes(token))throw new Error(`Phase 35 steep-bank module missing ${token}`);
+  for(const token of ['cardinal DTM normal emits correctly stateful stair','diagonal DTM normal falls back to slab','engineered cutting is never treated as natural steep bank','treatment never emits air','invalid morphology marker fails closed before mutation'])if(!t.includes(token))throw new Error(`Phase 35 steep-bank tests missing ${token}`);
+  validatePipeline(p); console.log(JSON.stringify({status:validate?'validated':'installed',marker:'TPMAP_PHASE35_STEEP_BANK_TREATMENT_V2'}));
 }
 
 export function transformPipeline(source){
