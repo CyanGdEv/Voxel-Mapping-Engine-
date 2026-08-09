@@ -1,17 +1,40 @@
 // TPMAP_PHASE30D_RASTER_PLANNING_GEOMETRY
+// TPMAP_PHASE30D_CONTENT_ADDRESSED_RASTER_DERIVATIVES
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { gzipSync, gunzipSync } from "node:zlib";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { classifyComprehensivePlanningLabel } from "./planning-comprehensive-semantics.mjs";
 
 const execFileAsync = promisify(execFile);
+const MODULE = fileURLToPath(import.meta.url);
+const SEMANTICS_MODULE = fileURLToPath(new URL("./planning-comprehensive-semantics.mjs", import.meta.url));
 const TOOL = fileURLToPath(new URL("../tools/planning_raster_vectorize.py", import.meta.url));
+const DERIVATIVE_SCHEMA = 1;
+const DERIVATIVE_NAMESPACE = "tpmap-planning-raster-derivative-v1";
+const MAX_COMPRESSED_ENTRY_BYTES = 32 * 1024 * 1024;
+const sourceDigestCache = new Map();
+let behaviorDigestPromise = null;
 
 export async function extractRasterPlanningPage({ filename, page = 1, workDirectory, document = {} }) {
   await mkdir(workDirectory, { recursive: true });
   const key = safeKey(document.sha256 || document.cacheKey || document.id || "planning-raster");
+  const cache = await derivativeCacheContext(filename, page, document);
+  if (cache) {
+    const hit = await readCachedDerivative(cache);
+    if (hit) {
+      return {
+        svg: hit.svg,
+        semantic: hit.semantic,
+        image: filename,
+        derivativeCache: { status: "hit", key: cache.key }
+      };
+    }
+  }
+
   const image = await rasterImage(filename, page, workDirectory, key, document.mime);
   const output = path.join(workDirectory, `${key}-p${page}-raster.svg`);
   const redOcr = path.join(workDirectory, `${key}-p${page}-red-ocr.png`);
@@ -26,7 +49,149 @@ export async function extractRasterPlanningPage({ filename, page = 1, workDirect
     await extractRasterTextAnchors(image),
     await extractRasterTextAnchors(redOcr, { coordinateScale: 0.5, minimumConfidence: 20 })
   );
-  return { svg, semantic: { anchors, source: "tesseract-tsv" }, image };
+  const semantic = { anchors, source: "tesseract-tsv" };
+  if (cache) await writeCachedDerivative(cache, { svg, semantic });
+  return {
+    svg,
+    semantic,
+    image,
+    derivativeCache: { status: cache ? "miss-stored" : "disabled", key: cache?.key || null }
+  };
+}
+
+async function derivativeCacheContext(filename, page, document) {
+  const root = derivativeCacheRoot();
+  if (!root) return null;
+  const sourceSha256 = await sha256FileOnce(filename);
+  const behaviorDigest = await planningRasterBehaviorDigest();
+  const mime = String(document?.mime || "");
+  const key = planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest, page, mime });
+  return {
+    root,
+    key,
+    sourceSha256,
+    behaviorDigest,
+    page: positiveInteger(page, 1),
+    mime,
+    filename: path.join(root, key.slice(0, 2), `${key}.json.gz`)
+  };
+}
+
+function derivativeCacheRoot() {
+  const explicit = String(process.env.TPMAP_PLANNING_DERIVATIVE_CACHE_DIR || "").trim();
+  if (explicit) return path.resolve(explicit);
+  const shared = String(process.env.TPMAP_SHARED_CACHE_DIR || "").trim();
+  if (!shared) return null;
+  // This is deterministic build infrastructure, not independent source evidence.
+  // Keeping it under prepared-generator makes Phase 29H's existing evidence
+  // fingerprint exclusion apply without weakening runtime-cache integrity sealing.
+  return path.resolve(shared, "prepared-generator", "planning-raster-derivatives-v1");
+}
+
+export function planningRasterDerivativeFingerprint({ sourceSha256, behaviorDigest, page = 1, mime = "" }) {
+  if (!/^[a-f0-9]{64}$/.test(String(sourceSha256 || ""))) throw new Error("planning raster cache requires an exact source SHA-256");
+  if (!/^[a-f0-9]{64}$/.test(String(behaviorDigest || ""))) throw new Error("planning raster cache requires an exact behavior SHA-256");
+  const hash = createHash("sha256");
+  hash.update(DERIVATIVE_NAMESPACE); hash.update("\0");
+  hash.update(String(sourceSha256)); hash.update("\0");
+  hash.update(String(behaviorDigest)); hash.update("\0");
+  hash.update(String(positiveInteger(page, 1))); hash.update("\0");
+  hash.update(String(mime || "")); hash.update("\0");
+  return hash.digest("hex");
+}
+
+async function planningRasterBehaviorDigest() {
+  if (!behaviorDigestPromise) behaviorDigestPromise = computePlanningRasterBehaviorDigest();
+  return behaviorDigestPromise;
+}
+
+async function computePlanningRasterBehaviorDigest() {
+  const hash = createHash("sha256");
+  hash.update("tpmap-planning-raster-behavior-v1\0");
+  hash.update(`${process.platform}\0${process.arch}\0${process.version}\0`);
+  for (const filename of [MODULE, SEMANTICS_MODULE, TOOL]) {
+    const bytes = await readFile(filename);
+    hash.update(path.basename(filename)); hash.update("\0");
+    hash.update(bytes); hash.update("\0");
+  }
+  for (const [command, args] of [
+    ["pdftocairo", ["-v"]],
+    ["tesseract", ["--version"]],
+    ["python3", ["-c", "import cv2,sys; print(sys.version.split()[0]); print(cv2.__version__)"]]
+  ]) {
+    hash.update(command); hash.update("\0");
+    hash.update(await commandSignature(command, args)); hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+async function commandSignature(command, args) {
+  try {
+    const result = await execFileAsync(command, args, { timeout: 15_000, maxBuffer: 1024 * 1024, encoding: "utf8" });
+    return `${result.stdout || ""}\n${result.stderr || ""}`.trim();
+  } catch (error) {
+    return `unavailable:${error?.code || error?.message || "unknown"}`;
+  }
+}
+
+async function readCachedDerivative(cache) {
+  let compressed;
+  try {
+    compressed = await readFile(cache.filename);
+    if (!compressed.length || compressed.length > MAX_COMPRESSED_ENTRY_BYTES) throw new Error("invalid compressed derivative size");
+    const payload = JSON.parse(gunzipSync(compressed).toString("utf8"));
+    if (payload?.schemaVersion !== DERIVATIVE_SCHEMA || payload?.namespace !== DERIVATIVE_NAMESPACE) throw new Error("schema mismatch");
+    if (payload.key !== cache.key || payload.sourceSha256 !== cache.sourceSha256 || payload.behaviorDigest !== cache.behaviorDigest) throw new Error("cache identity mismatch");
+    if (Number(payload.page) !== cache.page || String(payload.mime || "") !== cache.mime) throw new Error("cache input mismatch");
+    if (typeof payload?.result?.svg !== "string" || !Array.isArray(payload?.result?.semantic?.anchors)) throw new Error("cache payload shape mismatch");
+    if (sha256Text(payload.result.svg) !== payload.svgSha256) throw new Error("cached SVG hash mismatch");
+    if (sha256Text(JSON.stringify(payload.result.semantic)) !== payload.semanticSha256) throw new Error("cached semantic hash mismatch");
+    return payload.result;
+  } catch (error) {
+    if (compressed) await rm(cache.filename, { force: true }).catch(() => {});
+    return null;
+  }
+}
+
+async function writeCachedDerivative(cache, result) {
+  const payload = {
+    schemaVersion: DERIVATIVE_SCHEMA,
+    namespace: DERIVATIVE_NAMESPACE,
+    key: cache.key,
+    sourceSha256: cache.sourceSha256,
+    behaviorDigest: cache.behaviorDigest,
+    page: cache.page,
+    mime: cache.mime,
+    svgSha256: sha256Text(result.svg),
+    semanticSha256: sha256Text(JSON.stringify(result.semantic)),
+    result
+  };
+  const compressed = gzipSync(Buffer.from(JSON.stringify(payload)), { level: 6 });
+  if (compressed.length > MAX_COMPRESSED_ENTRY_BYTES) return;
+  const directory = path.dirname(cache.filename);
+  await mkdir(directory, { recursive: true });
+  const temporary = `${cache.filename}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    await writeFile(temporary, compressed);
+    await rename(temporary, cache.filename);
+  } catch {
+    await rm(temporary, { force: true }).catch(() => {});
+    // Cache storage must never change extraction behavior or fail a world build.
+  }
+}
+
+async function sha256FileOnce(filename) {
+  const resolved = path.resolve(filename);
+  let promise = sourceDigestCache.get(resolved);
+  if (!promise) {
+    promise = readFile(resolved).then((bytes) => createHash("sha256").update(bytes).digest("hex"));
+    sourceDigestCache.set(resolved, promise);
+  }
+  return promise;
+}
+
+function sha256Text(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
 }
 
 async function rasterImage(filename, page, workDirectory, key, mime) {
@@ -98,6 +263,11 @@ function mergeOcrAnchors(...groups) {
     anchors.push(anchor);
   }
   return anchors;
+}
+
+function positiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
 }
 
 function safeKey(value) {
