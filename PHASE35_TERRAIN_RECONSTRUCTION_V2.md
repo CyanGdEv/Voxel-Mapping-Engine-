@@ -33,7 +33,7 @@ Planning metadata may refine the wall only when it is explicit:
 - explicit material tags may select stone brick, smooth stone/concrete, cobblestone or andesite treatment;
 - explicit `coping`, `cap`, `wall_cap` or `capped` semantics may replace the measured top course;
 - coping never increases the verified DTM wall height;
-- missing material/thickness/cap evidence produces no inferred decoration or expansion.
+- missing material/thickness/cap evidence produces an exact no-op for this detail layer, leaving the already-compiled verified retaining-wall body unchanged.
 
 The wall-detail stage emits no air and cannot promote a generic barrier into a retaining structure.
 
