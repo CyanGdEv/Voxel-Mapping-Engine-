@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { applyTerrainStructuresToCompilation, validateTerrainStructureCompilation } from './terrain-structure-compiler.mjs';
+
+function compilation(){return{meta:{elevationDatumM:100,bounds:{minX:-32,minZ:-32,maxX:32,maxZ:32}},palette:['minecraft:grass_block','minecraft:air'],chunks:[{x:0,z:0,o:[[1,0,0,0,15,0,15,0],[7,4,2,4,4,3,4,1]]}],stats:{operations:2,rawOperations:2}};}
+function graph(classification='natural-rock-face'){const structure={id:'terrain-structure:0',type:'cliff-face',cellCount:1,sampleStepM:1,cells:[{x:4,z:4,elevationM:104,localMinElevationM:101,localMaxElevationM:104,slopeDeg:70}],engineering:{classification,source:classification.startsWith('natural-')?'dtm-only':'planning+dtm'}};return{terrainMorphology:{marker:'TPMAP_PHASE35_TERRAIN_MORPHOLOGY_V1',structures:[structure]},terrainPlanningAssociation:{marker:'TPMAP_PHASE35_TERRAIN_PLANNING_ASSOCIATION_V1'}};}
+
+test('natural rock face compiles only exact morphology cells at phase 6',()=>{const c=compilation(),d=applyTerrainStructuresToCompilation(c,graph());assert.equal(d.status,'applied');assert.equal(d.voxels,4);assert.ok(c.chunks.flatMap(x=>x.o).some(op=>op[0]===6&&op[1]===4&&op[3]===4));validateTerrainStructureCompilation(c,d);});
+test('retaining wall uses engineered planning classification',()=>{const c=compilation(),d=applyTerrainStructuresToCompilation(c,graph('retaining-wall'));assert.equal(d.byClass['retaining-wall'],4);const blocks=c.chunks.flatMap(x=>x.o).filter(op=>op[0]===6).map(op=>c.palette[op[7]]);assert.ok(blocks.some(b=>['minecraft:stone_bricks','minecraft:andesite','minecraft:cobblestone'].includes(b)));});
+test('natural steep bank is exact no-op until steep terrain treatment cutover',()=>{const g=graph('natural-steep-bank');const c=compilation(),before=JSON.stringify(c),d=applyTerrainStructuresToCompilation(c,g);assert.equal(d.status,'no-op');assert.equal(JSON.stringify(c),before);});
+test('absolute DTM elevations are translated through compiler datum',()=>{const c=compilation();applyTerrainStructuresToCompilation(c,graph());const ys=c.chunks.flatMap(x=>x.o).filter(op=>op[0]===6).flatMap(op=>[op[2],op[5]]);assert.ok(Math.min(...ys)>=1&&Math.max(...ys)<=4);});
+test('terrain phase 6 remains before ride excavation phase 7',()=>{const c=compilation();applyTerrainStructuresToCompilation(c,graph());const phases=c.chunks.flatMap(x=>x.o).map(op=>op[0]);assert.ok(phases.indexOf(6)<phases.lastIndexOf(7));});
+test('unsupported compiler schema fails closed before mutation',()=>{assert.throws(()=>applyTerrainStructuresToCompilation({meta:{elevationDatumM:100},palette:[],chunks:[{x:0,z:0,o:[[1,0,0]]}]},graph()),/malformed native operation/);});
