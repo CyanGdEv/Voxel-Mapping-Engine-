@@ -16,15 +16,15 @@ Natural rock faces and engineered structures use deterministic class-specific pa
 
 ## Stateful block transport and steep banks
 
-The compiler palette now supports backward-compatible stateful block descriptors `{name, states}` in addition to legacy string block IDs. Direct `.mcworld` output writes those states into the chunk NBT palette and validates a stateful sample by reading it back. Behavior-pack output uses `BlockPermutation.resolve(...)` for stateful single-voxel writes.
+The compiler palette supports backward-compatible stateful block descriptors `{name, states}` in addition to legacy string block IDs. Direct `.mcworld` output writes those states into the chunk NBT palette and validates a stateful sample by reading it back. Behavior-pack output uses `BlockPermutation.resolve(...)` for stateful single-voxel writes.
 
-`natural-steep-bank` terrain can therefore use DTM-normal-directed stairs where the horizontal normal is cardinal-dominant. The DTM normal points downhill; the stair ascent is the opposite direction. Diagonal or ambiguous normals fall back to the certified slab treatment. The treatment never smooths, widens or excavates terrain.
+`natural-steep-bank` terrain can use DTM-normal-directed stairs where the horizontal normal is cardinal-dominant. The DTM normal points downhill; the stair ascent is the opposite direction. Diagonal or ambiguous normals fall back to the certified slab treatment. The treatment never smooths, widens or excavates terrain.
 
 ## Retaining-wall detail
 
 `retaining-wall-detail.mjs` refines only terrain structures already associated with explicit planning retaining-wall evidence.
 
-DTM remains the vertical source of truth. Each exact structure cell supplies the wall base and top elevation, so wall height and stepped top courses follow measured terrain rather than a generic constant-height wall.
+DTM remains the vertical source of truth. Each exact structure cell supplies the wall base and top elevation. Because adjacent cells keep their own top elevations, long walls naturally compile into stepped top courses wherever the measured terrain changes rather than being forced to one constant wall height.
 
 Planning metadata may refine the wall only when it is explicit:
 
