@@ -37,8 +37,14 @@ const GENERATED_IMPLEMENTATIONS = new Set([
   'terrain-tunnel-portal-reconciliation.mjs',
   'retaining-wall-detail.mjs',
   'terrain-qa.mjs',
-  'block-state-transport.mjs'
+  'block-state-transport.mjs',
+  'mcworld.mjs',
+  'bedrock.mjs',
+  'pipeline.mjs'
 ]);
+const FINITE_IMPLEMENTATIONS = new Set([...GENERATED_IMPLEMENTATIONS].filter((name) => ![
+  'block-state-transport.mjs', 'mcworld.mjs', 'bedrock.mjs', 'pipeline.mjs'
+].includes(name)));
 
 const FINITE_GUARD = 'if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;';
 const FINITE_CANONICAL = `function finite(value) {\n  ${FINITE_GUARD}\n  const n = Number(value);\n  return Number.isFinite(n) ? n : null;\n}`;
@@ -55,6 +61,7 @@ async function repairGenerator(root, validate) {
 
   if (!validate) {
     for (const name of libEntries) {
+      if (!FINITE_IMPLEMENTATIONS.has(name)) continue;
       const file = path.join(libDir, name);
       const source = await readFile(file, 'utf8');
       const repaired = repairFiniteHelpers(source);
@@ -86,6 +93,7 @@ async function repairGenerator(root, validate) {
   }
 
   for (const name of libEntries) {
+    if (!FINITE_IMPLEMENTATIONS.has(name)) continue;
     validateFiniteHelpers(await readFile(path.join(libDir, name), 'utf8'), name);
   }
   for (const name of (await readdir(testDir)).filter((entry) => entry.endsWith('.test.mjs'))) {
@@ -224,9 +232,9 @@ function selfTestTransforms() {
   if (!repaired.includes(FINITE_GUARD)) throw new Error('Alton live repair self-test: finite guard not installed');
   if (repairFiniteHelpers(repaired) !== repaired) throw new Error('Alton live repair self-test: finite repair not idempotent');
 
-  const imports = 'import { x } from "./terrain-morphology.mjs";\nimport { y } from "./fixture.mjs";';
+  const imports = 'import { x } from "./terrain-morphology.mjs";\nimport { y } from "./mcworld.mjs";\nimport { z } from "./fixture.mjs";';
   const normalized = normalizeGeneratedTestImports(imports);
-  if (!normalized.includes('../src/lib/terrain-morphology.mjs') || !normalized.includes('./fixture.mjs')) {
+  if (!normalized.includes('../src/lib/terrain-morphology.mjs') || !normalized.includes('../src/lib/mcworld.mjs') || !normalized.includes('./fixture.mjs')) {
     throw new Error('Alton live repair self-test: test import normalization failed');
   }
 
