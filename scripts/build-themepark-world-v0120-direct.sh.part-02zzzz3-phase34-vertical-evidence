@@ -4,6 +4,7 @@
   PHASE34_INSTALLER="$ROOT/patches/v0120-phase34/install-vertical-evidence-engine.mjs"
   PHASE34_RIDE_PROFILE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
   PHASE34_RIDE_3D_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-3d-geometry.mjs"
+  PHASE34_SUPPORT_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-support-reconstruction.mjs"
   PHASE34_LOG="$DIAG/phase34-vertical-evidence.log"
 
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --self-test 2>&1 | tee "$PHASE34_LOG"
@@ -18,9 +19,14 @@
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
+  "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-3d-geometry.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-support-reconstruction.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
   (
     cd "$GEN"
@@ -28,6 +34,7 @@
       test/vertical-evidence-engine.test.mjs \
       test/ride-vertical-profile.test.mjs \
       test/ride-3d-geometry.test.mjs \
+      test/ride-support-reconstruction.test.mjs \
       2>&1 | tee -a "$PHASE34_LOG"
   )
 
@@ -40,7 +47,10 @@
     'ride_3d=planning-alignment-plus-evidence-bounded-y' \
     'ride_3d_sampling=1m-default-configurable' \
     'ride_3d_metrics=x-y-z,pitch,length3d' \
+    'ride_supports=planning-point-to-resolved-track-and-ground' \
+    'ride_support_metrics=footing,connection,height,length3d,lean' \
     'unsupported_ride_spans=y-null-never-extrapolated' \
+    'unresolved_supports=never-fabricated' \
     'terrain=lidar-or-terrain-sampler-ground-evidence' \
     'conflicts=retained-and-reported' \
     'missing_values=unresolved-never-guessed' \
