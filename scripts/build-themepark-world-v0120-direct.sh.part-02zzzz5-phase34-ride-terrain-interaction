@@ -1,26 +1,47 @@
-  # Phase 34 — classify solved 3D ride geometry against bare-earth DTM.
-  # This remains graph-only: it emits terrain/excavation intervals for a later
-  # compiler cutover without mutating legacy Minecraft feature objects.
+  # Phase 34 — classify solved 3D ride geometry against bare-earth DTM, build
+  # evidence-bounded excavation voxels, and probe the checksum-locked compiler
+  # contract before the first terrain-writing cutover.
   PHASE34_RIDE_TERRAIN_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-terrain-interaction.mjs"
+  PHASE34_EXCAVATION_MASK_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-excavation-mask.mjs"
+  PHASE34_COMPILER_PROBE="$ROOT/patches/v0120-phase34/probe-compiler-contract.mjs"
   PHASE34_RIDE_TERRAIN_LOG="$DIAG/phase34-ride-terrain-interaction.log"
+  PHASE34_COMPILER_PROBE_LOG="$DIAG/phase34-compiler-contract-probe.log"
 
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_TERRAIN_INSTALLER" --self-test 2>&1 | tee "$PHASE34_RIDE_TERRAIN_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_TERRAIN_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_TERRAIN_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
 
+  "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_MASK_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_MASK_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_MASK_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-terrain-interaction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-excavation-mask.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
   (
     cd "$GEN"
-    "$TPMAP_NODE_BIN" --test test/ride-terrain-interaction.test.mjs 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+    "$TPMAP_NODE_BIN" --test \
+      test/ride-terrain-interaction.test.mjs \
+      test/ride-excavation-mask.test.mjs \
+      2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
   )
+
+  # Diagnostic probe is intentionally read-only. It exposes the native compileMap
+  # and Bedrock operation contract so the terrain cutover can target the exact
+  # locked generator schema rather than using heuristic world writes.
+  "$TPMAP_NODE_BIN" "$PHASE34_COMPILER_PROBE" --generator "$GEN" 2>&1 | tee "$PHASE34_COMPILER_PROBE_LOG"
 
   printf '%s\n' \
     'phase34_ride_terrain_interaction=enabled' \
     'comparison=planning-3d-ride-vs-bare-earth-dtm' \
     'classes=elevated,near-grade,cutting,tunnel,unresolved' \
     'excavation=cutting-and-tunnel-intervals-only' \
+    'excavation_mask=verified-1m-voxel-sidecar' \
+    'excavation_mask_unresolved=no-op' \
+    'excavation_mask_osm=fail-closed' \
     'unresolved_spans=no-clearance-or-excavation-fabrication' \
+    'compiler_contract_probe=enabled-read-only' \
     'osm_policy=never-valid-ride-or-terrain-world-evidence' \
-    'compiler_cutover=graph-only' \
+    'compiler_cutover=mask-ready-native-writer-contract-under-validation' \
     > "$DIAG/phase34-ride-terrain-policy.txt"
