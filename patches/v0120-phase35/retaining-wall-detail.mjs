@@ -35,7 +35,7 @@ export function applyRetainingWallDetailToCompilation(compilation, graph, option
       const bodyBlock=material||DEFAULT_BODY;
       for(const [x,z] of footprint){
         if(material||thickness){for(let y=y1;y<=y2;y++)setWrite(writes,{x,y,z,block:bodyBlock,kind:'body',wallId:s.id});}
-        if(cap){const capY=y2+1;setWrite(writes,{x,y:capY,z,block:capBlock(material),kind:'cap',wallId:s.id});}
+        if(cap){setWrite(writes,{x,y:y2,z,block:capBlock(material),kind:'cap',wallId:s.id});}
       }
       touched ||= Boolean(thickness||cap||material);
       if(writes.size>MAX_EXTRA)throw new Error(`Phase 35 retaining-wall detail exceeded safe write cap ${MAX_EXTRA}`);
@@ -46,7 +46,7 @@ export function applyRetainingWallDetailToCompilation(compilation, graph, option
   const before=countOps(compilation),indexes=new Map();
   for(const w of writes.values()){const key=paletteKey(w.block);if(!indexes.has(key))indexes.set(key,ensurePalette(compilation,w.block));w.paletteIndex=indexes.get(key);}
   emit(compilation,writes);for(const ch of compilation.chunks)ch.o.sort(compareOps);compilation.chunks=compilation.chunks.filter(c=>c.o.length).sort((a,b)=>a.z-b.z||a.x-b.x);
-  const after=countOps(compilation),d={marker:'TPMAP_PHASE35_RETAINING_WALL_DETAIL_V1',status:'applied',phase:PHASE,datumM,wallsVisited,wallsDetailed,explicitThicknessWalls,explicitCapWalls,materialWalls,writes:writes.size,emittedOperations:after-before,policy:'dtm-vertical-truth;planning-explicit-thickness-cap-material-only;no-generic-barrier-promotion;no-implicit-decoration'};
+  const after=countOps(compilation),d={marker:'TPMAP_PHASE35_RETAINING_WALL_DETAIL_V1',status:'applied',phase:PHASE,datumM,wallsVisited,wallsDetailed,explicitThicknessWalls,explicitCapWalls,materialWalls,writes:writes.size,emittedOperations:after-before,policy:'dtm-vertical-truth;planning-explicit-thickness-cap-material-only;coping-replaces-top-course-without-height-growth;no-generic-barrier-promotion;no-implicit-decoration'};
   compilation.meta.retainingWallDetail=d;const stats=compilation.stats||(compilation.stats={});stats.operations=after;stats.rawOperations=after;stats.retainingWallDetailWrites=writes.size;return d;
 }
 
