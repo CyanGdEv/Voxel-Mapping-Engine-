@@ -48,7 +48,7 @@ export function transformPipeline(source) {
     source,
     'import { enforcePlanningCoverage } from "./planning-coverage.mjs";',
     'import { enforcePlanningCoverage } from "./planning-coverage.mjs";\n' +
-      'import { buildParkReconstructionGraph } from "./park-reconstruction-graph.mjs";\n' +
+      'import { buildParkReconstructionGraph, compactParkReconstructionGraph } from "./park-reconstruction-graph.mjs";\n' +
       'const TPMAP_PHASE33_RECONSTRUCTION_GRAPH_PIPELINE = true;',
     "reconstruction graph import"
   );
@@ -74,7 +74,7 @@ export function transformPipeline(source) {
     output,
     '  const fidelityPath = await writeJson(path.join(outputDir, "fidelity.json"), fidelity);',
     '  const reconstructionGraphPath = await writeJson(\n' +
-      '    path.join(outputDir, "park-reconstruction-graph.json"), reconstructionGraph\n' +
+      '    path.join(outputDir, \"park-reconstruction-graph.json\"), compactParkReconstructionGraph(reconstructionGraph), 0\n' +
       '  );\n' +
       '  const fidelityPath = await writeJson(path.join(outputDir, "fidelity.json"), fidelity);',
     "reconstruction graph artifact"
@@ -95,6 +95,7 @@ function validatePipeline(source) {
   for (const token of [
     "TPMAP_PHASE33_RECONSTRUCTION_GRAPH_PIPELINE",
     "buildParkReconstructionGraph({ parkName, map, sources, accuracy, options })",
+    "compactParkReconstructionGraph(reconstructionGraph)",
     "map.reconstructionGraph = reconstructionGraph",
     "park-reconstruction-graph.json",
     "reconstructionGraph: reconstructionGraph.summary",
