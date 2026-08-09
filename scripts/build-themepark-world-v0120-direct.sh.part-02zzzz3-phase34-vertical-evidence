@@ -6,6 +6,7 @@
   PHASE34_BUILDING_INSTALLER="$ROOT/patches/v0120-phase34/install-building-roof-reconstruction.mjs"
   PHASE34_ROOF_PLANE_INSTALLER="$ROOT/patches/v0120-phase34/install-building-roof-plane-decomposition.mjs"
   PHASE34_ROOF_CONSTRAINT_INSTALLER="$ROOT/patches/v0120-phase34/install-building-roof-planning-constraints.mjs"
+  PHASE34_VEGETATION_INSTALLER="$ROOT/patches/v0120-phase34/install-vegetation-reconstruction.mjs"
   PHASE34_RIDE_PROFILE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
   PHASE34_RIDE_3D_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-3d-geometry.mjs"
   PHASE34_SUPPORT_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-support-reconstruction.mjs"
@@ -31,6 +32,10 @@
   "$TPMAP_NODE_BIN" "$PHASE34_ROOF_CONSTRAINT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_ROOF_CONSTRAINT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
+  "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
@@ -48,6 +53,7 @@
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/building-roof-reconstruction.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/building-roof-plane-decomposition.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/building-roof-planning-constraints.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vegetation-reconstruction.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-3d-geometry.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-support-reconstruction.mjs"
@@ -60,6 +66,7 @@
       test/building-roof-reconstruction.test.mjs \
       test/building-roof-plane-decomposition.test.mjs \
       test/building-roof-planning-constraints.test.mjs \
+      test/vegetation-reconstruction.test.mjs \
       test/ride-vertical-profile.test.mjs \
       test/ride-3d-geometry.test.mjs \
       test/ride-support-reconstruction.test.mjs \
@@ -80,6 +87,10 @@
     'building_roof_constraints=planning-ridge,eave,pitch,direction-over-dsm' \
     'building_roof_conflicts=retained-and-reported' \
     'building_vertical_authority=planning-levels-over-sampled-surfaces' \
+    'vegetation=planning-geometry-plus-dtm-dsm-digital-twin' \
+    'vegetation_metrics=ground,canopy-top,height,crown-area,crown-diameter,crown-volume' \
+    'vegetation_classes=individual-tree,canopy-group,woodland' \
+    'vegetation_species=never-invented-without-evidence' \
     'ride_profile=multi-anchor-measured-centerline' \
     'ride_3d=planning-alignment-plus-evidence-bounded-y' \
     'ride_3d_sampling=1m-default-configurable' \
