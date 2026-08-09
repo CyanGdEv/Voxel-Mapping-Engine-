@@ -168,6 +168,8 @@ jobs:
     needs: select-planning-prefetch
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    permissions:
+      contents: write
     env:
       TPMAP_CONTACT: ${{ vars.TPMAP_CONTACT || format('https://github.com/{0}', github.repository) }}
       TPMAP_PRESET: ${{ inputs.preset }}
@@ -241,12 +243,23 @@ jobs:
           chmod +x "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
           bash "$RUNNER_TEMP/build-themepark-world-v0120-direct.sh"
 
+      # GitHub Actions artifacts always download as ZIP files. Publish the
+      # player-facing world as a raw Release asset so it opens directly.
+      - name: Publish generated world as direct .mcworld download
+        id: publish_world
+        if: ${{ always() && steps.build.outputs.mcworld != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-mcworld-release.sh "${{ steps.build.outputs.mcworld }}" "${{ inputs.preset }}"
+
       - name: Write build summary
         if: always()
         shell: bash
         env:
           SUMMARY_PRESET: ${{ inputs.preset }}
           SUMMARY_STRATEGY: ${{ steps.build.outputs.strategy || 'none' }}
+          SUMMARY_DOWNLOAD_URL: ${{ steps.publish_world.outputs.download_url || '' }}
         run: |
           {
             printf '%s\n' '# Voxel Mapping Engine — Automatic Theme Park World'
@@ -264,7 +277,10 @@ jobs:
               printf '%s\n' "- File: $(basename "$MCWORLD")"
               printf '%s\n' "- Size: $(du -h "$MCWORLD" | cut -f1)"
               printf '%s\n' "- SHA-256: $(sha256sum "$MCWORLD" | cut -d' ' -f1)"
-              printf '%s\n' '- Download the artifact, unzip it in the iOS Files app, then tap the .mcworld file.'
+              if [[ -n "$SUMMARY_DOWNLOAD_URL" ]]; then
+                printf '%s\n' "- Direct download: [$(basename "$MCWORLD")]($SUMMARY_DOWNLOAD_URL)"
+                printf '%s\n' '- Tap the `.mcworld` download to open it directly in Minecraft; no artifact ZIP extraction is required.'
+              fi
             else
               printf '\n%s\n' '## Failure details'
               for LOG in ci-diagnostics/fatal-error.log ci-diagnostics/source-error.txt ci-diagnostics/source-checksum.txt ci-diagnostics/source-archive-validation.log ci-diagnostics/source-syntax-check.log ci-diagnostics/version-check.log ci-diagnostics/npm-ci.log ci-diagnostics/compatibility-tests.log ci-diagnostics/doctor.log ci-diagnostics/orthophoto-download.log ci-diagnostics/planning-authority-config.txt ci-diagnostics/planning-document-config.txt ci-diagnostics/phase2*-* ci-diagnostics/build-*.log; do
@@ -277,16 +293,6 @@ jobs:
               done
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload generated world and reports
-        if: ${{ always() && steps.build.outputs.mcworld != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.build.outputs.safe_name }}-mcworld-v0120
-          path: generator/out/github-actions/**
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
 
       - name: Upload diagnostics
         if: always()

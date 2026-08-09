@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MCWORLD_PATH="${1:-}"
+PARK_PRESET="${2:-}"
+
+if [[ -z "$MCWORLD_PATH" || -z "$PARK_PRESET" ]]; then
+  echo "usage: publish-mcworld-release.sh <world.mcworld> <park-preset>" >&2
+  exit 2
+fi
+
+for required_name in GITHUB_REPOSITORY GITHUB_SHA GITHUB_OUTPUT; do
+  if [[ -z "${!required_name:-}" ]]; then
+    echo "missing required GitHub Actions variable: $required_name" >&2
+    exit 2
+  fi
+done
+
+if [[ ! -f "$MCWORLD_PATH" ]]; then
+  echo "generated .mcworld does not exist: $MCWORLD_PATH" >&2
+  exit 1
+fi
+
+ASSET_NAME="$(basename "$MCWORLD_PATH")"
+if [[ "$ASSET_NAME" != *.mcworld ]]; then
+  echo "generated world must use the .mcworld extension: $ASSET_NAME" >&2
+  exit 1
+fi
+
+RELEASE_TAG="generated-world-${PARK_PRESET}-latest"
+RELEASE_TITLE="Latest generated world — ${PARK_PRESET//-/ }"
+NOTES_FILE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/${RELEASE_TAG}-notes.md"
+
+{
+  printf '%s\n' "Direct Minecraft Bedrock world download for **${PARK_PRESET}**."
+  printf '\n'
+  printf '%s\n' "Generated from commit \`${GITHUB_SHA}\` by [Actions run ${GITHUB_RUN_NUMBER:-unknown}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID:-})."
+  printf '%s\n' 'Download the `.mcworld` asset below and open it directly in Minecraft. No artifact ZIP extraction is required.'
+} > "$NOTES_FILE"
+
+if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+  gh release edit "$RELEASE_TAG" \
+    --repo "$GITHUB_REPOSITORY" \
+    --target "$GITHUB_SHA" \
+    --title "$RELEASE_TITLE" \
+    --notes-file "$NOTES_FILE" \
+    --prerelease
+else
+  gh release create "$RELEASE_TAG" \
+    --repo "$GITHUB_REPOSITORY" \
+    --target "$GITHUB_SHA" \
+    --title "$RELEASE_TITLE" \
+    --notes-file "$NOTES_FILE" \
+    --prerelease \
+    --latest=false
+fi
+
+# Release assets are served as their original file type. --clobber keeps one
+# stable, directly downloadable world per park instead of accumulating runs.
+gh release upload "$RELEASE_TAG" "$MCWORLD_PATH" \
+  --repo "$GITHUB_REPOSITORY" \
+  --clobber
+
+ENCODED_ASSET_NAME="$(node -p 'encodeURIComponent(process.argv[1])' "$ASSET_NAME")"
+DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ENCODED_ASSET_NAME}"
+
+printf 'asset_name=%s\n' "$ASSET_NAME" >> "$GITHUB_OUTPUT"
+printf 'download_url=%s\n' "$DOWNLOAD_URL" >> "$GITHUB_OUTPUT"
+printf 'release_tag=%s\n' "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+printf 'Published direct .mcworld download: %s\n' "$DOWNLOAD_URL"

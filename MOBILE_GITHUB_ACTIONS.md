@@ -1,6 +1,6 @@
 # Run Voxel Mapping Engine from a phone
 
-The repository includes a manually triggered GitHub Actions workflow that runs ThemePark Map v0.12.0 on a GitHub-hosted Linux runner and returns a directly importable Minecraft Bedrock `.mcworld` artifact.
+The repository includes a manually triggered GitHub Actions workflow that runs ThemePark Map v0.12.0 on a GitHub-hosted Linux runner and publishes a directly importable Minecraft Bedrock `.mcworld` download.
 
 No local terminal, desktop computer, or Minecraft server is required.
 
@@ -35,7 +35,7 @@ A missing, renamed, recompressed, or modified archive will stop the run before d
 7. Leave the default public-source switches enabled for the first build.
 8. Tap the green **Run workflow** button.
 
-The workflow verifies the direct v0.12.0 source archive, installs dependencies, runs compatibility tests, fetches bounded public data, compiles the world, validates the Bedrock archive, and uploads the world plus evidence reports.
+The workflow verifies the direct v0.12.0 source archive, installs dependencies, runs compatibility tests, fetches bounded public data, compiles the world, validates the Bedrock archive, publishes the raw world file, and uploads diagnostic reports separately.
 
 ## Custom park
 
@@ -99,14 +99,12 @@ The workflow downloads the file, validates it with GDAL, and enables evidence-mo
 ## Download the generated world
 
 1. Open the completed workflow run.
-2. Scroll to **Artifacts**.
-3. Download the artifact ending in `-mcworld-v0120`.
-4. Open the downloaded ZIP in the iOS Files app.
-5. Extract it.
-6. Tap the contained `.mcworld` file.
-7. Choose Minecraft when iOS asks which app should open it.
+2. Open the **Direct download** link in the run summary.
+3. Download the `.mcworld` file.
+4. Tap the downloaded file.
+5. Choose Minecraft when iOS asks which app should open it.
 
-The artifact also contains provenance, source-fusion, fidelity, validation, and supplemental-source reports.
+No ZIP extraction is required. Provenance, validation, and failure evidence remain available as separate diagnostic artifacts.
 
 ## Failed runs
 

@@ -44,8 +44,8 @@ Do not rename, recompress, or edit the archive without updating the checksum in 
 4. Choose `alton-towers`, `chessington`, `thorpe-park`, or `custom`.
 5. Keep the default source switches enabled.
 6. Start the workflow.
-7. Download the artifact ending in `-mcworld-v0120`.
-8. Extract the artifact in the iOS Files app and tap the `.mcworld` file to import it into Minecraft.
+7. Open the **Direct download** link in the completed run summary.
+8. Tap the downloaded `.mcworld` file to import it into Minecraft; no ZIP extraction is required.
 
 For a custom park, enter a name and WGS84 bounding box in this order:
 
