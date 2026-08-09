@@ -48,7 +48,7 @@ export function transformPipeline(source) {
     source,
     'import { enforcePlanningCoverage } from "./planning-coverage.mjs";',
     'import { enforcePlanningCoverage } from "./planning-coverage.mjs";\n' +
-      'import { buildParkReconstructionGraph, compactParkReconstructionGraph } from "./park-reconstruction-graph.mjs";\n' +
+      'import { buildParkReconstructionGraph, compactParkReconstructionGraph, reconstructionCompilerMap } from "./park-reconstruction-graph.mjs";\n' +
       'const TPMAP_PHASE33_RECONSTRUCTION_GRAPH_PIPELINE = true;',
     "reconstruction graph import"
   );
@@ -58,9 +58,16 @@ export function transformPipeline(source) {
     '  const accuracy = assessAccuracy(map, sources, options);\n\n' +
       '  progress("Building unified 3D park reconstruction graph");\n' +
       '  const reconstructionGraph = buildParkReconstructionGraph({ parkName, map, sources, accuracy, options });\n' +
-      '  map.reconstructionGraph = reconstructionGraph;\n\n' +
+      '  map.reconstructionGraph = reconstructionGraph;\n' +
+      '  const reconstructionCompileMap = reconstructionCompilerMap(map);\n\n' +
       '  progress("Compiling 1 m raster and chunked Bedrock operations");',
     "reconstruction graph build stage"
+  );
+  output = replaceOnce(
+    output,
+    '  const compilation = compileMap({ parkName, map, sources, accuracy, options });',
+    '  const compilation = compileMap({ parkName, map: reconstructionCompileMap, sources, accuracy, options });',
+    "reconstruction graph compiler boundary"
   );
   output = replaceOnce(
     output,
@@ -97,6 +104,8 @@ function validatePipeline(source) {
     "buildParkReconstructionGraph({ parkName, map, sources, accuracy, options })",
     "compactParkReconstructionGraph(reconstructionGraph)",
     "map.reconstructionGraph = reconstructionGraph",
+    "const reconstructionCompileMap = reconstructionCompilerMap(map)",
+    "map: reconstructionCompileMap",
     "park-reconstruction-graph.json",
     "reconstructionGraph: reconstructionGraph.summary",
     "reconstructionGraph: reconstructionGraphPath"
@@ -123,6 +132,7 @@ function selfTestTransform() {
     '  const accuracy = assessAccuracy(map, sources, options);',
     '',
     '  progress("Compiling 1 m raster and chunked Bedrock operations");',
+    '  const compilation = compileMap({ parkName, map, sources, accuracy, options });',
     '  const evidencePath = await writeJson(path.join(outputDir, "evidence.json"), {',
     '    rideProfiles: compactRideEvidence(rideProfiles),',
     '    accuracy,',
