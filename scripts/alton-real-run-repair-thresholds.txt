@@ -1,1 +1,0 @@
-Planning authority unchanged. Terrain QA thresholds unchanged. Vertical evidence remains fail-closed. OSM remains invalid as planning/vertical world evidence in authoritative planning areas.
