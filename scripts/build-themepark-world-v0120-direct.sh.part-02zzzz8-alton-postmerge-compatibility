@@ -6,15 +6,12 @@
   ALTON_POSTMERGE_COMPAT_INSTALLER="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
   ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
 
-  # Normalize current assembled-generator semantics first. The older compatibility
-  # installer remains as an independent final gate, but no longer has to infer a
-  # modernized test state from one obsolete exact-cardinality assertion.
+  # Normalize current assembled-generator semantics first. The compatibility
+  # installer remains as an independent final gate and must itself accept either
+  # the historical exact-cardinality form or the already-modernized regression.
   "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  if ! grep -q 'TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY' "$GEN/test/planning-vectorize.test.mjs"; then
-    printf '\n// TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY\n' >> "$GEN/test/planning-vectorize.test.mjs"
-  fi
 
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
