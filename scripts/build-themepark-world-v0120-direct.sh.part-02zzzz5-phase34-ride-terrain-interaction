@@ -4,6 +4,7 @@
   PHASE34_RIDE_TERRAIN_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-terrain-interaction.mjs"
   PHASE34_EXCAVATION_MASK_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-excavation-mask.mjs"
   PHASE34_COMPILER_PROBE="$ROOT/patches/v0120-phase34/probe-compiler-contract.mjs"
+  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   PHASE34_RIDE_TERRAIN_LOG="$DIAG/phase34-ride-terrain-interaction.log"
   PHASE34_COMPILER_PROBE_LOG="$DIAG/phase34-compiler-contract-probe.log"
 
@@ -14,6 +15,12 @@
   "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_MASK_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_MASK_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_EXCAVATION_MASK_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+
+  # These installers copy their regression tests into generator/test. Normalize
+  # their implementation imports before execution and re-assert null-safe finite
+  # helpers on the newly installed modules.
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
 
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-terrain-interaction.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-excavation-mask.mjs"
