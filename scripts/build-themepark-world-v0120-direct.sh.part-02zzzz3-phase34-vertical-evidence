@@ -5,6 +5,7 @@
   PHASE34_RIDE_PROFILE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
   PHASE34_RIDE_3D_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-3d-geometry.mjs"
   PHASE34_SUPPORT_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-support-reconstruction.mjs"
+  PHASE34_SURFACE_INSTALLER="$ROOT/patches/v0120-phase34/install-terrain-surface-model.mjs"
   PHASE34_LOG="$DIAG/phase34-vertical-evidence.log"
 
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --self-test 2>&1 | tee "$PHASE34_LOG"
@@ -23,10 +24,15 @@
   "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
+  "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-3d-geometry.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-support-reconstruction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-surface-model.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
   (
     cd "$GEN"
@@ -35,6 +41,7 @@
       test/ride-vertical-profile.test.mjs \
       test/ride-3d-geometry.test.mjs \
       test/ride-support-reconstruction.test.mjs \
+      test/terrain-surface-model.test.mjs \
       2>&1 | tee -a "$PHASE34_LOG"
   )
 
@@ -49,9 +56,12 @@
     'ride_3d_metrics=x-y-z,pitch,length3d' \
     'ride_supports=planning-point-to-resolved-track-and-ground' \
     'ride_support_metrics=footing,connection,height,length3d,lean' \
+    'terrain_surfaces=dtm-ground,dsm-object-top' \
+    'terrain_height=derived-only-as-dsm-minus-dtm' \
+    'generic_elevation_sampler=ground-only-never-duplicated-as-dsm' \
+    'attachments=paths-supports-dtm;buildings-vegetation-dtm-plus-dsm;rides-bridges-independent-over-dtm' \
     'unsupported_ride_spans=y-null-never-extrapolated' \
     'unresolved_supports=never-fabricated' \
-    'terrain=lidar-or-terrain-sampler-ground-evidence' \
     'conflicts=retained-and-reported' \
     'missing_values=unresolved-never-guessed' \
     'osm_policy=never-valid-vertical-world-evidence' \
