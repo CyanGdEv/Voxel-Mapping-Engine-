@@ -1,0 +1,26 @@
+  # Phase 34 — classify solved 3D ride geometry against bare-earth DTM.
+  # This remains graph-only: it emits terrain/excavation intervals for a later
+  # compiler cutover without mutating legacy Minecraft feature objects.
+  PHASE34_RIDE_TERRAIN_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-terrain-interaction.mjs"
+  PHASE34_RIDE_TERRAIN_LOG="$DIAG/phase34-ride-terrain-interaction.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_TERRAIN_INSTALLER" --self-test 2>&1 | tee "$PHASE34_RIDE_TERRAIN_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_TERRAIN_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_TERRAIN_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-terrain-interaction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test test/ride-terrain-interaction.test.mjs 2>&1 | tee -a "$PHASE34_RIDE_TERRAIN_LOG"
+  )
+
+  printf '%s\n' \
+    'phase34_ride_terrain_interaction=enabled' \
+    'comparison=planning-3d-ride-vs-bare-earth-dtm' \
+    'classes=elevated,near-grade,cutting,tunnel,unresolved' \
+    'excavation=cutting-and-tunnel-intervals-only' \
+    'unresolved_spans=no-clearance-or-excavation-fabrication' \
+    'osm_policy=never-valid-ride-or-terrain-world-evidence' \
+    'compiler_cutover=graph-only' \
+    > "$DIAG/phase34-ride-terrain-policy.txt"
