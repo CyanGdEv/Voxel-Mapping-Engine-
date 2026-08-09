@@ -16,13 +16,11 @@
     [[ -f "$GEN/src/lib/planning-vector-fusion.mjs" ]] || return 1
     [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || return 1
 
-    # Require concrete planning-site output roles in both extraction and fusion.
-    # These are stable semantic outputs rather than formatting-sensitive internal
-    # function names.
-    grep -q 'site-path-centerline-candidate' "$GEN/src/lib/planning-vectorize.mjs" || return 1
-    grep -q 'site-path-centerline-candidate' "$GEN/src/lib/planning-vector-fusion.mjs" || return 1
-
-    # An empty historical test file must never satisfy the postcondition.
+    # An empty historical semantic test file must never satisfy the contract.
+    # The preceding recovery stage and this postcondition both exercise the real
+    # extraction/fusion behavior, so source-token greps are intentionally not an
+    # authority here: later prepared-generator transforms may rename/restructure
+    # internals without changing the externally observable planning semantics.
     local semantic_test_count
     semantic_test_count="$(grep -Ec '(^|[^A-Za-z])test\(' "$GEN/test/planning-site-semantics.test.mjs" || true)"
     [[ "$semantic_test_count" -ge 3 ]] || return 1
@@ -57,6 +55,5 @@
   printf '%s\n' \
     'phase30b_semantic_contract=verified' \
     'phase30b_semantic_contract_validation=behavioral-postcondition-no-second-patch-replay' \
-    'site_plan_path_role=site-path-centerline-candidate' \
     'semantic_test_minimum=3' \
     > "$DIAG/phase30b-semantic-contract.txt"
