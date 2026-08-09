@@ -40,6 +40,7 @@ jobs:
         run: |
           set +e
           mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          printf '%s\n' "${parts[@]}" > "$RUNNER_TEMP/part-order.txt"
           cat "${parts[@]}" > "$RUNNER_TEMP/phase30-production-prep.sh"
           chmod +x "$RUNNER_TEMP/phase30-production-prep.sh"
           bash "$RUNNER_TEMP/phase30-production-prep.sh" > "$RUNNER_TEMP/production-prep.log" 2>&1
@@ -54,6 +55,8 @@ jobs:
         run: |
           echo "=== preparation exit code ==="
           cat "$RUNNER_TEMP/prep-exit-code.txt" 2>/dev/null || true
+          echo "=== runner part order ==="
+          cat "$RUNNER_TEMP/part-order.txt" 2>/dev/null || true
           echo "=== full production preparation tail ==="
           tail -n 320 "$RUNNER_TEMP/production-prep.log" 2>/dev/null || true
           echo "=== failed compatibility stage ==="
@@ -76,3 +79,4 @@ jobs:
             ${{ runner.temp }}/prep-exit-code.txt
             ${{ runner.temp }}/production-prep.log
             ${{ runner.temp }}/phase30-production-prep.sh
+            ${{ runner.temp }}/part-order.txt
