@@ -24,7 +24,15 @@ A legacy generic `sampleLocal()` source is ground-compatible only and is never d
 
 Planning FFL/base/top evidence remains authoritative over sampled surfaces. DTM supplies robust building ground/base context where planning levels are absent; independent DSM supplies roof/top observations. A generic ground sampler can resolve a base but can never fabricate a roof.
 
-The first roof classifier distinguishes `flat`, `shed`, `pitched`, `complex`, and `unresolved`. It uses robust DSM relief statistics plus a least-squares surface fit to identify a dominant roof rise direction when the evidence supports it. The reconstruction records eave/top/ridge evidence, relief, ridge/rise direction, confidence, footprint sample counts and property-level authority. Ambiguous or undersampled roofs stay unresolved rather than becoming generic extrusions.
+The first roof classifier distinguishes `flat`, `shed`, `pitched`, `complex`, and `unresolved`. It uses robust DSM relief statistics plus a least-squares surface fit to identify a dominant roof rise direction when the evidence supports it. Ambiguous or undersampled roofs stay unresolved rather than becoming generic extrusions.
+
+## Multi-plane roof decomposition
+
+`building-roof-plane-decomposition.mjs` converts supported building roof evidence into graph-owned roof primitives. Flat roofs become one explicit footprint plane with eave edges. Non-flat roofs require an independent DSM channel; DSM samples are decomposed into supported plane groups with explicit polygons, slope, aspect, fitted plane coefficients, height ranges and confidence.
+
+Where at least two supported planes exist, the graph emits a bounded ridge candidate using the reconstructed roof direction and footprint geometry. Eave edges follow the planning-authoritative footprint. Missing DSM, insufficient samples or poor plane fits remain unresolved; the engine never fabricates gable/hip geometry from a generic ground sampler.
+
+These plane/ridge/eave primitives are intentionally Minecraft-independent so the later compiler can choose stairs, slabs or full blocks without changing reconstruction truth.
 
 ## Multi-point ride vertical profiles
 
@@ -42,8 +50,8 @@ These structures remain graph-only. The legacy Minecraft compiler stays unchange
 
 ## Next slices
 
-1. Split pitched/complex building roofs into multiple roof planes and explicit ridge/eave lines.
-2. Add planning elevation/section annotations as roof-plane constraints.
-3. Add vegetation crown height/volume from DTM/DSM separation.
-4. Add ride clearance/tunnel/terrain-intersection classification against DTM.
+1. Add planning elevation/section annotations as explicit roof-plane/ridge/eave constraints.
+2. Add vegetation crown height/volume from DTM/DSM separation.
+3. Add ride clearance/tunnel/terrain-intersection classification against DTM.
+4. Add Minecraft-aware building shell compilation using the graph roof primitives.
 5. Cut graph-resolved building/ride/water/support vertical state into Minecraft generation one family at a time under explicit output tests.
