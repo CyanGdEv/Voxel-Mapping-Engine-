@@ -34,6 +34,14 @@ Where at least two supported planes exist, the graph emits a bounded ridge candi
 
 These plane/ridge/eave primitives are intentionally Minecraft-independent so the later compiler can choose stairs, slabs or full blocks without changing reconstruction truth.
 
+## Planning elevation and section roof constraints
+
+`building-roof-planning-constraints.mjs` applies explicit planning annotations after DSM plane decomposition. Compatible planning observations can constrain ridge elevation, eave elevation, roof pitch and ridge direction. Matching document hashes and planning references are used before spatial association, and distant or incompatible observations are rejected.
+
+Planning values are authoritative for the exact property they state. For example, an explicit 35 degree roof pitch replaces a DSM-derived 22 degree slope on the reconstructed roof planes, while the DSM plane polygons can still provide geometry that the plan did not explicitly define. Likewise, explicit ridge/eave levels replace sampled vertical values without discarding the independent DSM evidence.
+
+Disagreement is never hidden. When planning ridge/eave/pitch/direction materially disagrees with DSM-derived values, the selected planning value is applied and the difference is retained as a conflict for later QA. OSM-derived observations are never accepted as roof constraints in planning-only mode.
+
 ## Multi-point ride vertical profiles
 
 Ride elevation observations are projected onto the measured planning-authoritative ride centerline. Compatible anchors are ordered by distance along the track and interpolation is allowed only between accepted neighboring anchors. The solver never extrapolates before the first anchor or beyond the final anchor, and gaps above the configured safety limit stay unresolved.
@@ -50,8 +58,8 @@ These structures remain graph-only. The legacy Minecraft compiler stays unchange
 
 ## Next slices
 
-1. Add planning elevation/section annotations as explicit roof-plane/ridge/eave constraints.
-2. Add vegetation crown height/volume from DTM/DSM separation.
-3. Add ride clearance/tunnel/terrain-intersection classification against DTM.
-4. Add Minecraft-aware building shell compilation using the graph roof primitives.
+1. Add vegetation crown height/volume from DTM/DSM separation.
+2. Add ride clearance/tunnel/terrain-intersection classification against DTM.
+3. Add Minecraft-aware building shell compilation using the graph roof primitives.
+4. Add explicit façade/elevation constraints from planning elevation drawings.
 5. Cut graph-resolved building/ride/water/support vertical state into Minecraft generation one family at a time under explicit output tests.
