@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildParkReconstructionGraph, validateParkReconstructionGraph } from "../src/lib/park-reconstruction-graph.mjs";
+import { buildParkReconstructionGraph, reconstructionCompilerMap, validateParkReconstructionGraph } from "../src/lib/park-reconstruction-graph.mjs";
 
 const line = (a, b) => ({ type: "LineString", coordinates: [a, b] });
 const polygon = (x1, z1, x2, z2) => ({ type: "Polygon", coordinates: [[[x1,z1],[x2,z1],[x2,z2],[x1,z2],[x1,z1]]] });
@@ -99,4 +99,25 @@ test("bridge-water and vertical relations are preserved for later 3D solvers", (
   assert.ok(relation);
   assert.equal(relation.vertical.relation, "above");
   assert.equal(relation.vertical.deltaM, 4);
+});
+
+test("compiler boundary consumes graph-owned feature references without changing order or identity", () => {
+  const features = [
+    feature("physical:path", "path", line([0,0],[10,0])),
+    feature("level:compiler", "detail", { type: "Point", coordinates: [3, 2] }, {
+      subtype: "planning-terrain-level",
+      tags: { planning_reference: "P", planning_authoritative: true, planning_feature_class: "terrain-level" },
+      vertical: { elevationM: 102.5 }
+    }),
+    feature("evidence:boundary", "detail", polygon(-1,-1,11,1), { tags: { planning_reference: "P", render_in_world: false } })
+  ];
+  const map = { features, topology: { marker: "same-map-metadata" } };
+  const graph = buildParkReconstructionGraph({ map, options: { planningWorldAuthority: "planning-only" } });
+  map.reconstructionGraph = graph;
+  const compilerMap = reconstructionCompilerMap(map);
+  assert.notEqual(compilerMap, map);
+  assert.equal(compilerMap.topology, map.topology);
+  assert.equal(compilerMap.features.length, features.length);
+  assert.ok(compilerMap.features.every((item, index) => item === features[index]));
+  assert.equal(JSON.stringify(graph).includes("compilerFeatures"), false);
 });
