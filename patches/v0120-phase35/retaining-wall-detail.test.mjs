@@ -7,7 +7,7 @@ function graph(tags={}){const node={id:'wall',geometry:{bounds:{minX:4,minZ:0,ma
 
 test('explicit material refines wall body while DTM keeps vertical extent',()=>{const c=compilation(),d=applyRetainingWallDetailToCompilation(c,graph({material:'concrete'}));assert.equal(d.status,'applied');assert.equal(d.materialWalls,1);const ops=c.chunks.flatMap(ch=>ch.o).filter(op=>op[0]===6&&c.palette[op[7]]==='minecraft:smooth_stone');assert.equal(ops.length,4);assert.deepEqual(ops.map(op=>op[2]).sort((a,b)=>a-b),[1,2,3,4]);validateRetainingWallDetailCompilation(c,d);});
 
-test('explicit thickness expands only axis-aligned wall normal',()=>{const c=compilation(),d=applyRetainingWallDetailToCompilation(c,graph({width:3,material:'stone'}));assert.equal(d.explicitThicknessWalls,1);const xs=new Set(c.chunks.flatMap(ch=>ch.o).filter(op=>op[0]===6&&c.palette[op[7]]==='minecraft:stone_bricks').map(op=>op[1]));assert.ok(xs.has(3)&&xs.has(4)&&xs.has(5));});
+test('explicit thickness expands only axis-aligned wall normal',()=>{const c=compilation(),d=applyRetainingWallDetailToCompilation(c,graph({width:3}));assert.equal(d.explicitThicknessWalls,1);const xs=new Set(c.chunks.flatMap(ch=>ch.o).filter(op=>op[0]===6&&c.palette[op[7]]==='minecraft:stone_bricks').map(op=>op[1]));assert.ok(xs.has(3)&&xs.has(4)&&xs.has(5));});
 
 test('diagonal or broad bounds do not guess thickness expansion',()=>{const g=graph({width:4,material:'concrete'});g.nodes[0].geometry.bounds={minX:0,minZ:0,maxX:8,maxZ:8};const c=compilation();applyRetainingWallDetailToCompilation(c,g);const coords=c.chunks.flatMap(ch=>ch.o).filter(op=>op[0]===6&&c.palette[op[7]]==='minecraft:smooth_stone').map(op=>`${op[1]}:${op[3]}`);assert.ok(coords.every(v=>v==='4:4'));});
 
