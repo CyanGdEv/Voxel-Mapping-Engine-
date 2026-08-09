@@ -64,6 +64,15 @@
     printf 'phase30b_patch_exit=%s\n' "$phase30b_patch_status" \
       | tee "$DIAG/phase30b-patch-exit.txt"
 
+    # The checksum-locked patch predates later prepared-generator formatting.
+    # Complete its deterministic handoff transforms before the behavior gate;
+    # deferring this to the following fragment caused the real Alton run to
+    # record a false deterministic failure even though the later repair passed.
+    node "$ROOT/scripts/complete-phase30b-semantic-contract.mjs" --self-test \
+      2>&1 | tee -a "$DIAG/phase30b-patch-apply.log"
+    node "$ROOT/scripts/complete-phase30b-semantic-contract.mjs" --generator "$GEN" \
+      2>&1 | tee -a "$DIAG/phase30b-patch-apply.log"
+
     node --check "$GEN/src/lib/planning-vectorize.mjs"
     node --check "$GEN/src/lib/planning-vector-fusion.mjs"
 
