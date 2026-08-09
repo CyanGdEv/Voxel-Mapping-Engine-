@@ -6,6 +6,7 @@ on:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'patches/v0120-phase30b/**'
+      - 'patches/v0120-phase30d/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
@@ -18,6 +19,7 @@ on:
       - '.github/workflows/build-themepark-world-resilient.yml'
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'patches/v0120-phase30b/**'
+      - 'patches/v0120-phase30d/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
@@ -135,6 +137,7 @@ jobs:
           grep -q '# fail 0' ci-diagnostics/final-phase30d-comprehensive-plan-tests.log
           grep -q '# fail 0' ci-diagnostics/final-phase30-material-tests.log
           grep -q 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' generator/src/lib/fidelity.mjs
+          grep -q 'TPMAP_PHASE30D_CONTENT_ADDRESSED_RASTER_DERIVATIVES' generator/src/lib/planning-raster-extraction.mjs
           test ! -e generator/src/lib/planning-vectorize.mjs.rej
           test ! -e generator/src/lib/planning-vector-fusion.mjs.rej
           test -z "$(find generator -type f -name '*.rej' -print -quit)"
