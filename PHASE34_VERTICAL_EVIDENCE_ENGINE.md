@@ -1,6 +1,6 @@
 # Phase 34 — Vertical Evidence Engine
 
-Phase 34 resolves vertical truth on the Phase 33 reconstruction graph before Minecraft compilation. The first slice is deliberately graph-only: it does not mutate the legacy compiler feature objects, so vertical decisions can be validated before they move blocks in the world.
+Phase 34 resolves vertical truth on the Phase 33 reconstruction graph before Minecraft compilation. The current implementation is deliberately graph-first: it does not mutate the legacy compiler feature objects, so vertical decisions can be validated before they move blocks in the world.
 
 ## Vertical model
 
@@ -36,18 +36,34 @@ Phase 34 consumes the evidence nodes introduced by Phase 33:
 - `water-level` — water surface levels;
 - `terrain-level` — ground/spot levels used for terrain-associated objects.
 
+## Multi-point ride vertical profiles
+
+Ride elevation is no longer limited to one nearest level for the whole ride object. The ride profile solver projects every compatible planning HP/LP/spot-level observation onto the measured ride centerline, then orders accepted anchors by distance along the track.
+
+For each track:
+
+- planning reference and source-document hash are used to prevent nearby labels crossing between separate rides;
+- anchors must fall within a bounded lateral distance of the track;
+- duplicate anchors at effectively the same track measure are resolved deterministically;
+- elevation is interpolated only between adjacent accepted planning anchors;
+- no elevation is extrapolated before the first anchor or after the last anchor;
+- anchor gaps larger than the configured evidence-support limit remain explicitly unresolved;
+- each supported segment records its start/end elevations, gradient and source anchor IDs.
+
+This produces an evidence-bounded continuous ride elevation profile while preserving unsupported sections as unknown rather than fabricating track height.
+
 ## Conflict handling
 
 Conflicting values are retained in per-node `verticalResolution.conflicts` diagnostics. Higher-authority evidence is selected, but lower-authority disagreement is not silently discarded. This creates the audit trail needed for later automated QA.
 
 ## Current compiler policy
 
-The first Phase 34 slice updates only reconstruction-graph vertical state. `reconstructionCompilerMap()` still passes the original feature references to the existing compiler, preserving current block output. A later Phase 34 slice will migrate selected compiler families to graph-resolved vertical values under explicit output tests.
+Phase 34 currently updates reconstruction-graph vertical state and ride profiles only. `reconstructionCompilerMap()` still passes the original feature references to the existing compiler, preserving current block output. A later Phase 34 slice will migrate selected compiler families to graph-resolved vertical values under explicit output tests.
 
 ## Next slices
 
-1. Match multi-point ride elevation observations along track geometry rather than only node-level nearest association.
-2. Add DTM/DSM separation for ground vs object top evidence.
-3. Add terrain-surface attachment edges and support-footing ground intersections.
-4. Add roof/top-surface observations for buildings and vegetation.
-5. Cut resolved building, ride, water and support vertical state into the Minecraft compiler one family at a time.
+1. Add DTM/DSM separation for ground vs object-top evidence.
+2. Add terrain-surface attachment edges and support-footing ground intersections.
+3. Add roof/top-surface observations for buildings and vegetation.
+4. Convert ride profile elevation into graph-derived 3D compiler geometry under output-difference tests.
+5. Cut resolved building, water and support vertical state into the Minecraft compiler one family at a time.
