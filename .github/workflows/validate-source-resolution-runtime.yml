@@ -1,0 +1,59 @@
+name: Validate Source Resolution Runtime
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/prune-planning-runtime-geometry.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-01c999-runtime-planning-geometry'
+      - 'scripts/validate-park-runtime-cache.mjs'
+      - '.github/workflows/build-themepark-world-resilient.yml'
+      - '.github/workflows/validate-source-resolution-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/prune-planning-runtime-geometry.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-01c999-runtime-planning-geometry'
+      - 'scripts/validate-park-runtime-cache.mjs'
+      - '.github/workflows/build-themepark-world-resilient.yml'
+      - '.github/workflows/validate-source-resolution-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate geometry-only planning runtime selection
+        run: |
+          node --check scripts/prune-planning-runtime-geometry.mjs
+          node scripts/prune-planning-runtime-geometry.mjs --self-test
+      - name: Validate resumable cache integrity
+        run: |
+          node scripts/validate-park-runtime-cache.mjs --self-test
+          grep -q 'Checkpoint shared source cache' .github/workflows/build-themepark-world-resilient.yml
+          grep -q "steps.runtime_cache_checkpoint.outputs.saveable == 'true'" .github/workflows/build-themepark-world-resilient.yml
+          grep -q -- '--seal' .github/workflows/build-themepark-world-resilient.yml
+          grep -q -- '--max-age-hours 24' .github/workflows/build-themepark-world-resilient.yml
+          grep -q 'park-runtime-v1-${{ inputs.preset }}-${{ github.run_id }}' .github/workflows/build-themepark-world-resilient.yml
+      - name: Validate runtime handoff ordering and durable evidence isolation
+        shell: bash
+        run: |
+          mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          printf '%s\n' "${parts[@]}" > "$RUNNER_TEMP/part-order.txt"
+          cat "${parts[@]}" > "$RUNNER_TEMP/direct-runner.sh"
+          bash -n "$RUNNER_TEMP/direct-runner.sh"
+          runtime_line=$(grep -n 'part-01c999-runtime-planning-geometry$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          source_line=$(grep -n 'part-02$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          test -n "$runtime_line"
+          test -n "$source_line"
+          test "$runtime_line" -lt "$source_line"
+          grep -q 'TPMAP_PLANNING_DURABLE_PREFETCH_DIR' scripts/build-themepark-world-v0120-direct.sh.part-01c999-runtime-planning-geometry
+          grep -q 'TPMAP_PLANNING_RUNTIME_DIR' scripts/build-themepark-world-v0120-direct.sh.part-01c999-runtime-planning-geometry
+          grep -q 'export TPMAP_PLANNING_PREFETCH_DIR' scripts/build-themepark-world-v0120-direct.sh.part-01c999-runtime-planning-geometry
+          grep -q 'runtime-geometry-selection.json' scripts/build-themepark-world-v0120-direct.sh.part-01c999-runtime-planning-geometry
