@@ -4,17 +4,21 @@ on:
   pull_request:
     paths:
       - 'patches/v0120-phase30d/install-bounded-planning-processing.mjs'
+      - 'patches/v0120-phase30d/install-georeference-priority-performance.mjs'
       - 'patches/v0120-phase30d/install-comprehensive-plan-extraction.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz1-phase30d-native-cache'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz2-phase30d-planning-processing'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz3-phase30d-georeference-priority-performance'
       - '.github/workflows/validate-phase30d-planning-processing.yml'
   push:
     branches: [main]
     paths:
       - 'patches/v0120-phase30d/install-bounded-planning-processing.mjs'
+      - 'patches/v0120-phase30d/install-georeference-priority-performance.mjs'
       - 'patches/v0120-phase30d/install-comprehensive-plan-extraction.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz1-phase30d-native-cache'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz2-phase30d-planning-processing'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz3-phase30d-georeference-priority-performance'
       - '.github/workflows/validate-phase30d-planning-processing.yml'
 
 permissions:
@@ -38,11 +42,23 @@ jobs:
           grep -q 'planning-georeference-results-v1' patches/v0120-phase30d/install-bounded-planning-processing.mjs
           grep -q 'planningGeoreferenceToolSignature' patches/v0120-phase30d/install-bounded-planning-processing.mjs
           grep -q 'mapConcurrent(documents, processingConcurrency' patches/v0120-phase30d/install-bounded-planning-processing.mjs
+      - name: Validate deterministic georeference priority and hotpath installer
+        run: |
+          node --check patches/v0120-phase30d/install-georeference-priority-performance.mjs
+          node patches/v0120-phase30d/install-georeference-priority-performance.mjs --self-test
+          grep -q 'TPMAP_PHASE30D_GEOREFERENCE_PRIORITY_PERFORMANCE_V2' patches/v0120-phase30d/install-georeference-priority-performance.mjs
+          grep -q 'tpmap-planning-georeference-result-v2' patches/v0120-phase30d/install-georeference-priority-performance.mjs
+          grep -q 'planning-georeference-results-v2' patches/v0120-phase30d/install-georeference-priority-performance.mjs
+          grep -q 'Printed coordinate controls are stronger' patches/v0120-phase30d/install-georeference-priority-performance.mjs
+          grep -q 'TPMAP_PHASE30D_AUTOREGISTRATION_HOTPATH_V2' patches/v0120-phase30d/install-georeference-priority-performance.mjs
+          grep -q 'TPMAP planning georeference rejection reasons' patches/v0120-phase30d/install-georeference-priority-performance.mjs
       - name: Verify comprehensive fidelity ceiling remains intact
         run: |
           grep -q "integer(options.planningGeoreferenceMaxDocuments, 500, 1, 500)" patches/v0120-phase30d/install-comprehensive-plan-extraction.mjs
           ! grep -q 'planningGeoreferenceMaxDocuments, 40' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz2-phase30d-planning-processing
           grep -q 'planning_georeference_fidelity_cap=unchanged-500-documents' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz2-phase30d-planning-processing
+          grep -q 'planning_acceptance_thresholds=unchanged' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz3-phase30d-georeference-priority-performance
+          grep -q 'planning_fidelity_ceiling=unchanged' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz3-phase30d-georeference-priority-performance
           grep -q 'planning_authority=unchanged' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz2-phase30d-planning-processing
       - name: Validate direct-runner ordering and syntax
         shell: bash
@@ -53,11 +69,15 @@ jobs:
           bash -n "$RUNNER_TEMP/direct-runner.sh"
           native_line=$(grep -n 'part-02zzzz1-phase30d-native-cache$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           processing_line=$(grep -n 'part-02zzzz2-phase30d-planning-processing$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          priority_line=$(grep -n 'part-02zzzz3-phase30d-georeference-priority-performance$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           seal_line=$(grep -n 'part-02zzzzzzzzzy-prepared-generator-seal$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           test -n "$native_line"
           test -n "$processing_line"
+          test -n "$priority_line"
           test -n "$seal_line"
           test "$native_line" -lt "$processing_line"
-          test "$processing_line" -lt "$seal_line"
+          test "$processing_line" -lt "$priority_line"
+          test "$priority_line" -lt "$seal_line"
           grep -q 'install-bounded-planning-processing.mjs' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'install-georeference-priority-performance.mjs' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'georeference-on-cache-miss' "$RUNNER_TEMP/direct-runner.sh"
