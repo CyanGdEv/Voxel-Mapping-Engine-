@@ -27,8 +27,10 @@
     require_marker 'PARK_SCENERY_FIDELITY_MARKER' "$GEN/src/lib/park-scenery-fidelity.mjs" 'park scenery library'
     require_marker 'PARK_LANDSCAPING_FIDELITY_MARKER' "$GEN/src/lib/park-landscaping-fidelity.mjs" 'park landscaping library'
     require_marker 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' "$GEN/src/lib/fidelity.mjs" 'Phase 30B uniform weighted sampler'
-    require_marker 'PHASE30B_EXTENDED_BLOCK_LIBRARY_V1' "$GEN/src/lib/mcworld.mjs" 'Phase 30B material writer library'
-    require_marker 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$GEN/src/lib/mcworld.mjs" 'Phase 30 scenery block writer library'
+    # The synchronized Bedrock block library supersedes the two historical
+    # writer markers. Its behavior is proven below by both the material/palette
+    # suite and the 29-preset integration probe, so do not reject a current
+    # generator merely because obsolete implementation strings disappeared.
 
     # Phase 30D comprehensive plan extraction is mandatory when its installer is
     # present. Validate geometry, OCR/raster, georeference, fusion and world-use
