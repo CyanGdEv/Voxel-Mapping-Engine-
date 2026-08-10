@@ -1,0 +1,88 @@
+
+  # TPMAP_PREPARED_GENERATOR_SEAL_BOUNDARY_V1
+  # All production-mutating preparation stages sort before this fragment. The
+  # remaining final preflight is read-only, so seal the executable/test surface
+  # here and verify it again at the exact world-build process boundary.
+  TPMAP_PREPARED_GENERATOR_SEAL_TOOL="$ROOT/scripts/seal-prepared-generator.mjs"
+  TPMAP_PREPARED_GENERATOR_SEAL_FILE="$DIAG/prepared-generator-seal.json"
+  TPMAP_PREPARED_GENERATOR_SEAL_LOG="$DIAG/prepared-generator-seal.log"
+  TPMAP_PREPARED_GENERATOR_SEAL_VERIFY_LOG="$DIAG/prepared-generator-seal-prebuild.log"
+
+  if [[ ! -f "$TPMAP_PREPARED_GENERATOR_SEAL_TOOL" ]]; then
+    echo "Prepared generator seal tool missing: $TPMAP_PREPARED_GENERATOR_SEAL_TOOL" >&2
+    touch "$DIAG/deterministic-build-failure.marker"
+    return 64
+  fi
+
+  if ! "$TPMAP_NODE_BIN" "$TPMAP_PREPARED_GENERATOR_SEAL_TOOL" \
+    --generator "$GEN" \
+    --seal "$TPMAP_PREPARED_GENERATOR_SEAL_FILE" \
+    > "$TPMAP_PREPARED_GENERATOR_SEAL_LOG" 2>&1; then
+    cat "$TPMAP_PREPARED_GENERATOR_SEAL_LOG" >&2
+    echo "Prepared generator sealing failed; refusing final preflight/world compilation." >&2
+    touch "$DIAG/deterministic-build-failure.marker"
+    return 64
+  fi
+
+  # Verify immediately once so TPMAP_PREPARE_ONLY=preflight proves the generated
+  # manifest itself is readable and matches the prepared generator.
+  if ! "$TPMAP_NODE_BIN" "$TPMAP_PREPARED_GENERATOR_SEAL_TOOL" \
+    --generator "$GEN" \
+    --seal "$TPMAP_PREPARED_GENERATOR_SEAL_FILE" \
+    --verify \
+    >> "$TPMAP_PREPARED_GENERATOR_SEAL_LOG" 2>&1; then
+    cat "$TPMAP_PREPARED_GENERATOR_SEAL_LOG" >&2
+    echo "Prepared generator seal failed immediate verification." >&2
+    touch "$DIAG/deterministic-build-failure.marker"
+    return 64
+  fi
+
+  # The existing final guard later wraps the actual build with timeout/budget
+  # accounting. Preserve that architecture by swapping only the underlying Node
+  # executable for a generated wrapper. Non-build Node calls pass through. The
+  # real world build must verify the seal immediately before Node starts cli.mjs.
+  TPMAP_REAL_NODE_BIN="$TPMAP_NODE_BIN"
+  TPMAP_SEALED_NODE_WRAPPER="$DIAG/.tpmap-sealed-node-wrapper.sh"
+  export TPMAP_REAL_NODE_BIN
+  export TPMAP_PREPARED_GENERATOR_SEAL_TOOL
+  export TPMAP_PREPARED_GENERATOR_SEAL_FILE
+  export TPMAP_PREPARED_GENERATOR_SEAL_VERIFY_LOG
+  export TPMAP_PREPARED_GENERATOR_ROOT="$GEN"
+  export TPMAP_SEAL_FAILURE_MARKER="$DIAG/deterministic-build-failure.marker"
+
+  cat > "$TPMAP_SEALED_NODE_WRAPPER" <<'TPMAP_SEALED_NODE_WRAPPER_SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+is_world_build=false
+if [[ "${2:-}" == "build" ]]; then
+  if [[ "${1:-}" == "src/cli.mjs" || "${1:-}" == "${TPMAP_PREPARED_GENERATOR_ROOT}/src/cli.mjs" ]]; then
+    is_world_build=true
+  fi
+fi
+
+if [[ "$is_world_build" == "true" ]]; then
+  : > "$TPMAP_PREPARED_GENERATOR_SEAL_VERIFY_LOG"
+  if ! "$TPMAP_REAL_NODE_BIN" "$TPMAP_PREPARED_GENERATOR_SEAL_TOOL" \
+    --generator "$TPMAP_PREPARED_GENERATOR_ROOT" \
+    --seal "$TPMAP_PREPARED_GENERATOR_SEAL_FILE" \
+    --verify \
+    > "$TPMAP_PREPARED_GENERATOR_SEAL_VERIFY_LOG" 2>&1; then
+    cat "$TPMAP_PREPARED_GENERATOR_SEAL_VERIFY_LOG" >&2
+    echo "Prepared generator changed after sealing; refusing world compilation." >&2
+    touch "$TPMAP_SEAL_FAILURE_MARKER"
+    exit 66
+  fi
+fi
+
+exec "$TPMAP_REAL_NODE_BIN" "$@"
+TPMAP_SEALED_NODE_WRAPPER_SH
+  chmod 700 "$TPMAP_SEALED_NODE_WRAPPER"
+  TPMAP_NODE_BIN="$TPMAP_SEALED_NODE_WRAPPER"
+
+  printf '%s\n' \
+    'prepared_generator_seal=enabled' \
+    'prepared_generator_seal_scope=src,test,package-manifests' \
+    'prepared_generator_seal_algorithm=sha256' \
+    'prepared_generator_prebuild_verification=required' \
+    >> "$DIAG/prepared-generator-seal-policy.txt"
