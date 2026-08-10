@@ -101,13 +101,11 @@ function rewriteExactLengthAssertions(source) {
   let changed = false;
 
   while (cursor < output.length) {
-    const equalIndex = output.indexOf('assert.equal', cursor);
-    const strictIndex = output.indexOf('assert.strictEqual', cursor);
-    const candidates = [equalIndex, strictIndex].filter((index) => index >= 0);
-    if (!candidates.length) break;
+    const assertion = findNextEqualityAssertion(output, cursor);
+    if (!assertion) break;
 
-    const callStart = Math.min(...candidates);
-    const open = output.indexOf('(', callStart);
+    const callStart = assertion.index;
+    const open = output.indexOf('(', callStart + assertion.name.length);
     if (open < 0) break;
     const close = findMatchingParen(output, open);
     if (close < 0) throw new Error('Prepared generator test finalizer: malformed assertion call in planning vector regression');
@@ -120,7 +118,10 @@ function rewriteExactLengthAssertions(source) {
     const expectedCount = parseIntegerLiteral(second);
     if (args.length >= 2 && args.length <= 3 && first.includes('.length') && expectedCount !== null && expectedCount >= 2) {
       const statementEnd = consumeOptionalSemicolon(output, close + 1);
-      const replacement = `assert.ok(${first} >= 2${message ? `, ${message}` : ''});`;
+      const condition = `${first} >= 2`;
+      const replacement = assertion.name.startsWith('assert.')
+        ? `assert.ok(${condition}${message ? `, ${message}` : ''});`
+        : `${assertion.name}(${condition}, true${message ? `, ${message}` : ''});`;
       output = output.slice(0, callStart) + replacement + output.slice(statementEnd);
       cursor = callStart + replacement.length;
       changed = true;
@@ -135,13 +136,11 @@ function rewriteExactLengthAssertions(source) {
 function hasObsoleteExactCandidateAssertion(source) {
   let cursor = 0;
   while (cursor < source.length) {
-    const equalIndex = source.indexOf('assert.equal', cursor);
-    const strictIndex = source.indexOf('assert.strictEqual', cursor);
-    const candidates = [equalIndex, strictIndex].filter((index) => index >= 0);
-    if (!candidates.length) return false;
+    const assertion = findNextEqualityAssertion(source, cursor);
+    if (!assertion) return false;
 
-    const callStart = Math.min(...candidates);
-    const open = source.indexOf('(', callStart);
+    const callStart = assertion.index;
+    const open = source.indexOf('(', callStart + assertion.name.length);
     if (open < 0) return false;
     const close = findMatchingParen(source, open);
     if (close < 0) return true;
@@ -151,6 +150,39 @@ function hasObsoleteExactCandidateAssertion(source) {
     cursor = close + 1;
   }
   return false;
+}
+
+function findNextEqualityAssertion(source, cursor) {
+  const names = ['assert.strictEqual', 'assert.equal', 'strictEqual', 'equal'];
+  const candidates = [];
+  for (const name of names) {
+    let index = source.indexOf(name, cursor);
+    while (index >= 0) {
+      const before = source[index - 1] || '';
+      const after = source[index + name.length] || '';
+      const identifierBefore = /[A-Za-z0-9_$]/.test(before);
+      const identifierAfter = /[A-Za-z0-9_$]/.test(after);
+      if (!identifierBefore && !identifierAfter) {
+        candidates.push({ index, name });
+        break;
+      }
+      index = source.indexOf(name, index + name.length);
+    }
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.index - b.index || b.name.length - a.name.length);
+  return candidates[0];
+}
+
+function summarizeCandidateAssertions(source) {
+  return source
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /(?:assert|equal|candidate|feature|\.length)/i.test(line))
+    .filter(Boolean)
+    .slice(0, 40)
+    .join(' | ')
+    .slice(0, 3000);
 }
 
 function parseIntegerLiteral(source) {
@@ -309,7 +341,8 @@ function validatePlanningVectorCandidateContract(source) {
     throw new Error('Prepared generator test finalizer: obsolete exact candidate cardinality remains');
   }
   if (!/\.length\s*>=\s*2/.test(block)) {
-    throw new Error('Prepared generator test finalizer: minimum candidate-set assertion missing');
+    const observed = summarizeCandidateAssertions(block);
+    throw new Error(`Prepared generator test finalizer: minimum candidate-set assertion missing; observed=${JSON.stringify(observed)}`);
   }
   for (const marker of VECTOR_MARKERS) {
     if (!block.includes(marker)) throw new Error(`Prepared generator test finalizer: missing ${marker}`);
@@ -357,6 +390,15 @@ function runSelfTest() {
   }
   if (modernizePlanningVectorCandidateContract(realModern) !== realModern) {
     throw new Error('Prepared generator test finalizer self-test: real-run transform not idempotent');
+  }
+
+  const directImportShape = `test('${VECTOR_TEST_TITLE}', async () => {\n  const candidates = await Promise.resolve(new Array(10).fill({}));\n  strictEqual(\n    candidates.length,\n    2\n  );\n});\ntest('next',()=>{});`;
+  const directModern = modernizePlanningVectorCandidateContract(directImportShape);
+  if (!directModern.includes('strictEqual(candidates.length >= 2, true);')) {
+    throw new Error('Prepared generator test finalizer self-test: direct strictEqual cardinality not modernized');
+  }
+  if (modernizePlanningVectorCandidateContract(directModern) !== directModern) {
+    throw new Error('Prepared generator test finalizer self-test: direct-import transform not idempotent');
   }
 
   const expandedExact = `test('${VECTOR_TEST_TITLE}', async () => {\n  const candidates = await Promise.resolve(new Array(10).fill({}));\n  assert.strictEqual(candidates.length, 10);\n});\ntest('next',()=>{});`;
