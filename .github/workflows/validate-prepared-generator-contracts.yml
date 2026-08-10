@@ -1,0 +1,48 @@
+name: Validate Prepared Generator Contracts
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/finalize-prepared-generator-test-contracts.mjs'
+      - 'scripts/validate-prepared-generator-source-contracts.mjs'
+      - 'patches/v0120-postmerge/install-alton-preflight-compatibility.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz8-alton-postmerge-compatibility'
+      - '.github/workflows/validate-prepared-generator-contracts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/finalize-prepared-generator-test-contracts.mjs'
+      - 'scripts/validate-prepared-generator-source-contracts.mjs'
+      - 'patches/v0120-postmerge/install-alton-preflight-compatibility.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz8-alton-postmerge-compatibility'
+      - '.github/workflows/validate-prepared-generator-contracts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-contract-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run owning contract self-tests
+        run: |
+          node scripts/finalize-prepared-generator-test-contracts.mjs --self-test
+          node scripts/validate-prepared-generator-source-contracts.mjs --self-test
+          node patches/v0120-postmerge/install-alton-preflight-compatibility.mjs --self-test
+      - name: Verify compatibility boundary is fail-closed
+        shell: bash
+        run: |
+          fragment='scripts/build-themepark-world-v0120-direct.sh.part-02zzzz8-alton-postmerge-compatibility'
+          grep -q 'run_alton_contract_step' "$fragment"
+          grep -q 'deterministic-build-failure.marker' "$fragment"
+          grep -q 'return 64' "$fragment"
+          grep -q 'postmerge_contract_failures=fail-closed-before-final-preflight' "$fragment"
+          grep -q 'prepared_test_contract_finalizer=test-only-v2-structural-assertion-rewrite' "$fragment"
+          ! grep -Fq '"$PREPARED_TEST_CONTRACT_FINALIZER" --self-test 2>&1 | tee' "$fragment"
+          ! grep -Fq '"$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" 2>&1 | tee' "$fragment"
+          ! grep -Fq '"$PREPARED_SOURCE_CONTRACT_VALIDATOR" --generator "$GEN" 2>&1 | tee' "$fragment"

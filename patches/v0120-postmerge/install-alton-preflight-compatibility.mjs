@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// TPMAP_ALTON_POSTMERGE_PREFLIGHT_COMPATIBILITY_V2
-// Read-only assembled-generator validation. All production mutations must be
-// owned by their canonical Phase 30/34/35 installers before this boundary.
+// TPMAP_ALTON_POSTMERGE_PREFLIGHT_COMPATIBILITY_V3
+// Read-only assembled-generator source validation. Test-shape contracts are owned
+// exclusively by finalize-prepared-generator-test-contracts.mjs immediately before
+// this boundary; do not duplicate or reinterpret those assertions here.
 
 import path from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
@@ -19,17 +20,16 @@ const GENERATED_TEST_IMPLEMENTATION = /^(?:vertical-evidence-engine|terrain-surf
 async function validateInstallation(root) {
   const vertical = await readFile(path.join(root, 'src/lib/vertical-evidence-engine.mjs'), 'utf8');
   const pipeline = await readFile(path.join(root, 'src/lib/pipeline.mjs'), 'utf8');
-  const planning = await readFile(path.join(root, 'test/planning-vectorize.test.mjs'), 'utf8');
 
   validateVertical(vertical);
   validatePipeline(pipeline);
-  validatePlanningVectorTest(planning);
   await validateGeneratedTestImports(root);
 
   console.log(JSON.stringify({
     status: 'validated',
-    marker: 'TPMAP_ALTON_POSTMERGE_PREFLIGHT_COMPATIBILITY_V2',
-    mutation: 'none'
+    marker: 'TPMAP_ALTON_POSTMERGE_PREFLIGHT_COMPATIBILITY_V3',
+    mutation: 'none',
+    testContractOwner: 'finalize-prepared-generator-test-contracts.mjs'
   }));
 }
 
@@ -75,23 +75,6 @@ export function validatePipeline(source) {
     'validateVerticalResolution(reconstructionGraph)'
   ]) {
     if (!source.includes(token)) throw new Error(`Postmerge validation: pipeline missing ${token}`);
-  }
-}
-
-export function validatePlanningVectorTest(source) {
-  if (!source.includes('TPMAP_PREPARED_GENERATOR_VECTOR_CANDIDATE_SET_V1')) {
-    throw new Error('Postmerge validation: prepared planning-vector candidate-set contract missing');
-  }
-  const testName = 'accepted georeferenced vector PDF produces evidence-only path and footprint candidates';
-  const start = source.indexOf(testName);
-  if (start < 0) throw new Error('Postmerge validation: planning vector regression test missing');
-  const next = source.indexOf('\ntest(', start + testName.length);
-  const block = source.slice(start, next < 0 ? source.length : next);
-  if (/assert\.(?:equal|strictEqual)\([^;\n]*?\.length\s*,\s*2\s*\);/.test(block)) {
-    throw new Error('Postmerge validation: obsolete exact planning-vector cardinality remains');
-  }
-  if (!/\.length\s*>=\s*2/.test(block)) {
-    throw new Error('Postmerge validation: minimum planning-vector candidate-set assertion missing');
   }
 }
 
@@ -144,15 +127,7 @@ function selfTestContracts() {
     'validateVerticalResolution(reconstructionGraph);'
   ].join('\n'));
 
-  validatePlanningVectorTest([
-    "test('accepted georeferenced vector PDF produces evidence-only path and footprint candidates',()=>{",
-    '  const features=[];',
-    '  assert.ok(features.length >= 2);',
-    '});',
-    '// TPMAP_PREPARED_GENERATOR_VECTOR_CANDIDATE_SET_V1'
-  ].join('\n'));
-
-  console.log('Alton postmerge read-only compatibility self-test passed');
+  console.log('Alton postmerge read-only source compatibility self-test passed');
 }
 
 // Dispatch only after every module-scoped validation dependency is initialized.
