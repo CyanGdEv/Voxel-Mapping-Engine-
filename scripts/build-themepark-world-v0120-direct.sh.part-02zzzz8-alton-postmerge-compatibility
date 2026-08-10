@@ -5,49 +5,106 @@
   PREPARED_SOURCE_CONTRACT_VALIDATOR="$ROOT/scripts/validate-prepared-generator-source-contracts.mjs"
   ALTON_POSTMERGE_COMPAT_VALIDATOR="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
   ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
+  ALTON_POSTMERGE_STEP_LOG="$DIAG/.alton-postmerge-contract-step.log"
+
+  # Never hide a failing contract command behind `tee`. The real-run diagnostics
+  # proved that a broken finalizer could fail three times while the shell continued
+  # into later validators and only stopped at the final Phase 30B suite.
+  run_alton_contract_step() {
+    local log_mode="$1"
+    shift
+    local status=0
+    : > "$ALTON_POSTMERGE_STEP_LOG"
+    if "$@" > "$ALTON_POSTMERGE_STEP_LOG" 2>&1; then
+      status=0
+    else
+      status=$?
+    fi
+
+    if [[ "$log_mode" == "reset" ]]; then
+      cat "$ALTON_POSTMERGE_STEP_LOG" | tee "$ALTON_POSTMERGE_COMPAT_LOG"
+    else
+      cat "$ALTON_POSTMERGE_STEP_LOG" | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+    fi
+
+    if [[ "$status" -ne 0 ]]; then
+      echo "Prepared generator compatibility step failed status=$status command=$*" \
+        | tee -a "$ALTON_POSTMERGE_COMPAT_LOG" >&2
+      touch "$DIAG/deterministic-build-failure.marker"
+      rm -f "$ALTON_POSTMERGE_STEP_LOG" 2>/dev/null || true
+      return 64
+    fi
+
+    rm -f "$ALTON_POSTMERGE_STEP_LOG" 2>/dev/null || true
+    return 0
+  }
 
   # Normalize test-only contracts at an explicit boundary. This stage never
   # rewrites production source modules. It owns generated test import paths and
   # the Phase 30D-expanded candidate-set regression contract.
-  "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  run_alton_contract_step reset \
+    "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --self-test || return $?
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" || return $?
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" --validate-only || return $?
 
   # Source invariants are checked without mutation. Failures must be fixed in the
   # owning canonical Phase 30B/34/35 templates rather than repaired here.
-  "$TPMAP_NODE_BIN" "$PREPARED_SOURCE_CONTRACT_VALIDATOR" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$PREPARED_SOURCE_CONTRACT_VALIDATOR" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" "$PREPARED_SOURCE_CONTRACT_VALIDATOR" --self-test || return $?
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" "$PREPARED_SOURCE_CONTRACT_VALIDATOR" --generator "$GEN" || return $?
 
-  # Post-merge compatibility is now validation-only. Fail closed if a future edit
+  # Post-merge compatibility is validation-only. Fail closed if a future edit
   # reintroduces filesystem mutation capabilities into this boundary.
   if grep -Eq '\b(writeFile|appendFile|rm|unlink|rename|copyFile)\b' "$ALTON_POSTMERGE_COMPAT_VALIDATOR"; then
     echo "Postmerge compatibility boundary contains a forbidden write/delete API." \
       | tee -a "$ALTON_POSTMERGE_COMPAT_LOG" >&2
-    exit 2
+    touch "$DIAG/deterministic-build-failure.marker"
+    return 64
   fi
-  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_VALIDATOR" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_VALIDATOR" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_VALIDATOR" --self-test || return $?
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_VALIDATOR" --generator "$GEN" || return $?
 
-  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
-  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs" || return $?
+  run_alton_contract_step append \
+    "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs" || return $?
 
   # Re-run the exact vertical evidence regression and the finalized planning
   # candidate-set contract after all canonical assembled-generator transforms.
-  (
+  local alton_postmerge_test_log="$DIAG/.alton-postmerge-tests.log"
+  local alton_postmerge_test_status=0
+  if (
     cd "$GEN"
     "$TPMAP_NODE_BIN" --test \
       test/vertical-evidence-engine.test.mjs \
       test/planning-vectorize.test.mjs \
-      test/planning-site-semantics.test.mjs \
-      2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
-  )
+      test/planning-site-semantics.test.mjs
+  ) > "$alton_postmerge_test_log" 2>&1; then
+    alton_postmerge_test_status=0
+  else
+    alton_postmerge_test_status=$?
+  fi
+  cat "$alton_postmerge_test_log" | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  rm -f "$alton_postmerge_test_log" 2>/dev/null || true
+  if [[ "$alton_postmerge_test_status" -ne 0 ]]; then
+    echo "Prepared generator postmerge behavior suite failed status=$alton_postmerge_test_status" \
+      | tee -a "$ALTON_POSTMERGE_COMPAT_LOG" >&2
+    touch "$DIAG/deterministic-build-failure.marker"
+    return 64
+  fi
 
   printf '%s\n' \
     'alton_postmerge_compatibility=validation-only' \
     'postmerge_source_mutation=disabled' \
+    'postmerge_contract_failures=fail-closed-before-final-preflight' \
     'live_generator_repair=removed-from-production-path' \
     'prepared_source_contract_validator=read-only' \
-    'prepared_test_contract_finalizer=test-only' \
+    'prepared_test_contract_finalizer=test-only-v2-structural-assertion-rewrite' \
     'vertical_source_handoff=owned-by-phase34-vertical-installer' \
     'vertical_null_policy=null-undefined-empty-remain-unresolved-never-zero' \
     'phase34_35_vertical_order=terrain-surface,morphology,planning-association,buildings,vegetation,ride-profile' \
