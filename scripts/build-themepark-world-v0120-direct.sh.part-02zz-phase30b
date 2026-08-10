@@ -2,8 +2,9 @@
   PHASE30B_PATCH_SHA="433069358a9ab0b0dcac44955379003710cd6534fb2c0ed540d676eda660d0b3"
   PHASE30B_B64="$(mktemp)"
   PHASE30B_PATCH="$(mktemp)"
+  PHASE30B_TEST_PATCH="$(mktemp)"
   PHASE30B_PROBE_LOG="$DIAG/phase30b-capability-probe.log"
-  phase30b_cleanup() { rm -f "$PHASE30B_B64" "$PHASE30B_PATCH"; }
+  phase30b_cleanup() { rm -f "$PHASE30B_B64" "$PHASE30B_PATCH" "$PHASE30B_TEST_PATCH"; }
   trap phase30b_cleanup RETURN
 
   PHASE30B_PARTS=()
@@ -29,11 +30,37 @@
     exit 2
   }
 
+  # Node may ignore an explicitly named missing test path and still return zero
+  # for the remaining files. Restore only the checksum-locked semantic test
+  # before probing; never replay historical implementation hunks into source
+  # that already satisfies the executable semantic contract.
+  if [[ ! -f "$GEN/test/planning-site-semantics.test.mjs" ]]; then
+    awk '
+      /^diff --git / { emit = ($0 ~ / b\/test\/planning-site-semantics\.test\.mjs$/) }
+      emit { print }
+    ' "$PHASE30B_PATCH" > "$PHASE30B_TEST_PATCH"
+    grep -q '^+++ b/test/planning-site-semantics.test.mjs$' "$PHASE30B_TEST_PATCH" || {
+      echo "Phase 30B semantic test hunk missing from checksum-locked patch." | tee "$DIAG/phase30b-error.txt" >&2
+      exit 2
+    }
+    patch --batch --forward --fuzz=0 -d "$GEN" -p1 < "$PHASE30B_TEST_PATCH" \
+      2>&1 | tee "$DIAG/phase30b-test-restore.log"
+    [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || {
+      echo "Phase 30B semantic test restoration failed." | tee "$DIAG/phase30b-error.txt" >&2
+      exit 2
+    }
+  fi
+
   # A marker is not proof that Phase 30B is complete. Older prepared-generator
   # states could contain PHASE30B_SEMANTIC_SITE_PLANS while missing later hunks,
   # leaving planning-vectorize.mjs.rej and silently breaking access-plan/site-plan
   # vectorization. Prove the actual behavior before deciding to skip the patch.
   phase30b_capability_probe() {
+    [[ -f "$GEN/test/planning-site-semantics.test.mjs" ]] || return 1
+    local semantic_test_count
+    semantic_test_count="$(grep -Ec '(^|[^A-Za-z])test\(' "$GEN/test/planning-site-semantics.test.mjs" || true)"
+    [[ "$semantic_test_count" =~ ^[0-9]+$ ]] || return 1
+    [[ "$semantic_test_count" -ge 3 ]] || return 1
     (
       cd "$GEN"
       node --test \
