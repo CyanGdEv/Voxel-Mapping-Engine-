@@ -4,9 +4,18 @@
   if [[ "${TPMAP_PLANNING_DOCUMENT_MODE:-off}" != "off" \
     && -n "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
     && -f "${TPMAP_PLANNING_PREFETCH_DIR}/manifest.json" ]]; then
+    TPMAP_PLANNING_DURABLE_PREFETCH_DIR="$TPMAP_PLANNING_PREFETCH_DIR"
+    TPMAP_PLANNING_RUNTIME_DIR="${RUNNER_TEMP:-$ROOT}/tpmap-planning-runtime-${TPMAP_PRESET:-park}"
+    rm -rf "$TPMAP_PLANNING_RUNTIME_DIR"
+    cp -a "$TPMAP_PLANNING_DURABLE_PREFETCH_DIR" "$TPMAP_PLANNING_RUNTIME_DIR"
     node "$ROOT/scripts/prune-planning-runtime-geometry.mjs" \
-      --directory "$TPMAP_PLANNING_PREFETCH_DIR" \
+      --directory "$TPMAP_PLANNING_RUNTIME_DIR" \
       2>&1 | tee "$DIAG/planning-runtime-geometry-selection.log"
-    cp "$TPMAP_PLANNING_PREFETCH_DIR/runtime-geometry-selection.json" \
+    cp "$TPMAP_PLANNING_RUNTIME_DIR/runtime-geometry-selection.json" \
       "$DIAG/planning-runtime-geometry-selection.json"
+    TPMAP_PLANNING_PREFETCH_DIR="$TPMAP_PLANNING_RUNTIME_DIR"
+    export TPMAP_PLANNING_PREFETCH_DIR
+    printf 'durable_prefetch_dir=%s\nruntime_prefetch_dir=%s\n' \
+      "$TPMAP_PLANNING_DURABLE_PREFETCH_DIR" "$TPMAP_PLANNING_RUNTIME_DIR" \
+      > "$DIAG/planning-runtime-geometry-handoff.txt"
   fi
