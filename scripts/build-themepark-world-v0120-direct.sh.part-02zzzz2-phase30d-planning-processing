@@ -1,0 +1,35 @@
+  # Phase 30D source-resolution performance layer: preserve the comprehensive
+  # 500-document fidelity ceiling, but do not serialise every georeference job.
+  # Results are content addressed by exact source/evidence/config/tool identity,
+  # so retries reuse accepted/rejected alignments without changing semantics.
+  PHASE30D_PLANNING_PROCESSING_INSTALLER="$ROOT/patches/v0120-phase30d/install-bounded-planning-processing.mjs"
+  PHASE30D_PLANNING_PROCESSING_LOG="$DIAG/phase30d-bounded-planning-processing.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE30D_PLANNING_PROCESSING_INSTALLER" --self-test \
+    2>&1 | tee "$PHASE30D_PLANNING_PROCESSING_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_PLANNING_PROCESSING_INSTALLER" --generator "$GEN" \
+    2>&1 | tee -a "$PHASE30D_PLANNING_PROCESSING_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_PLANNING_PROCESSING_INSTALLER" --generator "$GEN" --validate-only \
+    2>&1 | tee -a "$PHASE30D_PLANNING_PROCESSING_LOG"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'TPMAP_PHASE30D_BOUNDED_PLANNING_PROCESSING' "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'planning-georeference-results-v1' "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'TPMAP_PLANNING_PROCESSING_CONCURRENCY' "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'planningGeoreferenceToolSignature' "$GEN/src/lib/planning-georeference.mjs"
+
+  # Keep the diagnostic policy accurate after the earlier native-PDF cache layer.
+  if [[ -f "$DIAG/phase30d-runtime-policy.txt" ]]; then
+    sed -i \
+      's/still_recomputed=svg-parse,semantic-association,georeference,feature-gates,planning-authority/still_recomputed=svg-parse,semantic-association,georeference-on-cache-miss,feature-gates,planning-authority/' \
+      "$DIAG/phase30d-runtime-policy.txt"
+  fi
+  printf '%s\n' \
+    'phase30d_bounded_planning_processing=enabled' \
+    "planning_georeference_concurrency=${TPMAP_PLANNING_PROCESSING_CONCURRENCY:-4}" \
+    'planning_georeference_result_cache=content-addressed-v1' \
+    'planning_georeference_cache_identity=document-sha256,bbox,georeference-config,explicit-controls,phase30d-behavior,gdal-poppler-opencv-node-versions' \
+    'planning_georeference_order=deterministic-input-order-after-concurrent-compute' \
+    'planning_georeference_fidelity_cap=unchanged-500-documents' \
+    'planning_georeference_cache_miss=full-original-georeference-path' \
+    'planning_authority=unchanged' \
+    >> "$DIAG/phase30d-runtime-policy.txt"
