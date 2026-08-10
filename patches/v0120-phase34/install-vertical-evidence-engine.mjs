@@ -35,7 +35,10 @@ async function install(root, validate) {
 }
 
 export function transformPipeline(source) {
-  if (source.includes("TPMAP_PHASE34_VERTICAL_EVIDENCE_PIPELINE")) return source;
+  if (source.includes("TPMAP_PHASE34_VERTICAL_EVIDENCE_PIPELINE")) {
+    validatePipeline(source);
+    return source;
+  }
   let output = replaceOnce(
     source,
     'import { buildParkReconstructionGraph, compactParkReconstructionGraph, reconstructionCompilerMap } from "./park-reconstruction-graph.mjs";',
@@ -49,7 +52,8 @@ export function transformPipeline(source) {
     '  map.reconstructionGraph = reconstructionGraph;\n  const reconstructionCompileMap = reconstructionCompilerMap(map);',
     '  map.reconstructionGraph = reconstructionGraph;\n' +
       '  progress("Resolving planning and terrain vertical evidence");\n' +
-      '  const verticalResolution = solveParkVerticalEvidence(reconstructionGraph, options);\n' +
+      '  const TPMAP_PHASE34_VERTICAL_SOURCES_HANDOFF = true;\n' +
+      '  const verticalResolution = solveParkVerticalEvidence(reconstructionGraph, { ...options, verticalSources: sources });\n' +
       '  validateVerticalResolution(reconstructionGraph);\n' +
       '  const reconstructionCompileMap = reconstructionCompilerMap(map);',
     "vertical solver stage"
@@ -85,7 +89,8 @@ function validateVerticalModule(source) {
 function validatePipeline(source) {
   for (const token of [
     "TPMAP_PHASE34_VERTICAL_EVIDENCE_PIPELINE",
-    "solveParkVerticalEvidence(reconstructionGraph, options)",
+    "TPMAP_PHASE34_VERTICAL_SOURCES_HANDOFF",
+    "solveParkVerticalEvidence(reconstructionGraph, { ...options, verticalSources: sources })",
     "validateVerticalResolution(reconstructionGraph)",
     "verticalResolution,"
   ]) if (!source.includes(token)) throw new Error(`Phase 34 pipeline integration missing ${token}`);
@@ -122,6 +127,7 @@ function selfTestTransform() {
   const second = transformPipeline(first);
   if (first !== second) throw new Error("Phase 34 pipeline transform is not idempotent");
   validatePipeline(first);
+  if (!first.includes("verticalSources: sources")) throw new Error("Phase 34 pipeline self-test lost vertical source handoff");
 
   const safeVertical = [
     '// TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1',
