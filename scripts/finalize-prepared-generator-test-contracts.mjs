@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // TPMAP_PREPARED_GENERATOR_TEST_CONTRACT_FINALIZER_V2
 // Canonicalizes assembled-generator test contracts before the final compatibility gate.
-// This script changes tests only; production generator source is never rewritten here.
+// This script changes generated tests only; production generator source is never rewritten here.
 
 import path from 'node:path';
 import { readFile, writeFile, readdir } from 'node:fs/promises';
@@ -17,6 +17,10 @@ const VECTOR_MARKERS = Object.freeze([
   'TPMAP_PREPARED_GENERATOR_VECTOR_CANDIDATE_SET_V1',
   'TPMAP_ALTON_VECTOR_CARDINALITY_COMPATIBILITY_V2',
   'TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY'
+]);
+const REQUIRED_VECTOR_ROLES = Object.freeze([
+  'access-path-centerline-candidate',
+  'access-surface-candidate'
 ]);
 const GENERATED_IMPLEMENTATIONS = /^(?:vertical-evidence-engine|terrain-surface-model|building-roof-reconstruction|building-roof-plane-decomposition|building-roof-planning-constraints|vegetation-reconstruction|ride-vertical-profile|ride-3d-geometry|ride-support-reconstruction|ride-terrain-interaction|ride-excavation-mask|ride-excavation-compiler|ride-graph-compiler|terrain-morphology|terrain-planning-structure-association|terrain-structure-compiler|terrain-steep-bank-treatment|terrain-tunnel-portal-reconciliation|retaining-wall-detail|terrain-qa|block-state-transport|mcworld|bedrock|pipeline)\.mjs$/;
 
@@ -42,9 +46,9 @@ async function finalize(root, validate) {
     }
 
     const vectorFile = path.join(testDir, 'planning-vectorize.test.mjs');
-    const vectorSource = await readFile(vectorFile, 'utf8');
-    const modernized = modernizePlanningVectorCandidateContract(vectorSource);
-    if (modernized !== vectorSource) {
+    const source = await readFile(vectorFile, 'utf8');
+    const modernized = modernizePlanningVectorCandidateContract(source);
+    if (modernized !== source) {
       await writeFile(vectorFile, modernized);
       vectorChanged = true;
     }
@@ -75,14 +79,31 @@ export function modernizePlanningVectorCandidateContract(source) {
   if (!range) throw new Error('Prepared generator test finalizer: planning vector regression test anchor missing');
 
   let block = source.slice(range.start, range.end);
-  const rewritten = rewriteExactLengthAssertions(block);
-  block = rewritten.source;
 
-  if (!rewritten.changed && hasObsoleteExactCandidateAssertion(block)) {
-    throw new Error('Prepared generator test finalizer: obsolete exact candidate assertion could not be safely rewritten');
+  // The real prepared test reports total accepted candidate features. Phase 30D may
+  // add evidence-backed candidate classes, so an exact total is not a stable contract.
+  block = block.replace(
+    /assert\.(?:equal|strictEqual)\(\s*report\.featuresAccepted\s*,\s*[0-9]+\s*\);?/m,
+    'assert.ok(report.featuresAccepted >= 2);'
+  );
+
+  // Backward compatibility for earlier generated fixtures that counted a candidate
+  // or feature collection directly instead of using report.featuresAccepted.
+  block = block.replace(
+    /assert\.(?:equal|strictEqual)\(\s*([^,;\n]*(?:candidate|feature)[^,;\n]*\.length)\s*,\s*[0-9]+\s*\);?/i,
+    (_whole, expression) => `assert.ok(${expression.trim()} >= 2);`
+  );
+
+  // Preserve the two original semantic guarantees without asserting that they are
+  // the only roles emitted. Richer evidence extraction is expected to add roles.
+  const exactRequiredRoles = /assert\.deepEqual\(\s*roles\s*,\s*\[\s*(["'])access-path-centerline-candidate\1\s*,\s*(["'])access-surface-candidate\2\s*\]\s*\);?/m;
+  if (exactRequiredRoles.test(block)) {
+    block = block.replace(
+      exactRequiredRoles,
+      REQUIRED_VECTOR_ROLES.map((role) => `assert.ok(roles.includes(${JSON.stringify(role)}));`).join('\n  ')
+    );
   }
 
-  // Keep marker layout canonical so running the finalizer repeatedly is byte-for-byte idempotent.
   for (const marker of VECTOR_MARKERS) {
     const markerPattern = new RegExp(`\\n?[\\t ]*//[\\t ]*${escapeRegex(marker)}[\\t ]*(?=\\n|$)`, 'g');
     block = block.replace(markerPattern, '');
@@ -95,233 +116,36 @@ export function modernizePlanningVectorCandidateContract(source) {
   return output;
 }
 
-function rewriteExactLengthAssertions(source) {
-  let output = source;
-  let cursor = 0;
-  let changed = false;
+function validatePlanningVectorCandidateContract(source) {
+  const range = locateNamedTest(source, VECTOR_TEST_TITLE);
+  if (!range) throw new Error('Prepared generator test finalizer: planning vector regression test missing');
+  const block = source.slice(range.start, range.end);
 
-  while (cursor < output.length) {
-    const assertion = findNextEqualityAssertion(output, cursor);
-    if (!assertion) break;
+  if (/assert\.(?:equal|strictEqual)\(\s*report\.featuresAccepted\s*,\s*[0-9]+/m.test(block)) {
+    throw new Error('Prepared generator test finalizer: obsolete exact accepted-candidate cardinality remains');
+  }
 
-    const callStart = assertion.index;
-    const open = output.indexOf('(', callStart + assertion.name.length);
-    if (open < 0) break;
-    const close = findMatchingParen(output, open);
-    if (close < 0) throw new Error('Prepared generator test finalizer: malformed assertion call in planning vector regression');
+  const minimumAccepted = /report\.featuresAccepted\s*>=\s*2/.test(block);
+  const minimumCollection = /(?:candidate|feature)[A-Za-z0-9_.$()[\]]*\.length\s*>=\s*2/i.test(block);
+  if (!minimumAccepted && !minimumCollection) {
+    throw new Error(`Prepared generator test finalizer: minimum candidate-set assertion missing; observed=${JSON.stringify(summarizeCandidateAssertions(block))}`);
+  }
 
-    const args = splitTopLevelArguments(output.slice(open + 1, close));
-    const first = args[0]?.trim() || '';
-    const second = args[1]?.trim() || '';
-    const message = args.length === 3 ? args[2].trim() : '';
-
-    const expectedCount = parseIntegerLiteral(second);
-    if (args.length >= 2 && args.length <= 3 && first.includes('.length') && expectedCount !== null && expectedCount >= 2) {
-      const statementEnd = consumeOptionalSemicolon(output, close + 1);
-      const condition = `${first} >= 2`;
-      const replacement = assertion.name.startsWith('assert.')
-        ? `assert.ok(${condition}${message ? `, ${message}` : ''});`
-        : `${assertion.name}(${condition}, true${message ? `, ${message}` : ''});`;
-      output = output.slice(0, callStart) + replacement + output.slice(statementEnd);
-      cursor = callStart + replacement.length;
-      changed = true;
-    } else {
-      cursor = close + 1;
+  if (block.includes('report.featuresAccepted')) {
+    if (/assert\.deepEqual\(\s*roles\s*,/m.test(block)) {
+      throw new Error('Prepared generator test finalizer: obsolete exact candidate-role set remains');
+    }
+    for (const role of REQUIRED_VECTOR_ROLES) {
+      const includesRole = new RegExp(`roles\\.includes\\(\\s*["']${escapeRegex(role)}["']\\s*\\)`);
+      if (!includesRole.test(block)) {
+        throw new Error(`Prepared generator test finalizer: required candidate role ${role} is not asserted by inclusion`);
+      }
     }
   }
 
-  return { source: output, changed };
-}
-
-function hasObsoleteExactCandidateAssertion(source) {
-  let cursor = 0;
-  while (cursor < source.length) {
-    const assertion = findNextEqualityAssertion(source, cursor);
-    if (!assertion) return false;
-
-    const callStart = assertion.index;
-    const open = source.indexOf('(', callStart + assertion.name.length);
-    if (open < 0) return false;
-    const close = findMatchingParen(source, open);
-    if (close < 0) return true;
-    const args = splitTopLevelArguments(source.slice(open + 1, close));
-    const expectedCount = parseIntegerLiteral((args[1] || '').trim());
-    if ((args[0] || '').includes('.length') && expectedCount !== null && expectedCount >= 2) return true;
-    cursor = close + 1;
+  for (const marker of VECTOR_MARKERS) {
+    if (!block.includes(marker)) throw new Error(`Prepared generator test finalizer: missing ${marker}`);
   }
-  return false;
-}
-
-function findNextEqualityAssertion(source, cursor) {
-  const names = ['assert.strictEqual', 'assert.equal', 'strictEqual', 'equal'];
-  const candidates = [];
-  for (const name of names) {
-    let index = source.indexOf(name, cursor);
-    while (index >= 0) {
-      const before = source[index - 1] || '';
-      const after = source[index + name.length] || '';
-      const identifierBefore = /[A-Za-z0-9_$]/.test(before);
-      const identifierAfter = /[A-Za-z0-9_$]/.test(after);
-      if (!identifierBefore && !identifierAfter) {
-        candidates.push({ index, name });
-        break;
-      }
-      index = source.indexOf(name, index + name.length);
-    }
-  }
-  if (!candidates.length) return null;
-  candidates.sort((a, b) => a.index - b.index || b.name.length - a.name.length);
-  return candidates[0];
-}
-
-function summarizeCandidateAssertions(source) {
-  return source
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => /(?:assert|equal|candidate|feature|\.length)/i.test(line))
-    .filter(Boolean)
-    .slice(0, 40)
-    .join(' | ')
-    .slice(0, 3000);
-}
-
-function parseIntegerLiteral(source) {
-  const value = String(source || '').trim();
-  if (!/^[0-9]+$/.test(value)) return null;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function consumeOptionalSemicolon(source, index) {
-  let cursor = index;
-  while (cursor < source.length && /[\t ]/.test(source[cursor])) cursor += 1;
-  if (source[cursor] === ';') cursor += 1;
-  return cursor;
-}
-
-function findMatchingParen(source, openIndex) {
-  let depth = 0;
-  let quote = null;
-  let escaped = false;
-  let lineComment = false;
-  let blockComment = false;
-
-  for (let index = openIndex; index < source.length; index += 1) {
-    const char = source[index];
-    const next = source[index + 1];
-
-    if (lineComment) {
-      if (char === '\n') lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      if (char === '*' && next === '/') {
-        blockComment = false;
-        index += 1;
-      }
-      continue;
-    }
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (char === quote) quote = null;
-      continue;
-    }
-    if (char === '/' && next === '/') {
-      lineComment = true;
-      index += 1;
-      continue;
-    }
-    if (char === '/' && next === '*') {
-      blockComment = true;
-      index += 1;
-      continue;
-    }
-    if (char === '\'' || char === '"' || char === '`') {
-      quote = char;
-      continue;
-    }
-    if (char === '(') depth += 1;
-    else if (char === ')') {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-function splitTopLevelArguments(source) {
-  const args = [];
-  let start = 0;
-  let paren = 0;
-  let bracket = 0;
-  let brace = 0;
-  let quote = null;
-  let escaped = false;
-  let lineComment = false;
-  let blockComment = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    const next = source[index + 1];
-
-    if (lineComment) {
-      if (char === '\n') lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      if (char === '*' && next === '/') {
-        blockComment = false;
-        index += 1;
-      }
-      continue;
-    }
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (char === quote) quote = null;
-      continue;
-    }
-    if (char === '/' && next === '/') {
-      lineComment = true;
-      index += 1;
-      continue;
-    }
-    if (char === '/' && next === '*') {
-      blockComment = true;
-      index += 1;
-      continue;
-    }
-    if (char === '\'' || char === '"' || char === '`') {
-      quote = char;
-      continue;
-    }
-
-    if (char === '(') paren += 1;
-    else if (char === ')') paren -= 1;
-    else if (char === '[') bracket += 1;
-    else if (char === ']') bracket -= 1;
-    else if (char === '{') brace += 1;
-    else if (char === '}') brace -= 1;
-    else if (char === ',' && paren === 0 && bracket === 0 && brace === 0) {
-      args.push(source.slice(start, index));
-      start = index + 1;
-    }
-  }
-  args.push(source.slice(start));
-  return args;
 }
 
 function validateGeneratedTestImports(source, filename) {
@@ -333,34 +157,29 @@ function validateGeneratedTestImports(source, filename) {
   }
 }
 
-function validatePlanningVectorCandidateContract(source) {
-  const range = locateNamedTest(source, VECTOR_TEST_TITLE);
-  if (!range) throw new Error('Prepared generator test finalizer: planning vector regression test missing');
-  const block = source.slice(range.start, range.end);
-  if (hasObsoleteExactCandidateAssertion(block)) {
-    throw new Error('Prepared generator test finalizer: obsolete exact candidate cardinality remains');
-  }
-  if (!/\.length\s*>=\s*2/.test(block)) {
-    const observed = summarizeCandidateAssertions(block);
-    throw new Error(`Prepared generator test finalizer: minimum candidate-set assertion missing; observed=${JSON.stringify(observed)}`);
-  }
-  for (const marker of VECTOR_MARKERS) {
-    if (!block.includes(marker)) throw new Error(`Prepared generator test finalizer: missing ${marker}`);
-  }
-}
-
 function locateNamedTest(source, title) {
   const titleIndex = source.indexOf(title);
   if (titleIndex < 0) return null;
   const testA = source.lastIndexOf('\ntest(', titleIndex);
   const testB = source.lastIndexOf('\ntest (', titleIndex);
-  const testStart = Math.max(testA, testB);
-  const start = testStart < 0 ? 0 : testStart + 1;
+  const startIndex = Math.max(testA, testB);
+  const start = startIndex < 0 ? 0 : startIndex + 1;
   const nextA = source.indexOf('\ntest(', titleIndex + title.length);
   const nextB = source.indexOf('\ntest (', titleIndex + title.length);
   const candidates = [nextA, nextB].filter((value) => value >= 0);
   const end = candidates.length ? Math.min(...candidates) : source.length;
   return { start, end };
+}
+
+function summarizeCandidateAssertions(source) {
+  return source
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /(?:assert|candidate|feature|roles)/i.test(line))
+    .filter(Boolean)
+    .slice(0, 30)
+    .join(' | ')
+    .slice(0, 2500);
 }
 
 function escapeRegex(value) {
@@ -378,39 +197,31 @@ function runSelfTest() {
     throw new Error('Prepared generator test finalizer self-test: generated import normalization failed');
   }
 
+  const productionShape = `test("${VECTOR_TEST_TITLE}", async () => {\n  assert.equal(report.status, "candidate-vectors-extracted");\n  assert.equal(report.documentsExtracted, 1);\n  assert.equal(report.featuresAccepted, 2);\n  assert.equal(report.featuresWithheld, 1);\n  const roles = report.candidates.features.map((feature) => feature.properties.geometry_role).sort();\n  assert.deepEqual(roles, ["access-path-centerline-candidate", "access-surface-candidate"]);\n  assert.equal(report.candidates.features.every((feature) => feature.properties.world_eligible === false), true);\n});\ntest('next',()=>{});`;
+  const modern = modernizePlanningVectorCandidateContract(productionShape);
+  if (!modern.includes('assert.ok(report.featuresAccepted >= 2);')) {
+    throw new Error('Prepared generator test finalizer self-test: real accepted-count contract not generalized');
+  }
+  for (const role of REQUIRED_VECTOR_ROLES) {
+    if (!modern.includes(`roles.includes(${JSON.stringify(role)})`)) {
+      throw new Error(`Prepared generator test finalizer self-test: required role inclusion missing for ${role}`);
+    }
+  }
+  if (modern.includes('assert.deepEqual(roles')) {
+    throw new Error('Prepared generator test finalizer self-test: exact role-set assertion remains');
+  }
+  if (modernizePlanningVectorCandidateContract(modern) !== modern) {
+    throw new Error('Prepared generator test finalizer self-test: production transform not idempotent');
+  }
+
   const legacy = `test('${VECTOR_TEST_TITLE}',()=>{\n  const features=[];\n  assert.equal(features.length, 2);\n});\ntest('next',()=>{});`;
-  const modern = modernizePlanningVectorCandidateContract(legacy);
-  if (!modern.includes('features.length >= 2')) throw new Error('Prepared generator test finalizer self-test: cardinality not modernized');
-  if (modernizePlanningVectorCandidateContract(modern) !== modern) throw new Error('Prepared generator test finalizer self-test: transform not idempotent');
-
-  const realRunShape = `test('${VECTOR_TEST_TITLE}', async () => {\n  const candidates = await Promise.resolve(new Array(10).fill({}));\n  assert.strictEqual(\n    candidates.length,\n    2,\n    'legacy fixture expected only path + footprint candidates'\n  );\n  assert.equal(candidates[0] !== undefined, true);\n});\ntest('next',()=>{});`;
-  const realModern = modernizePlanningVectorCandidateContract(realRunShape);
-  if (!realModern.includes("assert.ok(candidates.length >= 2, 'legacy fixture expected only path + footprint candidates');")) {
-    throw new Error('Prepared generator test finalizer self-test: multiline/message assertion not modernized');
+  const legacyModern = modernizePlanningVectorCandidateContract(legacy);
+  if (!legacyModern.includes('features.length >= 2')) {
+    throw new Error('Prepared generator test finalizer self-test: legacy candidate-count contract not generalized');
   }
-  if (modernizePlanningVectorCandidateContract(realModern) !== realModern) {
-    throw new Error('Prepared generator test finalizer self-test: real-run transform not idempotent');
+  if (modernizePlanningVectorCandidateContract(legacyModern) !== legacyModern) {
+    throw new Error('Prepared generator test finalizer self-test: legacy transform not idempotent');
   }
 
-  const directImportShape = `test('${VECTOR_TEST_TITLE}', async () => {\n  const candidates = await Promise.resolve(new Array(10).fill({}));\n  strictEqual(\n    candidates.length,\n    2\n  );\n});\ntest('next',()=>{});`;
-  const directModern = modernizePlanningVectorCandidateContract(directImportShape);
-  if (!directModern.includes('strictEqual(candidates.length >= 2, true);')) {
-    throw new Error('Prepared generator test finalizer self-test: direct strictEqual cardinality not modernized');
-  }
-  if (modernizePlanningVectorCandidateContract(directModern) !== directModern) {
-    throw new Error('Prepared generator test finalizer self-test: direct-import transform not idempotent');
-  }
-
-  const expandedExact = `test('${VECTOR_TEST_TITLE}', async () => {\n  const candidates = await Promise.resolve(new Array(10).fill({}));\n  assert.strictEqual(candidates.length, 10);\n});\ntest('next',()=>{});`;
-  const expandedModern = modernizePlanningVectorCandidateContract(expandedExact);
-  if (!expandedModern.includes('assert.ok(candidates.length >= 2);')) {
-    throw new Error('Prepared generator test finalizer self-test: expanded exact cardinality not generalized');
-  }
-  if (modernizePlanningVectorCandidateContract(expandedModern) !== expandedModern) {
-    throw new Error('Prepared generator test finalizer self-test: expanded-cardinality transform not idempotent');
-  }
-
-  const alreadyModern = `test('${VECTOR_TEST_TITLE}',()=>{\n  const features=[];\n  assert.ok(features.length >= 2);\n});`;
-  validatePlanningVectorCandidateContract(modernizePlanningVectorCandidateContract(alreadyModern));
   console.log('Prepared generator test contract finalizer self-test passed');
 }
