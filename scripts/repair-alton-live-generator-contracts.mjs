@@ -12,10 +12,6 @@ const generator = generatorIndex >= 0 ? path.resolve(args[generatorIndex + 1]) :
 const validateOnly = args.includes('--validate-only');
 const selfTest = args.includes('--self-test');
 
-if (selfTest) selfTestTransforms();
-else if (!generator) throw new Error('--generator is required');
-else await repairGenerator(generator, validateOnly);
-
 const GENERATED_IMPLEMENTATIONS = new Set([
   'vertical-evidence-engine.mjs',
   'terrain-surface-model.mjs',
@@ -171,7 +167,14 @@ function validatePlanningVectorRegression(source) {
 
 function namedFunctionRanges(source, name) {
   const ranges = [];
-  const expression = new RegExp(`function\\s+${escapeRegExp(name)}\\s*\\(\\s*value\\s*\\)\\s*\\{`, 'g');
+  // Generated Phase 34/35 modules use both `finite(value)` and compact
+  // `finite(v)` helpers. Match any single identifier parameter so the null
+  // guard is installed consistently instead of silently skipping minified
+  // helpers that still coerce null to zero.
+  const expression = new RegExp(
+    `function\\s+${escapeRegExp(name)}\\s*\\(\\s*[A-Za-z_$][\\w$]*\\s*\\)\\s*\\{`,
+    'g'
+  );
   let match;
   while ((match = expression.exec(source))) {
     const open = source.indexOf('{', match.index);
@@ -232,6 +235,12 @@ function selfTestTransforms() {
   if (!repaired.includes(FINITE_GUARD)) throw new Error('Alton live repair self-test: finite guard not installed');
   if (repairFiniteHelpers(repaired) !== repaired) throw new Error('Alton live repair self-test: finite repair not idempotent');
 
+  const compact = 'function finite(v){const n=Number(v);return Number.isFinite(n)?n:null;}function next(){}';
+  const compactRepaired = repairFiniteHelpers(compact);
+  if (!compactRepaired.includes(FINITE_GUARD) || !compactRepaired.includes('function next()')) {
+    throw new Error('Alton live repair self-test: compact finite(v) helper was not repaired safely');
+  }
+
   const imports = 'import { x } from "./terrain-morphology.mjs";\nimport { y } from "./mcworld.mjs";\nimport { z } from "./fixture.mjs";';
   const normalized = normalizeGeneratedTestImports(imports);
   if (!normalized.includes('../src/lib/terrain-morphology.mjs') || !normalized.includes('../src/lib/mcworld.mjs') || !normalized.includes('./fixture.mjs')) {
@@ -250,3 +259,10 @@ function selfTestTransforms() {
 
   console.log('Alton live generator contract repair self-test passed');
 }
+
+// Dispatch only after module-scoped repair constants have been initialized.
+// Calling the self-test above their declarations triggers the temporal dead
+// zone before the actual generator repair can start.
+if (selfTest) selfTestTransforms();
+else if (!generator) throw new Error('--generator is required');
+else await repairGenerator(generator, validateOnly);
