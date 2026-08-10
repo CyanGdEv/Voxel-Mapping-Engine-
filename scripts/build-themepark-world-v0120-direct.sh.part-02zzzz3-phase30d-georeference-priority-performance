@@ -1,0 +1,31 @@
+  # Phase 30D runtime correction: deterministic georeference evidence must be
+  # evaluated before heuristic linework matching, and automatic registration
+  # must not recompute invariant OpenCV arrays inside every candidate.
+  PHASE30D_GEOREFERENCE_PRIORITY_INSTALLER="$ROOT/patches/v0120-phase30d/install-georeference-priority-performance.mjs"
+  PHASE30D_GEOREFERENCE_PRIORITY_LOG="$DIAG/phase30d-georeference-priority-performance.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE30D_GEOREFERENCE_PRIORITY_INSTALLER" --self-test \
+    2>&1 | tee "$PHASE30D_GEOREFERENCE_PRIORITY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_GEOREFERENCE_PRIORITY_INSTALLER" --generator "$GEN" \
+    2>&1 | tee -a "$PHASE30D_GEOREFERENCE_PRIORITY_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_GEOREFERENCE_PRIORITY_INSTALLER" --generator "$GEN" --validate-only \
+    2>&1 | tee -a "$PHASE30D_GEOREFERENCE_PRIORITY_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-georeference.mjs"
+  python3 -m py_compile "$GEN/src/tools/planning_auto_register.py"
+  python3 "$GEN/src/tools/planning_auto_register.py" --self-test \
+    2>&1 | tee -a "$PHASE30D_GEOREFERENCE_PRIORITY_LOG"
+  grep -q 'TPMAP_PHASE30D_GEOREFERENCE_PRIORITY_PERFORMANCE_V2' "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'TPMAP_PHASE30D_AUTOREGISTRATION_HOTPATH_V2' "$GEN/src/tools/planning_auto_register.py"
+  grep -q 'planning-georeference-results-v2' "$GEN/src/lib/planning-georeference.mjs"
+
+  printf '%s\n' \
+    'phase30d_georeference_priority_performance=v2' \
+    'georeference_priority=embedded,explicit-controls,printed-coordinate-grid-or-pairs,automatic-linework' \
+    'automatic_registration=heuristic-fallback-only' \
+    'automatic_registration_hotpath=reference-distance-and-source-edge-arrays-computed-once-per-document' \
+    'georeference_result_cache=content-addressed-v2-invalidates-pre-priority-rejections' \
+    'rejection_reason_telemetry=enabled' \
+    'planning_acceptance_thresholds=unchanged' \
+    'planning_fidelity_ceiling=unchanged' \
+    >> "$DIAG/phase30d-runtime-policy.txt"
