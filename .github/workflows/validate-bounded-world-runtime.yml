@@ -124,7 +124,9 @@ jobs:
 
   validate-production-phase30-preparation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Job timeout includes checkout, Node setup and apt dependency installation.
+    # The production/world runtime budgets remain independently bounded below.
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
