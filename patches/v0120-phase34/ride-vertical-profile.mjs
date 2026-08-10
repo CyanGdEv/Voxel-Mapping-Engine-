@@ -274,6 +274,6 @@ function unresolvedProfile(node, reason) {
 function distance(a, b) {
   return Math.hypot(Number(a[0]) - Number(b[0]), Number(a[1]) - Number(b[1]));
 }
-function finite(value) { const n = Number(value); return Number.isFinite(n) ? n : null; }
+function finite(value) { if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function round3(value) { return Math.round(Number(value) * 1000) / 1000; }
 function round6(value) { return Math.round(Number(value) * 1e6) / 1e6; }
