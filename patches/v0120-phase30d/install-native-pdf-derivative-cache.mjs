@@ -51,26 +51,36 @@ export function transformVectorize(source) {
     '      }';
   const after =
     '      if (entry.document.mime === "application/pdf") {\n' +
-    '        const nativeDerivative = await cachedPlanningDerivative({\n' +
-    '          filename: sourceFile,\n' +
-    '          page: entry.georeference.page || 1,\n' +
-    '          document: entry.document,\n' +
-    '          kind: "native-pdf-svg-positioned-text-v1",\n' +
-    '          behaviorFiles: [\n' +
-    '            new URL("./planning-vectorize.mjs", import.meta.url),\n' +
-    '            new URL("./planning-comprehensive-semantics.mjs", import.meta.url)\n' +
-    '          ],\n' +
-    '          toolCommands: [\n' +
-    '            ["pdftocairo", ["-v"]],\n' +
-    '            ["pdftotext", ["-v"]]\n' +
-    '          ],\n' +
-    '          compute: async () => {\n' +
-    '            const nativeSvg = await renderPdfPageAsSvg(runtime, sourceFile, entry.georeference.page || 1, workDirectory, entry.document);\n' +
-    '            const nativeParsed = parseSvgDrawing(nativeSvg, { curveTolerance: config.curveTolerance });\n' +
-    '            const nativeSemantic = await extractPlanningSemanticAnchors(runtime, sourceFile, entry.georeference.page || 1, nativeParsed, entry.document);\n' +
-    '            return { svg: nativeSvg, semantic: nativeSemantic };\n' +
-    '          }\n' +
-    '        });\n' +
+    '        const computeNativeDerivative = async () => {\n' +
+    '          const nativeSvg = await renderPdfPageAsSvg(runtime, sourceFile, entry.georeference.page || 1, workDirectory, entry.document);\n' +
+    '          const nativeParsed = parseSvgDrawing(nativeSvg, { curveTolerance: config.curveTolerance });\n' +
+    '          const nativeSemantic = await extractPlanningSemanticAnchors(runtime, sourceFile, entry.georeference.page || 1, nativeParsed, entry.document);\n' +
+    '          return { svg: nativeSvg, semantic: nativeSemantic };\n' +
+    '        };\n' +
+    '        // Runtime providers are injected, non-source-derived inputs used by deterministic\n' +
+    '        // tests and bounded probes. Their closure/output is not represented by the\n' +
+    '        // persistent derivative key, so reading or writing that cache would let one\n' +
+    '        // provider invocation poison another document with the same synthetic bytes.\n' +
+    '        const hasInjectedPlanningProviders =\n' +
+    '          typeof runtime.planningVectorSvgProvider === "function" ||\n' +
+    '          typeof runtime.planningVectorTextProvider === "function";\n' +
+    '        const nativeDerivative = hasInjectedPlanningProviders\n' +
+    '          ? await computeNativeDerivative()\n' +
+    '          : await cachedPlanningDerivative({\n' +
+    '              filename: sourceFile,\n' +
+    '              page: entry.georeference.page || 1,\n' +
+    '              document: entry.document,\n' +
+    '              kind: "native-pdf-svg-positioned-text-v1",\n' +
+    '              behaviorFiles: [\n' +
+    '                new URL("./planning-vectorize.mjs", import.meta.url),\n' +
+    '                new URL("./planning-comprehensive-semantics.mjs", import.meta.url)\n' +
+    '              ],\n' +
+    '              toolCommands: [\n' +
+    '                ["pdftocairo", ["-v"]],\n' +
+    '                ["pdftotext", ["-v"]]\n' +
+    '              ],\n' +
+    '              compute: computeNativeDerivative\n' +
+    '            });\n' +
     '        svg = nativeDerivative.svg;\n' +
     '        parsed = parseSvgDrawing(svg, { curveTolerance: config.curveTolerance });\n' +
     '        semantic = nativeDerivative.semantic;\n' +
@@ -87,7 +97,11 @@ function validateVectorize(source) {
     "native-pdf-svg-positioned-text-v1",
     'new URL("./planning-vectorize.mjs", import.meta.url)',
     '["pdftocairo", ["-v"]]',
-    '["pdftotext", ["-v"]]'
+    '["pdftotext", ["-v"]]',
+    "hasInjectedPlanningProviders",
+    "runtime.planningVectorSvgProvider",
+    "runtime.planningVectorTextProvider",
+    "computeNativeDerivative"
   ]) if (!source.includes(token)) throw new Error(`Phase 30D native PDF cache integration lacks ${token}`);
 }
 
@@ -146,6 +160,12 @@ function runSelfTest() {
   ].join("\n");
   const transformed = transformVectorize(sample);
   validateVectorize(transformed);
+  if (!transformed.includes('typeof runtime.planningVectorTextProvider === "function"')) {
+    throw new Error("native PDF derivative cache does not bypass injected positioned-text providers");
+  }
+  if (!transformed.includes("? await computeNativeDerivative()")) {
+    throw new Error("native PDF derivative cache does not execute injected providers live");
+  }
   if (transformVectorize(transformed) !== transformed) throw new Error("native PDF derivative cache transform is not idempotent");
   console.log("Phase 30D native PDF derivative cache self-test passed");
 }
