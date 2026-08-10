@@ -1,18 +1,26 @@
-  # Post-merge production compatibility repair. PR-level phase validation previously
-  # exercised slices in isolation; the first real Alton run exposed ordering/test-path
-  # drift in the fully assembled Phase 30D + 34 + 35 generator. Repair only those
-  # deterministic integration contracts before the existing final fail-closed gate.
+  # Final assembled-generator compatibility boundary. Test-shape compatibility is
+  # canonicalized explicitly before validation; the legacy Alton live-repair
+  # utility is no longer allowed to mutate the prepared generator.
+  PREPARED_TEST_CONTRACT_FINALIZER="$ROOT/scripts/finalize-prepared-generator-test-contracts.mjs"
   ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   ALTON_POSTMERGE_COMPAT_INSTALLER="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
   ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
 
-  # Normalize current assembled-generator semantics first. The compatibility
-  # installer remains as an independent final gate and must itself accept either
-  # the historical exact-cardinality form or the already-modernized regression.
-  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
-  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  # Normalize test-only contracts at an explicit boundary. This stage never
+  # rewrites production source modules. It owns generated test import paths and
+  # the Phase 30D-expanded candidate-set regression contract.
+  "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+
+  # Live repair is now a fail-closed validator only. Any remaining source module
+  # that depends on repair must fail here so its owning Phase 34/35 template can
+  # be corrected instead of silently mutating the assembled generator.
   "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
 
+  # The post-merge compatibility installer still owns the remaining vertical /
+  # pipeline ordering compatibility in this slice. Test imports/cardinality have
+  # already been canonicalized above and therefore must be no-ops here.
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
@@ -20,8 +28,8 @@
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/pipeline.mjs"
 
-  # Re-run the exact vertical evidence test that exposed null->0, plus the final
-  # planning vector regression after its post-Phase30D cardinality contract repair.
+  # Re-run the exact vertical evidence regression and the finalized planning
+  # candidate-set contract after all current assembled-generator transforms.
   (
     cd "$GEN"
     "$TPMAP_NODE_BIN" --test \
@@ -33,6 +41,8 @@
 
   printf '%s\n' \
     'alton_postmerge_compatibility=enabled' \
+    'live_generator_repair=validate-only-no-production-source-mutation' \
+    'prepared_test_contract_finalizer=test-only' \
     'vertical_null_policy=null-undefined-empty-remain-unresolved-never-zero' \
     'phase34_35_vertical_order=terrain-surface,morphology,planning-association,buildings,vegetation,ride-profile' \
     'generated_test_imports=src-lib-not-test-local' \
