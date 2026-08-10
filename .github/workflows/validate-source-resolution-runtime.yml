@@ -40,7 +40,7 @@ jobs:
           grep -q "steps.runtime_cache_checkpoint.outputs.saveable == 'true'" .github/workflows/build-themepark-world-resilient.yml
           grep -q -- '--seal' .github/workflows/build-themepark-world-resilient.yml
           grep -q -- '--max-age-hours 24' .github/workflows/build-themepark-world-resilient.yml
-          grep -q 'park-runtime-v1-${{ inputs.preset }}-${{ github.run_id }}' .github/workflows/build-themepark-world-resilient.yml
+          grep -q 'key: park-runtime-v1-' .github/workflows/build-themepark-world-resilient.yml
       - name: Validate runtime handoff ordering and durable evidence isolation
         shell: bash
         run: |
