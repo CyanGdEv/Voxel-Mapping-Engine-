@@ -14,9 +14,7 @@ const selfTest = args.includes('--self-test');
 const validateOnly = args.includes('--validate-only');
 void validateOnly;
 
-if (selfTest) selfTestContracts();
-else if (!generator) throw new Error('--generator is required');
-else await validateInstallation(generator);
+const GENERATED_TEST_IMPLEMENTATION = /^(?:vertical-evidence-engine|terrain-surface-model|building-roof-reconstruction|building-roof-plane-decomposition|building-roof-planning-constraints|vegetation-reconstruction|ride-vertical-profile|ride-3d-geometry|ride-support-reconstruction|ride-terrain-interaction|ride-excavation-mask|ride-excavation-compiler|ride-graph-compiler|terrain-morphology|terrain-planning-structure-association|terrain-structure-compiler|terrain-steep-bank-treatment|terrain-tunnel-portal-reconciliation|retaining-wall-detail|terrain-qa|block-state-transport|mcworld|bedrock|pipeline)\.mjs$/;
 
 async function validateInstallation(root) {
   const vertical = await readFile(path.join(root, 'src/lib/vertical-evidence-engine.mjs'), 'utf8');
@@ -97,8 +95,6 @@ export function validatePlanningVectorTest(source) {
   }
 }
 
-const GENERATED_TEST_IMPLEMENTATION = /^(?:vertical-evidence-engine|terrain-surface-model|building-roof-reconstruction|building-roof-plane-decomposition|building-roof-planning-constraints|vegetation-reconstruction|ride-vertical-profile|ride-3d-geometry|ride-support-reconstruction|ride-terrain-interaction|ride-excavation-mask|ride-excavation-compiler|ride-graph-compiler|terrain-morphology|terrain-planning-structure-association|terrain-structure-compiler|terrain-steep-bank-treatment|terrain-tunnel-portal-reconciliation|retaining-wall-detail|terrain-qa|block-state-transport|mcworld|bedrock|pipeline)\.mjs$/;
-
 async function validateGeneratedTestImports(root) {
   const testDir = path.join(root, 'test');
   const entries = await readdir(testDir);
@@ -158,3 +154,8 @@ function selfTestContracts() {
 
   console.log('Alton postmerge read-only compatibility self-test passed');
 }
+
+// Dispatch only after every module-scoped validation dependency is initialized.
+if (selfTest) selfTestContracts();
+else if (!generator) throw new Error('--generator is required');
+else await validateInstallation(generator);
