@@ -7,10 +7,14 @@ on:
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'patches/v0120-phase30b/**'
       - 'patches/v0120-phase30d/**'
+      - 'patches/v0120-phase34/**'
+      - 'patches/v0120-phase35/**'
+      - 'patches/v0120-postmerge/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
       - 'scripts/install-phase30b-weighted-sampler.mjs'
+      - 'scripts/repair-alton-live-generator-contracts.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
   push:
@@ -20,10 +24,14 @@ on:
       - 'patches/v0120-phase30/bedrock-palette-compatibility.mjs'
       - 'patches/v0120-phase30b/**'
       - 'patches/v0120-phase30d/**'
+      - 'patches/v0120-phase34/**'
+      - 'patches/v0120-phase35/**'
+      - 'patches/v0120-postmerge/**'
       - 'scripts/prepare-surface-material-hook.mjs'
       - 'scripts/install-phase30a-authority.mjs'
       - 'scripts/install-phase30a-tests.mjs'
       - 'scripts/install-phase30b-weighted-sampler.mjs'
+      - 'scripts/repair-alton-live-generator-contracts.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
 
@@ -39,7 +47,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate Phase 30 compatibility transforms
+      - name: Validate production transforms and canonical source contracts
         run: |
           node patches/v0120-phase30/bedrock-palette-compatibility.mjs --self-test
           node scripts/prepare-surface-material-hook.mjs --self-test
@@ -47,6 +55,10 @@ jobs:
           node scripts/install-phase30a-tests.mjs --self-test
           node scripts/install-phase30b-weighted-sampler.mjs --self-test
           node patches/v0120-phase30d/install-native-pdf-derivative-cache.mjs --self-test
+          node patches/v0120-phase34/install-vertical-evidence-engine.mjs --self-test
+          node patches/v0120-phase34/install-ride-vertical-profile.mjs --self-test
+          node patches/v0120-phase35/install-block-state-transport.mjs --self-test
+          node scripts/repair-alton-live-generator-contracts.mjs --self-test
       - name: Validate concatenated direct runner syntax and ordering
         shell: bash
         run: |
@@ -114,7 +126,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends poppler-utils gdal-bin python3-opencv tesseract-ocr
-      - name: Execute locked-source production preparation through final Phase 30 preflight
+      - name: Execute locked-source production preparation through final preflight
         shell: bash
         env:
           TPMAP_PREPARE_ONLY: preflight
@@ -145,6 +157,7 @@ jobs:
           grep -q 'TPMAP_PHASE30D_CONTENT_ADDRESSED_RASTER_DERIVATIVES' generator/src/lib/planning-raster-extraction.mjs
           grep -q 'TPMAP_PHASE30D_NATIVE_PDF_DERIVATIVE_CACHE' generator/src/lib/planning-vectorize.mjs
           grep -q 'TPMAP_PHASE30D_PROCESSED_PLANNING_DERIVATIVE_CACHE' generator/src/lib/planning-processed-derivative-cache.mjs
+          grep -Fq 'value === null || value === undefined || (typeof value === "string" && value.trim() === "")' generator/src/lib/vertical-evidence-engine.mjs
           test ! -e generator/src/lib/planning-vectorize.mjs.rej
           test ! -e generator/src/lib/planning-vector-fusion.mjs.rej
           test -z "$(find generator -type f -name '*.rej' -print -quit)"
@@ -154,5 +167,6 @@ jobs:
           node --check generator/src/lib/planning-comprehensive-semantics.mjs
           node --check generator/src/lib/planning-raster-extraction.mjs
           node --check generator/src/lib/planning-processed-derivative-cache.mjs
+          node --check generator/src/lib/vertical-evidence-engine.mjs
           node --check generator/src/lib/fidelity.mjs
           node --check generator/src/lib/mcworld.mjs
