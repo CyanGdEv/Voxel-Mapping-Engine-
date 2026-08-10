@@ -1,8 +1,8 @@
   # Final assembled-generator compatibility boundary. Test-shape compatibility is
-  # canonicalized explicitly before validation; the legacy Alton live-repair
-  # utility is no longer allowed to mutate the prepared generator.
+  # canonicalized explicitly before validation; production source contracts are
+  # then checked by a read-only validator with no write/delete filesystem APIs.
   PREPARED_TEST_CONTRACT_FINALIZER="$ROOT/scripts/finalize-prepared-generator-test-contracts.mjs"
-  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
+  PREPARED_SOURCE_CONTRACT_VALIDATOR="$ROOT/scripts/validate-prepared-generator-source-contracts.mjs"
   ALTON_POSTMERGE_COMPAT_INSTALLER="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
   ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
 
@@ -13,10 +13,11 @@
   "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$PREPARED_TEST_CONTRACT_FINALIZER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
 
-  # Live repair is now a fail-closed validator only. Any remaining source module
-  # that depends on repair must fail here so its owning Phase 34/35 template can
-  # be corrected instead of silently mutating the assembled generator.
-  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  # The old Alton live repair is no longer part of the production path. Source
+  # invariants are checked by this read-only validator; failures must be fixed in
+  # their owning canonical Phase 30B/34/35 templates rather than repaired here.
+  "$TPMAP_NODE_BIN" "$PREPARED_SOURCE_CONTRACT_VALIDATOR" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$PREPARED_SOURCE_CONTRACT_VALIDATOR" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
 
   # The post-merge compatibility installer still owns the remaining vertical /
   # pipeline ordering compatibility in this slice. Test imports/cardinality have
@@ -41,7 +42,8 @@
 
   printf '%s\n' \
     'alton_postmerge_compatibility=enabled' \
-    'live_generator_repair=validate-only-no-production-source-mutation' \
+    'live_generator_repair=removed-from-production-path' \
+    'prepared_source_contract_validator=read-only' \
     'prepared_test_contract_finalizer=test-only' \
     'vertical_null_policy=null-undefined-empty-remain-unresolved-never-zero' \
     'phase34_35_vertical_order=terrain-surface,morphology,planning-association,buildings,vegetation,ride-profile' \
