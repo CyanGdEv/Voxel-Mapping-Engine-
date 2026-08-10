@@ -4,7 +4,7 @@
 // This does not relax planning authority, geometry, vertical, terrain or QA thresholds.
 
 import path from 'node:path';
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
 
 const args = process.argv.slice(2);
 const generatorIndex = args.indexOf('--generator');
@@ -46,6 +46,16 @@ const FINITE_GUARD = 'if (value === null || value === undefined || (typeof value
 const FINITE_CANONICAL = `function finite(value) {\n  ${FINITE_GUARD}\n  const n = Number(value);\n  return Number.isFinite(n) ? n : null;\n}`;
 const VECTOR_MARKER = 'TPMAP_ALTON_VECTOR_CARDINALITY_COMPATIBILITY_V2';
 const VECTOR_TEST_TITLE = 'accepted georeferenced vector PDF produces evidence-only path and footprint candidates';
+const PHASE30B_REJECT = 'src/lib/planning-vectorize.mjs.rej';
+const PHASE30B_SOURCE_TOKENS = Object.freeze([
+  'extractPlanningSemanticAnchors(runtime, sourceFile',
+  'buildGeoJsonCandidates(runtime, parsed, entry, config, semantic)',
+  'semanticAnchors: semantic.anchors.length',
+  'semanticMatches: extracted.semanticMatches',
+  'config, semantic = { anchors: [] }',
+  'let semanticMatches = 0',
+  'return { features, withheld, withheldReasons, semanticMatches }'
+]);
 
 async function repairGenerator(root, validate) {
   const libDir = path.join(root, 'src/lib');
@@ -54,6 +64,7 @@ async function repairGenerator(root, validate) {
   let finiteFilesChanged = 0;
   let importFilesChanged = 0;
   let vectorChanged = false;
+  let rejectFilesRemoved = 0;
 
   if (!validate) {
     for (const name of libEntries) {
@@ -86,6 +97,16 @@ async function repairGenerator(root, validate) {
         vectorChanged = true;
       }
     }
+
+    const phase30bReject = path.join(root, PHASE30B_REJECT);
+    if (await exists(phase30bReject)) {
+      const vectorSource = await readFile(path.join(libDir, 'planning-vectorize.mjs'), 'utf8');
+      const rejectSource = await readFile(phase30bReject, 'utf8');
+      validatePhase30bSemanticSource(vectorSource);
+      validateStalePhase30bReject(rejectSource);
+      await rm(phase30bReject);
+      rejectFilesRemoved += 1;
+    }
   }
 
   for (const name of libEntries) {
@@ -97,14 +118,35 @@ async function repairGenerator(root, validate) {
   }
   const planningVectorTest = path.join(testDir, 'planning-vectorize.test.mjs');
   if (await exists(planningVectorTest)) validatePlanningVectorRegression(await readFile(planningVectorTest, 'utf8'));
+  validatePhase30bSemanticSource(await readFile(path.join(libDir, 'planning-vectorize.mjs'), 'utf8'));
+  if (await exists(path.join(root, PHASE30B_REJECT))) {
+    throw new Error(`Alton live repair: stale ${PHASE30B_REJECT} remains after semantic contract validation`);
+  }
 
   console.log(JSON.stringify({
     status: validate ? 'validated' : 'repaired',
     marker: 'TPMAP_ALTON_LIVE_GENERATOR_CONTRACT_REPAIR_V1',
     finiteFilesChanged,
     importFilesChanged,
-    vectorChanged
+    vectorChanged,
+    rejectFilesRemoved
   }));
+}
+
+export function validatePhase30bSemanticSource(source) {
+  for (const token of PHASE30B_SOURCE_TOKENS) {
+    if (!source.includes(token)) throw new Error(`Alton live repair: Phase 30B vector source lacks ${token}`);
+  }
+}
+
+export function validateStalePhase30bReject(source) {
+  const text = String(source || '');
+  if (!text.startsWith('--- src/lib/planning-vectorize.mjs\n+++ src/lib/planning-vectorize.mjs\n') ||
+      !text.includes('extractPlanningSemanticAnchors') ||
+      !text.includes('buildGeoJsonCandidates(runtime, parsed, entry, config, semantic)') ||
+      !text.includes('semanticMatches: extracted.semanticMatches')) {
+    throw new Error('Alton live repair: refusing to remove an unrecognized Phase 30B reject');
+  }
 }
 
 export function repairFiniteHelpers(source) {
@@ -256,6 +298,14 @@ function selfTestTransforms() {
   const modernRepaired = repairPlanningVectorRegression(modernVector);
   if (!modernRepaired.includes(VECTOR_MARKER)) throw new Error('Alton live repair self-test: modern vector test was not accepted');
   if (repairPlanningVectorRegression(modernRepaired) !== modernRepaired) throw new Error('Alton live repair self-test: vector repair not idempotent');
+
+  const semanticSource = PHASE30B_SOURCE_TOKENS.join('\n');
+  validatePhase30bSemanticSource(semanticSource);
+  const staleReject = '--- src/lib/planning-vectorize.mjs\n+++ src/lib/planning-vectorize.mjs\n' +
+    '+const semantic = await extractPlanningSemanticAnchors();\n' +
+    '+const extracted = await buildGeoJsonCandidates(runtime, parsed, entry, config, semantic);\n' +
+    '+semanticMatches: extracted.semanticMatches\n';
+  validateStalePhase30bReject(staleReject);
 
   console.log('Alton live generator contract repair self-test passed');
 }
