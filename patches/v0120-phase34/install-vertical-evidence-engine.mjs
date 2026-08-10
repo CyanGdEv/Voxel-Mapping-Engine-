@@ -28,9 +28,7 @@ async function install(root, validate) {
   const moduleSource = await readFile(moduleFile, "utf8");
   const testSource = await readFile(testFile, "utf8");
   const pipelineSource = await readFile(pipelineFile, "utf8");
-  for (const token of ["TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1", "solveParkVerticalEvidence", "validateVerticalResolution"]) {
-    if (!moduleSource.includes(token)) throw new Error(`Phase 34 vertical module missing ${token}`);
-  }
+  validateVerticalModule(moduleSource);
   if (!testSource.includes("solver never fabricates elevation")) throw new Error("Phase 34 vertical behavior tests are incomplete");
   validatePipeline(pipelineSource);
   console.log(JSON.stringify({ status: validate ? "validated" : "installed", marker: "TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1" }));
@@ -66,6 +64,22 @@ export function transformPipeline(source) {
   );
   validatePipeline(output);
   return output;
+}
+
+function validateVerticalModule(source) {
+  for (const token of ["TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1", "solveParkVerticalEvidence", "validateVerticalResolution"]) {
+    if (!source.includes(token)) throw new Error(`Phase 34 vertical module missing ${token}`);
+  }
+  const finiteMatch = source.match(/function\s+finite\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{([\s\S]*?)\n\}/);
+  if (!finiteMatch) throw new Error("Phase 34 vertical module missing finite helper");
+  const parameter = finiteMatch[1];
+  const body = finiteMatch[2];
+  if (!body.includes(`${parameter} === null`) ||
+      !body.includes(`${parameter} === undefined`) ||
+      !body.includes(`typeof ${parameter} === "string"`) ||
+      !body.includes(`${parameter}.trim() === ""`)) {
+    throw new Error("Phase 34 vertical module finite helper must preserve null/undefined/blank as unresolved");
+  }
 }
 
 function validatePipeline(source) {
@@ -108,5 +122,24 @@ function selfTestTransform() {
   const second = transformPipeline(first);
   if (first !== second) throw new Error("Phase 34 pipeline transform is not idempotent");
   validatePipeline(first);
+
+  const safeVertical = [
+    '// TPMAP_PHASE34_VERTICAL_EVIDENCE_ENGINE_V1',
+    'export function solveParkVerticalEvidence() {}',
+    'export function validateVerticalResolution() {}',
+    'function finite(value) {',
+    '  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;',
+    '  const n = Number(value);',
+    '  return Number.isFinite(n) ? n : null;',
+    '}'
+  ].join("\n");
+  validateVerticalModule(safeVertical);
+  const unsafeVertical = safeVertical.replace('  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;\n', '');
+  try {
+    validateVerticalModule(unsafeVertical);
+    throw new Error("Phase 34 null-safety contract self-test accepted unsafe finite helper");
+  } catch (error) {
+    if (!String(error?.message || error).includes("preserve null/undefined/blank")) throw error;
+  }
   console.log("Phase 34 vertical evidence installer self-test passed");
 }

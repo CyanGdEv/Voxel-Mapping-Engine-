@@ -28,9 +28,7 @@ async function install(root, validate) {
   const profileSource = await readFile(profileFile, "utf8");
   const testSource = await readFile(profileTestFile, "utf8");
   const verticalSource = await readFile(verticalFile, "utf8");
-  for (const token of ["TPMAP_PHASE34_RIDE_VERTICAL_PROFILE_V1", "solveRideVerticalProfiles", "elevationAtRideMeasure"]) {
-    if (!profileSource.includes(token)) throw new Error(`Phase 34 ride profile module missing ${token}`);
-  }
+  validateProfileSource(profileSource);
   if (!testSource.includes("does not extrapolate")) throw new Error("Phase 34 ride profile tests are incomplete");
   validateVerticalEngine(verticalSource);
   console.log(JSON.stringify({ status: validate ? "validated" : "installed", marker: "TPMAP_PHASE34_RIDE_VERTICAL_PROFILE_V1" }));
@@ -59,6 +57,14 @@ export function transformVerticalEngine(source) {
   );
   validateVerticalEngine(output);
   return output;
+}
+
+function validateProfileSource(source) {
+  for (const token of ["TPMAP_PHASE34_RIDE_VERTICAL_PROFILE_V1", "solveRideVerticalProfiles", "elevationAtRideMeasure"]) {
+    if (!source.includes(token)) throw new Error(`Phase 34 ride profile module missing ${token}`);
+  }
+  const guard = 'if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;';
+  if (!source.includes(guard)) throw new Error("Phase 34 ride profile finite helper must preserve null/undefined/blank as unresolved");
 }
 
 function validateVerticalEngine(source) {
@@ -92,5 +98,19 @@ function selfTestTransform() {
   const second = transformVerticalEngine(first);
   if (first !== second) throw new Error("Phase 34 ride profile transform is not idempotent");
   validateVerticalEngine(first);
+
+  const safeProfile = [
+    '// TPMAP_PHASE34_RIDE_VERTICAL_PROFILE_V1',
+    'export function solveRideVerticalProfiles() {}',
+    'export function elevationAtRideMeasure() {}',
+    'function finite(value) { if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null; const n = Number(value); return Number.isFinite(n) ? n : null; }'
+  ].join("\n");
+  validateProfileSource(safeProfile);
+  try {
+    validateProfileSource(safeProfile.replace('if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null; ', ''));
+    throw new Error("Phase 34 ride profile null-safety self-test accepted unsafe finite helper");
+  } catch (error) {
+    if (!String(error?.message || error).includes("preserve null/undefined/blank")) throw error;
+  }
   console.log("Phase 34 ride vertical profile installer self-test passed");
 }
