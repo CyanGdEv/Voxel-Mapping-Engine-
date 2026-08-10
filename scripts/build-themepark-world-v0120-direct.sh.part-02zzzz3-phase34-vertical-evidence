@@ -10,11 +10,19 @@
   PHASE34_RIDE_PROFILE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
   PHASE34_RIDE_3D_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-3d-geometry.mjs"
   PHASE34_SUPPORT_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-support-reconstruction.mjs"
+  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   PHASE34_LOG="$DIAG/phase34-vertical-evidence.log"
 
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --self-test 2>&1 | tee "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  # Terrain/building/vegetation transforms anchor ahead of the ride-profile
+  # stage. Install that dependency first so later transforms compose against the
+  # real assembled generator instead of failing on a stage that does not exist yet.
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
   "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_SURFACE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
@@ -36,10 +44,6 @@
   "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_VEGETATION_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
-  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
-  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
-  "$TPMAP_NODE_BIN" "$PHASE34_RIDE_PROFILE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
-
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_3D_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
@@ -47,6 +51,13 @@
   "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --self-test 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_SUPPORT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
+
+  # The real merged generator exposed two cross-phase contracts that isolated
+  # installer tests cannot see: Number(null) must never become elevation zero,
+  # and copied tests must import generated implementations from src/lib.
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --self-test 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$PHASE34_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_LOG"
 
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/terrain-surface-model.mjs"

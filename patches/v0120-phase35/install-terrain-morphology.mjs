@@ -31,9 +31,12 @@ export function transformVerticalEngine(source){
     'import { buildTerrainSurfaceModel, validateTerrainSurfaceModel } from "./terrain-surface-model.mjs";',
     'import { buildTerrainSurfaceModel, validateTerrainSurfaceModel } from "./terrain-surface-model.mjs";\nimport { classifyTerrainMorphology, validateTerrainMorphology } from "./terrain-morphology.mjs";\nconst TPMAP_PHASE35_TERRAIN_MORPHOLOGY_INTEGRATION = true;',
     'terrain morphology import');
+  // Later Phase 34 building/vegetation stages legitimately sit between terrain
+  // surface resolution and ride reconstruction. Anchor only on the terrain
+  // surface diagnostic, not on obsolete immediate adjacency with ride profiles.
   out=replaceOnce(out,
-    '  diagnostics.terrainSurfaceModel = terrainSurfaceModel;\n  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);',
-    '  diagnostics.terrainSurfaceModel = terrainSurfaceModel;\n  const terrainMorphology = classifyTerrainMorphology(graph, options.verticalSources || null, options);\n  validateTerrainMorphology(graph);\n  diagnostics.terrainMorphology = terrainMorphology;\n  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);',
+    '  diagnostics.terrainSurfaceModel = terrainSurfaceModel;',
+    '  diagnostics.terrainSurfaceModel = terrainSurfaceModel;\n  const terrainMorphology = classifyTerrainMorphology(graph, options.verticalSources || null, options);\n  validateTerrainMorphology(graph);\n  diagnostics.terrainMorphology = terrainMorphology;',
     'terrain morphology stage');
   validateVerticalEngine(out); return out;
 }
@@ -45,4 +48,4 @@ function validateVerticalEngine(source){
   if(!(surface>=0&&morphology>surface&&rides>morphology)) throw new Error('Phase 35 terrain morphology must run after DTM/DSM surface separation and before ride reconstruction');
 }
 function replaceOnce(source,before,after,label){if(source.includes(after))return source;const first=source.indexOf(before);if(first<0)throw new Error(`Phase 35 terrain morphology anchor missing: ${label}`);if(source.indexOf(before,first+before.length)>=0)throw new Error(`Phase 35 terrain morphology anchor ambiguous: ${label}`);return source.slice(0,first)+after+source.slice(first+before.length);}
-function selfTestTransform(){const sample=['import { buildTerrainSurfaceModel, validateTerrainSurfaceModel } from "./terrain-surface-model.mjs";','export function solve(){','  const terrainSurfaceModel = buildTerrainSurfaceModel(graph, options.verticalSources || null, options);','  validateTerrainSurfaceModel(graph);','  diagnostics.terrainSurfaceModel = terrainSurfaceModel;','  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);','}'].join('\n');const a=transformVerticalEngine(sample),b=transformVerticalEngine(a);if(a!==b)throw new Error('Phase 35 terrain morphology transform not idempotent');validateVerticalEngine(a);console.log('Phase 35 terrain morphology installer self-test passed');}
+function selfTestTransform(){const sample=['import { buildTerrainSurfaceModel, validateTerrainSurfaceModel } from "./terrain-surface-model.mjs";','export function solve(){','  const terrainSurfaceModel = buildTerrainSurfaceModel(graph, options.verticalSources || null, options);','  validateTerrainSurfaceModel(graph);','  diagnostics.terrainSurfaceModel = terrainSurfaceModel;','  const buildingRoofReconstruction = reconstructBuildingRoofs(graph, options.verticalSources || null, options);','  const rideVerticalProfiles = solveRideVerticalProfiles(graph, options);','}'].join('\n');const a=transformVerticalEngine(sample),b=transformVerticalEngine(a);if(a!==b)throw new Error('Phase 35 terrain morphology transform not idempotent');validateVerticalEngine(a);console.log('Phase 35 terrain morphology installer self-test passed');}

@@ -1,0 +1,10 @@
+  printf '%s\n' \
+    'alton_real_run_repair=enabled' \
+    'phase30b_completion=before-behavior-gate' \
+    'phase34_dependency_order=ride-profile-before-terrain-and-roof-stages' \
+    'vertical_null_policy=null-undefined-empty-never-zero' \
+    'generated_test_import_policy=src-lib' \
+    'phase35_block_palette_compatibility=structural-preserve-all-existing-ids' \
+    'planning_authority=unchanged' \
+    'terrain_qa_thresholds=unchanged' \
+    > "$DIAG/alton-real-run-repair-policy.txt"
