@@ -2,10 +2,18 @@
   # exercised slices in isolation; the first real Alton run exposed ordering/test-path
   # drift in the fully assembled Phase 30D + 34 + 35 generator. Repair only those
   # deterministic integration contracts before the existing final fail-closed gate.
+  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   ALTON_POSTMERGE_COMPAT_INSTALLER="$ROOT/patches/v0120-postmerge/install-alton-preflight-compatibility.mjs"
   ALTON_POSTMERGE_COMPAT_LOG="$DIAG/alton-postmerge-preflight-compatibility.log"
 
-  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
+  # Normalize current assembled-generator semantics first. The compatibility
+  # installer remains as an independent final gate and must itself accept either
+  # the historical exact-cardinality form or the already-modernized regression.
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --self-test 2>&1 | tee "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
+
+  "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --self-test 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   "$TPMAP_NODE_BIN" "$ALTON_POSTMERGE_COMPAT_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
 

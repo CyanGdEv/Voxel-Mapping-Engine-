@@ -3,6 +3,7 @@
   # where Phase 34 has resolved graph-owned 3D geometry.
   PHASE34_EXCAVATION_COMPILER_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-excavation-compiler.mjs"
   PHASE34_RIDE_GRAPH_COMPILER_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-graph-compiler.mjs"
+  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   PHASE34_EXCAVATION_COMPILER_LOG="$DIAG/phase34-ride-excavation-compiler.log"
   PHASE34_RIDE_GRAPH_COMPILER_LOG="$DIAG/phase34-ride-graph-compiler.log"
 
@@ -13,6 +14,9 @@
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_GRAPH_COMPILER_INSTALLER" --self-test 2>&1 | tee "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_GRAPH_COMPILER_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_GRAPH_COMPILER_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
+
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_GRAPH_COMPILER_LOG"
 
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-excavation-compiler.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-graph-compiler.mjs"
