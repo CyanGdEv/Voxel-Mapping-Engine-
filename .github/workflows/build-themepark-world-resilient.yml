@@ -272,18 +272,50 @@ jobs:
           path: .park-evidence-cache/${{ inputs.preset }}/planning
           key: park-evidence-planning-v1-${{ inputs.preset }}-${{ github.run_id }}
 
-      - name: Seal newly acquired shared source cache
-        if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
+      # Source and processed-planning caches are individually content addressed,
+      # and planning derivative writes are atomic/self-validating. Preserve
+      # completed work even when the bounded world attempt times out so the next
+      # run resumes from verified cache entries instead of repeating a cold fill.
+      - name: Checkpoint shared source cache
+        id: runtime_cache_checkpoint
+        if: always()
         shell: bash
         run: |
-          rm -f "$TPMAP_SHARED_CACHE_DIR/supplemental/planning-portal-cookies.txt"
+          CACHE_DIR="$TPMAP_SHARED_CACHE_DIR"
+          echo "saveable=false" >> "$GITHUB_OUTPUT"
+          if [[ ! -d "$CACHE_DIR" ]] || ! find "$CACHE_DIR" -type f -print -quit | grep -q .; then
+            echo "No runtime cache files were produced; skipping checkpoint."
+            exit 0
+          fi
+          rm -f "$CACHE_DIR/supplemental/planning-portal-cookies.txt"
+          find "$CACHE_DIR" -type f \
+            \( -name '*.tmp-*' -o -name '*.part' -o -name '*.partial' \) \
+            -delete
+          set +e
           node scripts/validate-park-runtime-cache.mjs \
             --seal \
-            --input "$TPMAP_SHARED_CACHE_DIR" \
+            --input "$CACHE_DIR" \
             --park "${{ inputs.preset }}"
+          seal_status=$?
+          if [[ "$seal_status" -eq 0 ]]; then
+            node scripts/validate-park-runtime-cache.mjs \
+              --input "$CACHE_DIR" \
+              --park "${{ inputs.preset }}" \
+              --max-age-hours 24
+            validate_status=$?
+          else
+            validate_status=$seal_status
+          fi
+          set -e
+          if [[ "$validate_status" -eq 0 ]]; then
+            echo "saveable=true" >> "$GITHUB_OUTPUT"
+            echo "Shared source cache checkpoint is internally verified and can be reused."
+          else
+            echo "Shared source cache checkpoint failed validation and will not be saved."
+          fi
 
       - name: Save verified shared source cache
-        if: ${{ steps.build.outcome == 'success' && (steps.runtime_cache.outputs.usable != 'true' || env.TPMAP_PREPARED_GENERATOR_CREATED == 'true') }}
+        if: ${{ always() && steps.runtime_cache_checkpoint.outputs.saveable == 'true' }}
         uses: actions/cache/save@v4
         with:
           path: .park-runtime-cache/${{ inputs.preset }}/runtime
@@ -299,6 +331,7 @@ jobs:
             planning-prefetch-output/ride-evidence-recovery.json
             planning-prefetch-selected/manifest.json
             planning-prefetch-selected/ride-evidence-recovery.json
+            planning-prefetch-selected/runtime-geometry-selection.json
           if-no-files-found: ignore
           retention-days: 14
 
@@ -323,6 +356,9 @@ jobs:
             printf '%s\n' '- World runner budget: 34 minutes'
             if [[ -f planning-prefetch-selected/manifest.json ]]; then
               node -e 'const m=require("./planning-prefetch-selected/manifest.json"); console.log(`- Planning: ${m.status||"unknown"}; ${m.liveApplications||0} apps; ${m.documentsDownloaded||0} docs`)'
+            fi
+            if [[ -f planning-prefetch-selected/runtime-geometry-selection.json ]]; then
+              node -e 'const r=require("./planning-prefetch-selected/runtime-geometry-selection.json"); console.log(`- Planning geometry runtime: ${r.documents||0}/${r.inputDocuments||0} drawing documents retained; ${r.documentsWithheld||0} non-geometry documents withheld`)'
             fi
             if [[ -n "$SUMMARY_MCWORLD" && -f "$SUMMARY_MCWORLD" ]]; then
               printf '%s\n' "- World: $(basename "$SUMMARY_MCWORLD")"
