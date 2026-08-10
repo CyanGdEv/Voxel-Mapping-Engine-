@@ -176,31 +176,33 @@ export function transformBedrock(source){
     'function runtimeSource() {\n  return `import { BlockComponentTypes, BlockPermutation, SignSide, system, world } from "@minecraft/server";',
     'function runtimeSource() {\n  return `import { BlockComponentTypes, BlockPermutation, SignSide, system, world } from "@minecraft/server";\n// TPMAP_PHASE35_BLOCK_STATE_TRANSPORT_ADDON',
     'addon transport marker');
-  out=replaceOnce(out,
-`function commandFor(op, anchor) {
-  const block = PARK.palette[op[7]];
-  return \`fill \${anchor.x + op[1]} \${anchor.y + op[2]} \${anchor.z + op[3]} \${anchor.x + op[4]} \${anchor.y + op[5]} \${anchor.z + op[6]} \${block}\`;
-}`,
-`function commandFor(op, anchor) {
-  const block = PARK.palette[op[7]];
-  if (typeof block !== "string") throw new Error("Stateful block descriptor cannot use fill command path");
-  return \`fill \${anchor.x + op[1]} \${anchor.y + op[2]} \${anchor.z + op[3]} \${anchor.x + op[4]} \${anchor.y + op[5]} \${anchor.z + op[6]} \${block}\`;
-}
-
-function applyOperation(dimension, op, anchor) {
-  const block = PARK.palette[op[7]];
-  if (typeof block === "string") { dimension.runCommand(commandFor(op, anchor)); return; }
-  if (!block || typeof block.name !== "string" || !block.states || typeof block.states !== "object") throw new Error("Invalid stateful block descriptor");
-  if (!(op[1] === op[4] && op[2] === op[5] && op[3] === op[6])) throw new Error("Stateful palette operations must be single-block writes");
-  const target = dimension.getBlock({ x:anchor.x+op[1], y:anchor.y+op[2], z:anchor.z+op[3] });
-  target?.setPermutation(BlockPermutation.resolve(block.name, block.states));
-}`,
+  const commandBefore=[
+    'function commandFor(op, anchor) {',
+    '  const block = PARK.palette[op[7]];',
+    '  return \\`fill \\${anchor.x + op[1]} \\${anchor.y + op[2]} \\${anchor.z + op[3]} \\${anchor.x + op[4]} \\${anchor.y + op[5]} \\${anchor.z + op[6]} \\${block}\\`;',
+    '}'
+  ].join('\n');
+  const commandAfter=[
+    'function commandFor(op, anchor) {',
+    '  const block = PARK.palette[op[7]];',
+    '  if (typeof block !== "string") throw new Error("Stateful block descriptor cannot use fill command path");',
+    '  return \\`fill \\${anchor.x + op[1]} \\${anchor.y + op[2]} \\${anchor.z + op[3]} \\${anchor.x + op[4]} \\${anchor.y + op[5]} \\${anchor.z + op[6]} \\${block}\\`;',
+    '}',
+    '',
+    'function applyOperation(dimension, op, anchor) {',
+    '  const block = PARK.palette[op[7]];',
+    '  if (typeof block === "string") { dimension.runCommand(commandFor(op, anchor)); return; }',
+    '  if (!block || typeof block.name !== "string" || !block.states || typeof block.states !== "object") throw new Error("Invalid stateful block descriptor");',
+    '  if (!(op[1] === op[4] && op[2] === op[5] && op[3] === op[6])) throw new Error("Stateful palette operations must be single-block writes");',
+    '  const target = dimension.getBlock({ x:anchor.x+op[1], y:anchor.y+op[2], z:anchor.z+op[3] });',
+    '  target?.setPermutation(BlockPermutation.resolve(block.name, block.states));',
+    '}'
+  ].join('\n');
+  out=replaceOnce(out,commandBefore,commandAfter,
     'addon stateful applyOperation');
   out=replaceOnce(out,
-`          try { dimension.runCommand(commandFor(operation, anchor)); }
-          catch (error) { state.errors += 1; console.warn(\`[ThemePark Map] operation failed: \${error}\`); }`,
-`          try { applyOperation(dimension, operation, anchor); }
-          catch (error) { state.errors += 1; console.warn(\`[ThemePark Map] operation failed: \${error}\`); }`,
+    '          try { dimension.runCommand(commandFor(operation, anchor)); }',
+    '          try { applyOperation(dimension, operation, anchor); }',
     'addon stateful operation dispatch');
   validateBedrock(out); return out;
 }
@@ -216,6 +218,20 @@ function selfTestTransforms(){
   const mc='const BEDROCK_BLOCKS = new Set([\n  "minecraft:azalea_leaves", "minecraft:birch_leaves", "minecraft:brown_terracotta", "minecraft:calcite", "minecraft:cyan_terracotta", "minecraft:dark_oak_leaves", "minecraft:deepslate", "minecraft:gray_concrete_powder", "minecraft:light_gray_concrete_powder", "minecraft:mud_bricks", "minecraft:oak_planks", "minecraft:orange_terracotta", "minecraft:packed_mud", "minecraft:podzol", "minecraft:polished_andesite", "minecraft:red_terracotta", "minecraft:smooth_sandstone", "minecraft:yellow_terracotta"\n]);\n';
   if(!transformMcworld.toString().includes('normalizeBlockSpec'))throw new Error('Phase 35 mcworld transform self-test missing descriptor support');
   if(!transformBedrock.toString().includes('BlockPermutation.resolve'))throw new Error('Phase 35 addon transform self-test missing permutation support');
+  const bedrock=[
+    'function runtimeSource() {',
+    '  return `import { BlockComponentTypes, BlockPermutation, SignSide, system, world } from "@minecraft/server";',
+    'function commandFor(op, anchor) {',
+    '  const block = PARK.palette[op[7]];',
+    '  return \\`fill \\${anchor.x + op[1]} \\${anchor.y + op[2]} \\${anchor.z + op[3]} \\${anchor.x + op[4]} \\${anchor.y + op[5]} \\${anchor.z + op[6]} \\${block}\\`;',
+    '}',
+    '          try { dimension.runCommand(commandFor(operation, anchor)); }',
+    '          catch (error) { state.errors += 1; }',
+    '`;',
+    '}'
+  ].join('\n');
+  const transformed=transformBedrock(bedrock);
+  if(transformBedrock(transformed)!==transformed)throw new Error('Phase 35 addon transform is not idempotent');
   if(!mc.includes('BEDROCK_BLOCKS'))throw new Error('Phase 35 block-state transport self-test failed');
   console.log('Phase 35 block-state transport installer self-test passed');
 }

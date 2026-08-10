@@ -128,10 +128,13 @@ function parseConstraint(obs) {
   const role = String(obs.semantics?.planningRole || obs.semantics?.planningClass || obs.semantics?.label || obs.sourceFeature?.tags?.planning_role || "").toLowerCase();
   const tags = obs.sourceFeature?.tags || {};
   const explicit = obs.vertical?.explicitElevationM ?? obs.vertical?.baseElevationM ?? null;
+  // Specific directional evidence must win before the generic "ridge" level
+  // branch; otherwise "ridge direction" is misread as a 90 m elevation and
+  // the roof keeps its old zero-degree bearing.
+  if (role.includes("ridge direction") || role.includes("roof direction") || tags.roof_direction_deg != null) return valueConstraint("ridgeDirectionDeg", tags.roof_direction_deg ?? obs.semantics?.directionDeg ?? explicit);
   if (role.includes("ridge") || tags.roof_level_type === "ridge") return valueConstraint("ridgeElevationM", explicit ?? tags.ridge_elevation_m);
   if (role.includes("eave") || role.includes("eaves") || tags.roof_level_type === "eave") return valueConstraint("eaveElevationM", explicit ?? tags.eave_elevation_m);
   if (role.includes("roof pitch") || role === "pitch" || tags.roof_pitch_deg != null) return valueConstraint("pitchDeg", tags.roof_pitch_deg ?? obs.semantics?.valueDeg ?? explicit);
-  if (role.includes("ridge direction") || role.includes("roof direction") || tags.roof_direction_deg != null) return valueConstraint("ridgeDirectionDeg", tags.roof_direction_deg ?? obs.semantics?.directionDeg ?? explicit);
   if (role.includes("roof top") || role.includes("roof level") || tags.roof_elevation_m != null) return valueConstraint("ridgeElevationM", explicit ?? tags.roof_elevation_m);
   if (role.includes("section") && obs.semantics?.roofPitchDeg != null) return valueConstraint("pitchDeg", obs.semantics.roofPitchDeg);
   return null;

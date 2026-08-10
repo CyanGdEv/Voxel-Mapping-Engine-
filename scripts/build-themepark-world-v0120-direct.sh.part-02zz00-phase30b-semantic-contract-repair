@@ -30,7 +30,7 @@
     local semantic_test_count
     (
       cd "$GEN"
-      node --test test/planning-site-semantics.test.mjs
+      node --test --test-reporter=tap test/planning-site-semantics.test.mjs
     ) > "$semantic_file_log" 2>&1 || return 1
 
     semantic_test_count="$(awk '/^# tests [0-9]+$/ { count=$3 } END { if (count != "") print count }' "$semantic_file_log")"
@@ -40,7 +40,7 @@
 
     (
       cd "$GEN"
-      node --test \
+      node --test --test-reporter=tap \
         test/planning-vectorize.test.mjs \
         test/planning-vector-fusion.test.mjs \
         test/planning-site-semantics.test.mjs \
