@@ -11,9 +11,6 @@ const gi=args.indexOf('--generator');
 const generator=gi>=0?path.resolve(args[gi+1]):null;
 const validateOnly=args.includes('--validate-only');
 const selfTest=args.includes('--self-test');
-if(selfTest) selfTestTransforms();
-else if(!generator) throw new Error('--generator is required');
-else await install(generator,validateOnly);
 
 async function install(root,validate){
   const verticalFile=path.join(root,'src/lib/vertical-evidence-engine.mjs');
@@ -215,3 +212,9 @@ function selfTestTransforms(){
   const m=repairPlanningVectorTest(modern);if(!m.includes('TPMAP_ALTON_POSTMERGE_VECTOR_CARDINALITY_COMPATIBILITY'))throw new Error('Alton compatibility: modern vector test rejected');
   console.log('Alton post-merge preflight compatibility self-test passed');
 }
+
+// The self-test reaches GENERATED_TEST_IMPLEMENTATION through the generated
+// import repair. Dispatch after that module-scoped regexp is initialized.
+if(selfTest) selfTestTransforms();
+else if(!generator) throw new Error('--generator is required');
+else await install(generator,validateOnly);
