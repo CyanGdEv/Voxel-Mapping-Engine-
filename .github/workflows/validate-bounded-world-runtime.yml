@@ -15,6 +15,7 @@ on:
       - 'scripts/install-phase30a-tests.mjs'
       - 'scripts/install-phase30b-weighted-sampler.mjs'
       - 'scripts/repair-alton-live-generator-contracts.mjs'
+      - 'scripts/seal-prepared-generator.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
   push:
@@ -32,6 +33,7 @@ on:
       - 'scripts/install-phase30a-tests.mjs'
       - 'scripts/install-phase30b-weighted-sampler.mjs'
       - 'scripts/repair-alton-live-generator-contracts.mjs'
+      - 'scripts/seal-prepared-generator.mjs'
       - 'scripts/build-themepark-world-v0120-direct.sh.part-*'
       - '.github/workflows/validate-bounded-world-runtime.yml'
 
@@ -59,6 +61,7 @@ jobs:
           node patches/v0120-phase34/install-ride-vertical-profile.mjs --self-test
           node patches/v0120-phase35/install-block-state-transport.mjs --self-test
           node scripts/repair-alton-live-generator-contracts.mjs --self-test
+          node scripts/seal-prepared-generator.mjs --self-test
       - name: Validate concatenated direct runner syntax and ordering
         shell: bash
         run: |
@@ -71,6 +74,9 @@ jobs:
           grep -q 'deterministic-build-failure.marker' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'TPMAP_ATTEMPT_PREPARED=true' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'prepared-generator-integrity.log' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'TPMAP_PREPARED_GENERATOR_SEAL_BOUNDARY_V1' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'prepared-generator-seal.json' "$RUNNER_TEMP/direct-runner.sh"
+          grep -q 'Prepared generator changed after sealing; refusing world compilation.' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'PHASE30_SCENERY_BLOCK_LIBRARY_V2' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'TPMAP_PHASE30B_UNIFORM_WEIGHTED_SAMPLER_V1' "$RUNNER_TEMP/direct-runner.sh"
           grep -q 'Phase 30 current material-library integration preflight passed' "$RUNNER_TEMP/direct-runner.sh"
@@ -86,6 +92,7 @@ jobs:
           test ! -e scripts/build-themepark-world-v0120-direct.sh.part-02za-phase30a-repair
           test -e scripts/build-themepark-world-v0120-direct.sh.part-02y-phase30a-authority
           test -e scripts/build-themepark-world-v0120-direct.sh.part-02zzzz1-phase30d-native-cache
+          test -e scripts/build-themepark-world-v0120-direct.sh.part-02zzzzzzzzzy-prepared-generator-seal
           test -e scripts/build-themepark-world-v0120-direct.sh.part-02zzzzzzzzzz-fast-attempt-guard-close
 
           phase30a_line=$(grep -n 'part-02y-phase30a-authority' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
@@ -93,12 +100,14 @@ jobs:
           phase30b_line=$(grep -n 'part-02zz-phase30b$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           material30b_line=$(grep -n 'part-02zz1-phase30b-material-patterns$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           native_cache_line=$(grep -n 'part-02zzzz1-phase30d-native-cache$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
-          final_guard_line=$(grep -n 'part-02zzzzzzzzzz-fast-attempt-guard-close' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          seal_line=$(grep -n 'part-02zzzzzzzzzy-prepared-generator-seal$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          final_guard_line=$(grep -n 'part-02zzzzzzzzzz-fast-attempt-guard-close$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
           test "$phase30a_line" -lt "$legacy_phase30_line"
           test "$legacy_phase30_line" -lt "$phase30b_line"
           test "$phase30b_line" -lt "$material30b_line"
           test "$material30b_line" -lt "$native_cache_line"
-          test "$native_cache_line" -lt "$final_guard_line"
+          test "$native_cache_line" -lt "$seal_line"
+          test "$seal_line" -lt "$final_guard_line"
 
           if grep -q 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt"; then
             phase30d_line=$(grep -n 'part-02zzzz-phase30d$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
@@ -146,6 +155,15 @@ jobs:
           grep -q 'PREP_OK Phase 30 final material/palette suite' ci-diagnostics/prepared-generator-integrity.log
           grep -q 'PREP_OK Phase 30 current material-library integration probe' ci-diagnostics/prepared-generator-integrity.log
           grep -q 'PREP_OK prepared generator final integrity' ci-diagnostics/prepared-generator-integrity.log
+          test -f ci-diagnostics/prepared-generator-seal.json
+          test -f ci-diagnostics/prepared-generator-seal.log
+          grep -q 'TPMAP_PREPARED_GENERATOR_SEAL_V1' ci-diagnostics/prepared-generator-seal.json
+          grep -q '"algorithm": "sha256"' ci-diagnostics/prepared-generator-seal.json
+          node scripts/seal-prepared-generator.mjs \
+            --generator generator \
+            --seal ci-diagnostics/prepared-generator-seal.json \
+            --verify | tee ci-diagnostics/prepared-generator-seal-ci-verify.log
+          grep -q '"status":"verified"' ci-diagnostics/prepared-generator-seal-ci-verify.log
           test -f ci-diagnostics/phase30b-planning-site-semantics-tests.log
           grep -q '# fail 0' ci-diagnostics/phase30b-planning-site-semantics-tests.log
           grep -q '# fail 0' ci-diagnostics/phase30b-material-pattern-tests.log
