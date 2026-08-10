@@ -117,7 +117,8 @@ function rewriteExactLengthAssertions(source) {
     const second = args[1]?.trim() || '';
     const message = args.length === 3 ? args[2].trim() : '';
 
-    if (args.length >= 2 && args.length <= 3 && first.includes('.length') && second === '2') {
+    const expectedCount = parseIntegerLiteral(second);
+    if (args.length >= 2 && args.length <= 3 && first.includes('.length') && expectedCount !== null && expectedCount >= 2) {
       const statementEnd = consumeOptionalSemicolon(output, close + 1);
       const replacement = `assert.ok(${first} >= 2${message ? `, ${message}` : ''});`;
       output = output.slice(0, callStart) + replacement + output.slice(statementEnd);
@@ -145,10 +146,18 @@ function hasObsoleteExactCandidateAssertion(source) {
     const close = findMatchingParen(source, open);
     if (close < 0) return true;
     const args = splitTopLevelArguments(source.slice(open + 1, close));
-    if ((args[0] || '').includes('.length') && (args[1] || '').trim() === '2') return true;
+    const expectedCount = parseIntegerLiteral((args[1] || '').trim());
+    if ((args[0] || '').includes('.length') && expectedCount !== null && expectedCount >= 2) return true;
     cursor = close + 1;
   }
   return false;
+}
+
+function parseIntegerLiteral(source) {
+  const value = String(source || '').trim();
+  if (!/^[0-9]+$/.test(value)) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function consumeOptionalSemicolon(source, index) {
@@ -348,6 +357,15 @@ function runSelfTest() {
   }
   if (modernizePlanningVectorCandidateContract(realModern) !== realModern) {
     throw new Error('Prepared generator test finalizer self-test: real-run transform not idempotent');
+  }
+
+  const expandedExact = `test('${VECTOR_TEST_TITLE}', async () => {\n  const candidates = await Promise.resolve(new Array(10).fill({}));\n  assert.strictEqual(candidates.length, 10);\n});\ntest('next',()=>{});`;
+  const expandedModern = modernizePlanningVectorCandidateContract(expandedExact);
+  if (!expandedModern.includes('assert.ok(candidates.length >= 2);')) {
+    throw new Error('Prepared generator test finalizer self-test: expanded exact cardinality not generalized');
+  }
+  if (modernizePlanningVectorCandidateContract(expandedModern) !== expandedModern) {
+    throw new Error('Prepared generator test finalizer self-test: expanded-cardinality transform not idempotent');
   }
 
   const alreadyModern = `test('${VECTOR_TEST_TITLE}',()=>{\n  const features=[];\n  assert.ok(features.length >= 2);\n});`;
