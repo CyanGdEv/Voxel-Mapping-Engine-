@@ -1,0 +1,12 @@
+  # Keep the expensive geometry extractor focused on actual planning drawings.
+  # Narrative/report PDFs remain in the durable evidence cache, but a title
+  # classifier must never promote them into runtime vector/raster geometry work.
+  if [[ "${TPMAP_PLANNING_DOCUMENT_MODE:-off}" != "off" \
+    && -n "${TPMAP_PLANNING_PREFETCH_DIR:-}" \
+    && -f "${TPMAP_PLANNING_PREFETCH_DIR}/manifest.json" ]]; then
+    node "$ROOT/scripts/prune-planning-runtime-geometry.mjs" \
+      --directory "$TPMAP_PLANNING_PREFETCH_DIR" \
+      2>&1 | tee "$DIAG/planning-runtime-geometry-selection.log"
+    cp "$TPMAP_PLANNING_PREFETCH_DIR/runtime-geometry-selection.json" \
+      "$DIAG/planning-runtime-geometry-selection.json"
+  fi
