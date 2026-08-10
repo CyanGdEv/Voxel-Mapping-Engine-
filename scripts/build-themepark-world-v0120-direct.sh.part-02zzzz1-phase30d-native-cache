@@ -13,10 +13,24 @@
   grep -q 'TPMAP_PHASE30D_NATIVE_PDF_DERIVATIVE_CACHE' "$GEN/src/lib/planning-vectorize.mjs"
   grep -q 'TPMAP_PHASE30D_PROCESSED_PLANNING_DERIVATIVE_CACHE' "$GEN/src/lib/planning-processed-derivative-cache.mjs"
 
+  # The cache layer owns planning-vectorize.mjs after the comprehensive Phase 30D
+  # behavior gate. Re-run the semantic/vector regressions here so an optimization
+  # cannot change planning evidence semantics while retaining marker-only validity.
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test \
+      test/planning-site-semantics.test.mjs \
+      test/planning-vectorize.test.mjs \
+      test/planning-comprehensive-semantics.test.mjs \
+      2>&1 | tee -a "$PHASE30D_NATIVE_CACHE_LOG"
+  )
+
   printf '%s\n' \
     'phase30d_native_pdf_derivative_cache=enabled' \
     'cache_identity=document-sha256,page,mime,extractor-behavior,native-tool-versions' \
     'cached_work=pdf-svg-render,positioned-pdf-text' \
+    'injected_runtime_provider_policy=bypass-persistent-cache-because-provider-output-is-not-source-keyed' \
+    'post_cache_semantic_regression=planning-site-semantics,planning-vectorize,planning-comprehensive-semantics' \
     'still_recomputed=svg-parse,semantic-association,georeference,feature-gates,planning-authority' \
     'corrupt_or_mismatched_cache=recompute' \
     'cache_write_failure=non-fatal-recompute-path-preserved' \
