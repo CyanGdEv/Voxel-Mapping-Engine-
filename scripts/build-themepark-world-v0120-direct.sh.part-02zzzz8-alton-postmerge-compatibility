@@ -27,6 +27,7 @@
     "$TPMAP_NODE_BIN" --test \
       test/vertical-evidence-engine.test.mjs \
       test/planning-vectorize.test.mjs \
+      test/planning-site-semantics.test.mjs \
       2>&1 | tee -a "$ALTON_POSTMERGE_COMPAT_LOG"
   )
 
