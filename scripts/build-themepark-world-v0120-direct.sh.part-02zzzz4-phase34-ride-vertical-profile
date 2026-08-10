@@ -3,11 +3,18 @@
   # no extrapolation beyond the first/last accepted anchor and large unsupported
   # gaps stay unresolved.
   PHASE34_RIDE_INSTALLER="$ROOT/patches/v0120-phase34/install-ride-vertical-profile.mjs"
+  ALTON_LIVE_CONTRACT_REPAIR="$ROOT/scripts/repair-alton-live-generator-contracts.mjs"
   PHASE34_RIDE_LOG="$DIAG/phase34-ride-vertical-profile.log"
 
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_INSTALLER" --self-test 2>&1 | tee "$PHASE34_RIDE_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_LOG"
   "$TPMAP_NODE_BIN" "$PHASE34_RIDE_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_LOG"
+
+  # The ride installer refreshes the shared vertical engine from its canonical
+  # template. Reapply the assembled-generator null contract before executing
+  # the vertical regression suite so missing evidence cannot become height 0.
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" 2>&1 | tee -a "$PHASE34_RIDE_LOG"
+  "$TPMAP_NODE_BIN" "$ALTON_LIVE_CONTRACT_REPAIR" --generator "$GEN" --validate-only 2>&1 | tee -a "$PHASE34_RIDE_LOG"
 
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/ride-vertical-profile.mjs"
   "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vertical-evidence-engine.mjs"
