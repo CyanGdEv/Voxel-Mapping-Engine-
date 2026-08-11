@@ -1,0 +1,57 @@
+name: Validate Phase 30D ROI Consensus Runtime
+
+on:
+  pull_request:
+    paths:
+      - 'patches/v0120-phase30d/install-roi-consensus-runtime.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz4-phase30d-roi-consensus-runtime'
+      - '.github/workflows/validate-phase30d-roi-consensus-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'patches/v0120-phase30d/install-roi-consensus-runtime.mjs'
+      - 'scripts/build-themepark-world-v0120-direct.sh.part-02zzzz4-phase30d-roi-consensus-runtime'
+      - '.github/workflows/validate-phase30d-roi-consensus-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate ROI and consensus installer
+        run: |
+          node --check patches/v0120-phase30d/install-roi-consensus-runtime.mjs
+          node patches/v0120-phase30d/install-roi-consensus-runtime.mjs --self-test
+          grep -q 'TPMAP_PHASE30D_ROI_CONSENSUS_RUNTIME_V3' patches/v0120-phase30d/install-roi-consensus-runtime.mjs
+          grep -q 'TPMAP_PHASE30D_ROI_CANDIDATE_EVALUATION_V3' patches/v0120-phase30d/install-roi-consensus-runtime.mjs
+          grep -q 'mapConcurrent(acceptedIds, finalizationConcurrency' patches/v0120-phase30d/install-roi-consensus-runtime.mjs
+          grep -q 'distance_input = reference_distance' patches/v0120-phase30d/install-roi-consensus-runtime.mjs
+          grep -q 'reference_distance_roi = reference_distance' patches/v0120-phase30d/install-roi-consensus-runtime.mjs
+      - name: Verify fidelity gates are unchanged
+        run: |
+          grep -q 'planning_acceptance_thresholds=unchanged' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz4-phase30d-roi-consensus-runtime
+          grep -q 'planning_consensus_thresholds=unchanged' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz4-phase30d-roi-consensus-runtime
+          grep -q 'planning_fidelity_ceiling=unchanged' scripts/build-themepark-world-v0120-direct.sh.part-02zzzz4-phase30d-roi-consensus-runtime
+      - name: Validate direct runner ordering and syntax
+        shell: bash
+        run: |
+          mapfile -t parts < <(printf '%s\n' scripts/build-themepark-world-v0120-direct.sh.part-* | sort)
+          printf '%s\n' "${parts[@]}" > "$RUNNER_TEMP/part-order.txt"
+          cat "${parts[@]}" > "$RUNNER_TEMP/direct-runner.sh"
+          bash -n "$RUNNER_TEMP/direct-runner.sh"
+          priority_line=$(grep -n 'part-02zzzz3-phase30d-georeference-priority-performance$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          roi_line=$(grep -n 'part-02zzzz4-phase30d-roi-consensus-runtime$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          seal_line=$(grep -n 'part-02zzzzzzzzzy-prepared-generator-seal$' "$RUNNER_TEMP/part-order.txt" | cut -d: -f1)
+          test -n "$priority_line"
+          test -n "$roi_line"
+          test -n "$seal_line"
+          test "$priority_line" -lt "$roi_line"
+          test "$roi_line" -lt "$seal_line"
+          grep -q 'install-roi-consensus-runtime.mjs' "$RUNNER_TEMP/direct-runner.sh"

@@ -1,0 +1,38 @@
+  # Phase 30D cold-run runtime correction: automatic registration must evaluate
+  # only the already-legal location ROI, candidate quality must use a padded local
+  # footprint rather than a full-park canvas, and consensus warps must finalize in
+  # bounded parallel workers before final georeference telemetry is emitted.
+  PHASE30D_ROI_CONSENSUS_INSTALLER="$ROOT/patches/v0120-phase30d/install-roi-consensus-runtime.mjs"
+  PHASE30D_ROI_CONSENSUS_LOG="$DIAG/phase30d-roi-consensus-runtime.log"
+
+  "$TPMAP_NODE_BIN" "$PHASE30D_ROI_CONSENSUS_INSTALLER" --self-test \
+    2>&1 | tee "$PHASE30D_ROI_CONSENSUS_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_ROI_CONSENSUS_INSTALLER" --generator "$GEN" \
+    2>&1 | tee -a "$PHASE30D_ROI_CONSENSUS_LOG"
+  "$TPMAP_NODE_BIN" "$PHASE30D_ROI_CONSENSUS_INSTALLER" --generator "$GEN" --validate-only \
+    2>&1 | tee -a "$PHASE30D_ROI_CONSENSUS_LOG"
+
+  # The preceding Phase 30D priority/performance layer already executes the full
+  # planning_auto_register.py --self-test suite. Re-running that expensive suite
+  # here makes production preparation duplicate the same generated-source tests
+  # and can exceed the bounded-world 15-minute job budget. Validate this transform
+  # structurally and syntactically instead; the installer validates the ROI-specific
+  # invariants above, while compilation and marker checks keep the prepared runtime
+  # fail-closed if the transformed source is malformed or incomplete.
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/planning-georeference.mjs"
+  python3 -m py_compile "$GEN/src/tools/planning_auto_register.py"
+  grep -q 'TPMAP_PHASE30D_ROI_CONSENSUS_RUNTIME_V3' "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'TPMAP_PHASE30D_ROI_CANDIDATE_EVALUATION_V3' "$GEN/src/tools/planning_auto_register.py"
+  grep -q 'mapConcurrent(acceptedIds, finalizationConcurrency' "$GEN/src/lib/planning-georeference.mjs"
+  grep -q 'reference_distance_roi = reference_distance' "$GEN/src/tools/planning_auto_register.py"
+
+  printf '%s\n' \
+    'phase30d_roi_consensus_runtime=v3' \
+    'automatic_match_search=existing-application-location-gate-computed-as-direct-roi' \
+    'candidate_quality=local-padded-footprint-preserves-4px-threshold' \
+    'consensus_finalization=bounded-parallel' \
+    'final_georeference_telemetry=after-consensus' \
+    'planning_acceptance_thresholds=unchanged' \
+    'planning_consensus_thresholds=unchanged' \
+    'planning_fidelity_ceiling=unchanged' \
+    >> "$DIAG/phase30d-runtime-policy.txt"

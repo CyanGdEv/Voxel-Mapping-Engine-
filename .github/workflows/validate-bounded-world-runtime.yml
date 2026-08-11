@@ -124,7 +124,9 @@ jobs:
 
   validate-production-phase30-preparation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The CI wrapper must not pre-empt the engine's own 2040-second bounded runtime.
+    # Forty minutes matches the resilient-world policy and leaves setup headroom.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
