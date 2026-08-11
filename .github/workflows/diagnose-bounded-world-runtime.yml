@@ -18,7 +18,9 @@ permissions:
 jobs:
   diagnose-production-preparation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # This wrapper includes runner setup and dependency installation; product/world
+    # runtime budgets remain enforced by the resilient build workflow itself.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
