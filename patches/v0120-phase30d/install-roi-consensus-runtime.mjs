@@ -315,20 +315,56 @@ function replaceJsFunction(source, marker, replacement) {
   const start = source.indexOf(marker);
   if (start < 0) throw new Error(`JS function anchor missing: ${marker}`);
   if (source.indexOf(marker, start + marker.length) >= 0) throw new Error(`JS function anchor ambiguous: ${marker}`);
-  const open = source.indexOf("{", start);
-  if (open < 0) throw new Error(`JS function body start missing: ${marker}`);
+
+  // The target uses a destructured parameter object: fn({ ... }) { ... }.
+  // Starting brace depth at the first `{` therefore stops at the end of the
+  // parameter object and leaves the original `) { ... }` body behind. Anchor
+  // explicitly on the signature terminator so only the real function body is
+  // counted and replaced.
+  const signatureClose = source.indexOf(") {", start);
+  if (signatureClose < 0) throw new Error(`JS function signature end missing: ${marker}`);
+  const open = signatureClose + 2;
+
   let depth = 0;
   let quote = null;
   let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
   for (let index = open; index < source.length; index += 1) {
     const ch = source[index];
+    const next = source[index + 1];
+
+    if (lineComment) {
+      if (ch === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (ch === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
     if (quote) {
       if (escaped) escaped = false;
       else if (ch === "\\") escaped = true;
       else if (ch === quote) quote = null;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+    if (ch === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
     if (ch === "{") depth += 1;
     else if (ch === "}") {
       depth -= 1;
@@ -391,6 +427,8 @@ async function demo(runtime, options, config, bbox, documents, cacheDirectory, d
   }
 }
 async function applyAutomaticConsensus({ runtime, options, config, bbox, documents, cacheDirectory, derivedDirectory, report }) {
+  const literalBrace = "}";
+  // A comment brace must not terminate structural scanning: }
   for (const id of []) { await warpPlanningPage(id); }
 }
 function planningProcessingConcurrency() { return 4; }
@@ -404,8 +442,18 @@ function acceptedControlPointResult() {}
 `;
   const transformedGeoref = transformGeoreference(georeferenceFixture);
   validateGeoreference(transformedGeoref);
+  // Compile the transformed fixture. Earlier string-only validation missed a
+  // dangling `) {` tail, allowing a syntactically broken production module to
+  // pass the dedicated ROI workflow and fail only in final preparation.
+  new Function(transformedGeoref);
+  if ((transformedGeoref.match(/async function applyAutomaticConsensus\(/g) || []).length !== 1) {
+    throw new Error("consensus function replacement left a duplicate function body");
+  }
   if (transformedGeoref.indexOf("emitPlanningGeoreferenceFinalTelemetry(report)") < transformedGeoref.indexOf("await applyAutomaticConsensus")) {
     throw new Error("telemetry did not move after consensus");
+  }
+  if (transformGeoreference(transformedGeoref) !== transformedGeoref) {
+    throw new Error("ROI georeference transform is not idempotent");
   }
 
   const pythonFixture = `# TPMAP_PHASE30D_AUTOREGISTRATION_HOTPATH_V2
