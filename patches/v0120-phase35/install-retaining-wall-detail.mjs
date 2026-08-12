@@ -9,17 +9,20 @@ if(selfTest)selfTestTransform();else if(!generator)throw new Error('--generator 
 
 async function install(root,validate){
   const moduleFile=path.join(root,'src/lib/retaining-wall-detail.mjs');
+  const structuralFile=path.join(root,'src/lib/structural-material-pattern-library.mjs');
   const testFile=path.join(root,'test/retaining-wall-detail.test.mjs');
   const pipelineFile=path.join(root,'src/lib/pipeline.mjs');
+  const structuralSource=await readFile(structuralFile,'utf8').catch(()=>null);
+  if(!structuralSource?.includes('TPMAP_PHASE35_STRUCTURAL_MATERIAL_PATTERN_LIBRARY_V1'))throw new Error('Phase 35 retaining-wall detail requires structural material pattern library to be installed first');
   if(!validate){
     await writeFile(moduleFile,await readFile(path.join(here,'retaining-wall-detail.mjs'),'utf8'));
     await writeFile(testFile,await readFile(path.join(here,'retaining-wall-detail.test.mjs'),'utf8'));
     await writeFile(pipelineFile,transformPipeline(await readFile(pipelineFile,'utf8')));
   }
   const m=await readFile(moduleFile,'utf8'),t=await readFile(testFile,'utf8'),p=await readFile(pipelineFile,'utf8');
-  for(const token of ['TPMAP_PHASE35_RETAINING_WALL_DETAIL_V1','applyRetainingWallDetailToCompilation','validateRetainingWallDetailCompilation'])if(!m.includes(token))throw new Error(`Phase 35 retaining-wall module missing ${token}`);
-  for(const token of ['explicit material refines wall body while DTM keeps vertical extent','explicit thickness expands only axis-aligned wall normal','explicit coping replaces the measured top course without height growth','no explicit planning detail is exact no-op'])if(!t.includes(token))throw new Error(`Phase 35 retaining-wall tests missing ${token}`);
-  validatePipeline(p);console.log(JSON.stringify({status:validate?'validated':'installed',marker:'TPMAP_PHASE35_RETAINING_WALL_DETAIL_V1'}));
+  for(const token of ['TPMAP_PHASE35_RETAINING_WALL_DETAIL_V2','structuralBlockFor','applyRetainingWallDetailToCompilation','validateRetainingWallDetailCompilation'])if(!m.includes(token))throw new Error(`Phase 35 retaining-wall module missing ${token}`);
+  for(const token of ['explicit material refines wall body while DTM keeps vertical extent','explicit thickness expands only axis-aligned wall normal','explicit coping replaces the measured top course without height growth','explicit wall material selects matching structural coping family','no explicit planning detail is exact no-op'])if(!t.includes(token))throw new Error(`Phase 35 retaining-wall tests missing ${token}`);
+  validatePipeline(p);console.log(JSON.stringify({status:validate?'validated':'installed',marker:'TPMAP_PHASE35_RETAINING_WALL_DETAIL_V2',structuralMaterialLibrary:'TPMAP_PHASE35_STRUCTURAL_MATERIAL_PATTERN_LIBRARY_V1'}));
 }
 
 export function transformPipeline(source){
