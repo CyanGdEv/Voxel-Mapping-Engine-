@@ -1,0 +1,33 @@
+  # Align shaped structural body materials with the user-authored Phase 30B core
+  # recipes after the Phase 35 structural library is installed. The world is not
+  # generated until all build fragments finish, so this remains part of prepared-
+  # generator construction while keeping the original Phase 35 installer stable.
+  PHASE35_STRUCTURAL_CORE_V2_INSTALLER="$ROOT/patches/v0120-phase35/install-structural-core-materials-v2.mjs"
+  [[ -f "$PHASE35_STRUCTURAL_CORE_V2_INSTALLER" ]] || {
+    echo "Missing Phase 35 structural core material V2 installer." | tee "$DIAG/phase35-structural-core-material-v2-error.txt" >&2
+    exit 2
+  }
+
+  "$TPMAP_NODE_BIN" --check "$PHASE35_STRUCTURAL_CORE_V2_INSTALLER"
+  "$TPMAP_NODE_BIN" "$PHASE35_STRUCTURAL_CORE_V2_INSTALLER" --self-test \
+    2>&1 | tee "$DIAG/phase35-structural-core-material-v2.log"
+  "$TPMAP_NODE_BIN" "$PHASE35_STRUCTURAL_CORE_V2_INSTALLER" --generator "$GEN" \
+    2>&1 | tee -a "$DIAG/phase35-structural-core-material-v2.log"
+  "$TPMAP_NODE_BIN" "$PHASE35_STRUCTURAL_CORE_V2_INSTALLER" --generator "$GEN" --validate-only \
+    2>&1 | tee -a "$DIAG/phase35-structural-core-material-v2.log"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/structural-material-pattern-library.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/mcworld.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test test/structural-material-pattern-library.test.mjs \
+      2>&1 | tee -a "$DIAG/phase35-structural-core-material-v2.log"
+  )
+
+  printf '%s\n' \
+    'structural_core_materials_v2=enabled' \
+    'brick_body=minecraft:terracotta@60,minecraft:jungle_planks@30,minecraft:packed_mud@10' \
+    'stone_body=minecraft:stone@55,minecraft:cracked_stone_bricks@5,minecraft:stone_bricks@20,minecraft:andesite@15,minecraft:polished_andesite@5' \
+    'shape_policy=wall-slab-stair-railing-fence-pane-carpet-trapdoor-roles-preserved' \
+    'sampling=deterministic-feature-and-coordinate-seeded' \
+    > "$DIAG/phase35-structural-core-material-v2-policy.txt"
