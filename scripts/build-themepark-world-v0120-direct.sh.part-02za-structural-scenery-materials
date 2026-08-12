@@ -1,0 +1,74 @@
+
+  # Structural scenery bridge — make ordinary Phase 30 planning-derived barriers
+  # consume the shared material/form recipes introduced by Phase 35. Install the
+  # shared library early enough for Phase 30 palette synchronization; Phase 35
+  # later re-validates the same idempotent library after state transport is active.
+  STRUCTURAL_SCENERY_INTEGRATOR="$ROOT/scripts/integrate-structural-scenery-materials.mjs"
+  STRUCTURAL_MATERIAL_LIBRARY="$ROOT/patches/v0120-phase35/structural-material-pattern-library.mjs"
+  STRUCTURAL_MATERIAL_INSTALLER="$ROOT/patches/v0120-phase35/install-structural-material-pattern-library.mjs"
+  STRUCTURAL_SCENERY_LOG="$DIAG/structural-scenery-materials.log"
+
+  [[ -f "$STRUCTURAL_SCENERY_INTEGRATOR" && -f "$STRUCTURAL_MATERIAL_LIBRARY" && -f "$STRUCTURAL_MATERIAL_INSTALLER" ]] || {
+    echo "Missing structural scenery material integration inputs." | tee "$DIAG/structural-scenery-materials-error.txt" >&2
+    exit 2
+  }
+
+  node --check "$STRUCTURAL_SCENERY_INTEGRATOR"
+  node --check "$STRUCTURAL_MATERIAL_LIBRARY"
+  node --check "$STRUCTURAL_MATERIAL_INSTALLER"
+  node "$STRUCTURAL_SCENERY_INTEGRATOR" --self-test 2>&1 | tee "$STRUCTURAL_SCENERY_LOG"
+  node "$STRUCTURAL_SCENERY_INTEGRATOR" \
+    --generator "$GEN" \
+    --structural-library "$STRUCTURAL_MATERIAL_LIBRARY" \
+    2>&1 | tee -a "$STRUCTURAL_SCENERY_LOG"
+
+  # Register all possible recipe outputs before the existing Phase 30 palette
+  # compatibility pass. This avoids dynamic recipe outputs escaping literal-source
+  # scanning and makes the direct .mcworld writer fail closed on unknown blocks.
+  node "$STRUCTURAL_MATERIAL_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$STRUCTURAL_SCENERY_LOG"
+  node "$STRUCTURAL_SCENERY_INTEGRATOR" \
+    --generator "$GEN" \
+    --structural-library "$STRUCTURAL_MATERIAL_LIBRARY" \
+    --validate-only \
+    2>&1 | tee -a "$STRUCTURAL_SCENERY_LOG"
+
+  node --check "$GEN/src/lib/structural-material-pattern-library.mjs"
+  node --check "$GEN/src/lib/park-scenery-fidelity.mjs"
+  node --check "$GEN/src/lib/mcworld.mjs"
+  (
+    cd "$GEN"
+    node --input-type=module - <<'NODE' 2>&1 | tee -a "$STRUCTURAL_SCENERY_LOG"
+import { compileParkBarrierRun as barrier, sceneryShapeCapabilities as sceneryCaps } from './src/lib/park-scenery-fidelity.mjs';
+import { structuralPatternCapabilities as structuralCaps } from './src/lib/structural-material-pattern-library.mjs';
+
+function blocks(tags){
+  const out=[];
+  const handled=barrier({add:(...a)=>out.push(a.at(-1)),feature:{kind:'barrier',tags},x1:0,x2:8,z:2,terrainY:64,seed:77});
+  if(!handled) throw new Error(`barrier was not handled tags=${JSON.stringify(tags)}`);
+  return out.map((v)=>typeof v==='string'?v:v?.name);
+}
+const brick=blocks({barrier:'wall',material:'brick'});
+if(!brick.includes('minecraft:brick_wall')||!brick.includes('minecraft:brick_slab')) throw new Error('shared brick wall/coping recipe failed');
+const sandstone=blocks({barrier:'wall',material:'sandstone'});
+if(!sandstone.includes('minecraft:sandstone_wall')||!sandstone.includes('minecraft:sandstone_slab')) throw new Error('shared sandstone wall/coping recipe failed');
+const metal=blocks({barrier:'railing',material:'steel'});
+if(!metal.includes('minecraft:iron_bars')) throw new Error('shared metal railing recipe failed');
+const glass=blocks({barrier:'balustrade',material:'glass'});
+if(!glass.includes('minecraft:glass_pane')) throw new Error('shared glazing recipe failed');
+const sc=sceneryCaps(),st=structuralCaps();
+if(!sc.sharedStructuralMaterials||!sc.ironBars||!sc.glassPanes) throw new Error('scenery structural capability contract missing');
+if(!st.walls||!st.slabs||!st.railings||!st.glassPanes) throw new Error('shared structural material capability contract missing');
+console.log('structural_scenery_runtime_test=PASS');
+NODE
+  )
+
+  printf '%s\n' \
+    'structural_scenery_materials=enabled' \
+    'shared_library=TPMAP_PHASE35_STRUCTURAL_MATERIAL_PATTERN_LIBRARY_V1' \
+    'ordinary_masonry_barriers=material-family-wall-plus-coping-slab' \
+    'ordinary_metal_barriers=iron-bars-railing-recipe' \
+    'ordinary_glazed_barriers=glass-pane-recipe' \
+    'authority=existing-phase30-feature-authority-unchanged' \
+    'unknown_geometry_policy=existing-compiler-fallback-unchanged' \
+    'writer_registration=all-shared-recipe-blocks-before-phase30-palette-preflight' \
+    > "$DIAG/structural-scenery-materials-policy.txt"
