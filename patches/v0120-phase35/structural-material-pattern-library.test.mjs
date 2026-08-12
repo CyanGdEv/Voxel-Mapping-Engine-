@@ -6,7 +6,7 @@ import {
   structuralBlockFor,
   structuralMaterialFamily,
   structuralPatternCapabilities
-} from './structural-material-pattern-library.mjs';
+} from '../src/lib/structural-material-pattern-library.mjs';
 
 function blockName(value){return typeof value==='string'?value:value?.name;}
 
@@ -14,6 +14,7 @@ test('structural material library exposes requested Minecraft-native forms',()=>
   assert.equal(STRUCTURAL_MATERIAL_PATTERN_MARKER,'TPMAP_PHASE35_STRUCTURAL_MATERIAL_PATTERN_LIBRARY_V1');
   const c=structuralPatternCapabilities();
   for(const key of ['fullBlocks','walls','slabs','stairs','railings','fences','ironBars','glassPanes','carpets','trapdoors'])assert.equal(c[key],true,key);
+  assert.equal(c.failClosedUnsupportedForms,true);
   assert.ok(c.materialFamilies>=7);
   assert.equal(c.registeredBlocks,STRUCTURAL_PATTERN_BLOCK_IDS.length);
 });
@@ -77,6 +78,9 @@ test('every emitted structural form is present in the exported registration set'
   for(const sample of samples)assert.ok(STRUCTURAL_PATTERN_BLOCK_IDS.includes(blockName(sample)),blockName(sample));
 });
 
-test('unknown structural roles fail closed instead of silently becoming full blocks',()=>{
+test('unknown structural roles and impossible family/form combinations fail closed',()=>{
   assert.throws(()=>structuralBlockFor({material:'stone',role:'unknown-shape'}),/Unsupported structural material role/);
+  assert.throws(()=>structuralBlockFor({material:'glass',role:'stair'}),/does not support role stair/);
+  assert.throws(()=>structuralBlockFor({material:'carpet',role:'wall'}),/does not support role wall/);
+  assert.throws(()=>structuralBlockFor({material:'mystery composite',role:'body'}),/Unsupported structural material family/);
 });
