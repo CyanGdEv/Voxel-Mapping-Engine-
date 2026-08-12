@@ -39,21 +39,21 @@ const RECIPES = Object.freeze({
   }),
   metal: recipe({
     body: weighted([["minecraft:iron_block",70],["minecraft:polished_blackstone",30]]),
-    wall: "minecraft:iron_bars", slab: "minecraft:iron_trapdoor", stair: "minecraft:normal_stone_stairs",
+    wall: "minecraft:iron_bars", slab: null, stair: null,
     railing: "minecraft:iron_bars", fence: "minecraft:iron_bars", pane: "minecraft:glass_pane",
     carpet: "minecraft:black_carpet", trapdoor: "minecraft:iron_trapdoor"
   }),
   glass: recipe({
     body: weighted([["minecraft:glass",100]]),
-    wall: "minecraft:glass_pane", slab: "minecraft:glass", stair: "minecraft:glass",
+    wall: "minecraft:glass_pane", slab: null, stair: null,
     railing: "minecraft:glass_pane", fence: "minecraft:glass_pane", pane: "minecraft:glass_pane",
-    carpet: "minecraft:white_carpet", trapdoor: "minecraft:iron_trapdoor"
+    carpet: null, trapdoor: null
   }),
   carpet: recipe({
     body: weighted([["minecraft:gray_carpet",100]]),
-    wall: "minecraft:gray_carpet", slab: "minecraft:gray_carpet", stair: "minecraft:gray_carpet",
-    railing: "minecraft:gray_carpet", fence: "minecraft:gray_carpet", pane: "minecraft:glass_pane",
-    carpet: "minecraft:gray_carpet", trapdoor: "minecraft:iron_trapdoor"
+    wall: null, slab: null, stair: null,
+    railing: null, fence: null, pane: null,
+    carpet: "minecraft:gray_carpet", trapdoor: null
   })
 });
 
@@ -67,6 +67,7 @@ const MATERIAL_ALIASES = Object.freeze({
   glass:"glass", glazing:"glass", glazed:"glass", transparent:"glass",
   carpet:"carpet", textile:"carpet", fabric:"carpet"
 });
+const SORTED_MATERIAL_ALIASES=Object.freeze(Object.entries(MATERIAL_ALIASES).sort((a,b)=>b[0].length-a[0].length||a[0].localeCompare(b[0])));
 
 const ROLE_ALIASES = Object.freeze({
   body:"body", full:"body", full_block:"body", solid:"body", structural:"body",
@@ -96,7 +97,7 @@ const COLOUR_BLOCKS = Object.freeze({
 export const STRUCTURAL_PATTERN_BLOCK_IDS = Object.freeze([...new Set(
   Object.values(RECIPES).flatMap((r) => [
     ...r.body.map((entry) => entry.block), r.wall, r.slab, r.stair, r.railing, r.fence, r.pane, r.carpet, r.trapdoor
-  ]).concat(Object.values(COLOUR_BLOCKS.pane), Object.values(COLOUR_BLOCKS.carpet))
+  ].filter(Boolean)).concat(Object.values(COLOUR_BLOCKS.pane), Object.values(COLOUR_BLOCKS.carpet))
 )].sort());
 
 export function structuralMaterialFamily(value, tags = {}) {
@@ -105,24 +106,39 @@ export function structuralMaterialFamily(value, tags = {}) {
     const key = norm(candidate);
     if (!key) continue;
     if (MATERIAL_ALIASES[key]) return MATERIAL_ALIASES[key];
-    for (const [alias, family] of Object.entries(MATERIAL_ALIASES)) if (key.includes(alias)) return family;
+    for (const [alias, family] of SORTED_MATERIAL_ALIASES) if (key.includes(alias)) return family;
   }
   return null;
 }
 
 export function structuralBlockFor(input = {}) {
-  const family = structuralMaterialFamily(input.material || input.family, input.tags || {}) || "stone";
+  const requested=input.material || input.family;
+  const family = structuralMaterialFamily(requested, input.tags || {});
+  if(requested && !family)throw new Error(`Unsupported structural material family: ${requested}`);
+  const resolvedFamily=family||"stone";
   const role = ROLE_ALIASES[norm(input.role || "body")];
   if (!role) throw new Error(`Unsupported structural material role: ${input.role}`);
-  const recipe = RECIPES[family];
-  if (!recipe) throw new Error(`Unsupported structural material family: ${family}`);
+  const recipe = RECIPES[resolvedFamily];
+  if (!recipe) throw new Error(`Unsupported structural material family: ${resolvedFamily}`);
 
   if (role === "body") return chooseWeighted(recipe.body, input);
-  if (role === "pane") return colourOverride("pane", input.colour || input.color) || recipe.pane;
-  if (role === "carpet") return colourOverride("carpet", input.colour || input.color) || recipe.carpet;
-  if (role === "stair") return { name: recipe.stair, states: { upside_down_bit: Boolean(input.upsideDown), weirdo_direction: stairDirection(input.orientation ?? input.direction) } };
-  if (role === "trapdoor") return { name: recipe.trapdoor, states: { direction: boundedDirection(input.direction ?? input.orientation), open_bit: Boolean(input.open), upside_down_bit: Boolean(input.upsideDown) } };
-  return recipe[role];
+  if (role === "pane") {
+    if(!recipe.pane)throwUnsupportedForm(resolvedFamily,role);
+    return colourOverride("pane", input.colour || input.color) || recipe.pane;
+  }
+  if (role === "carpet") {
+    if(!recipe.carpet)throwUnsupportedForm(resolvedFamily,role);
+    return colourOverride("carpet", input.colour || input.color) || recipe.carpet;
+  }
+  if (role === "stair") {
+    if(!recipe.stair)throwUnsupportedForm(resolvedFamily,role);
+    return { name: recipe.stair, states: { upside_down_bit: Boolean(input.upsideDown), weirdo_direction: stairDirection(input.orientation ?? input.direction) } };
+  }
+  if (role === "trapdoor") {
+    if(!recipe.trapdoor)throwUnsupportedForm(resolvedFamily,role);
+    return { name: recipe.trapdoor, states: { direction: boundedDirection(input.direction ?? input.orientation), open_bit: Boolean(input.open), upside_down_bit: Boolean(input.upsideDown) } };
+  }
+  const block=recipe[role];if(!block)throwUnsupportedForm(resolvedFamily,role);return block;
 }
 
 export function structuralPatternCapabilities() {
@@ -140,6 +156,7 @@ export function structuralPatternCapabilities() {
     glassPanes: true,
     carpets: true,
     trapdoors: true,
+    failClosedUnsupportedForms:true,
     materialFamilies: Object.keys(RECIPES).length,
     registeredBlocks: STRUCTURAL_PATTERN_BLOCK_IDS.length
   });
@@ -167,7 +184,7 @@ function colourOverride(role, value) {
   if (!key) return null;
   const table=COLOUR_BLOCKS[role];
   if (table[key]) return table[key];
-  for (const [name,block] of Object.entries(table)) if (key.includes(name)) return block;
+  for (const [name,block] of Object.entries(table).sort((a,b)=>b[0].length-a[0].length)) if (key.includes(name)) return block;
   return null;
 }
 function stairDirection(value) {
@@ -176,5 +193,6 @@ function stairDirection(value) {
   return key==="east"?0:key==="west"?1:key==="south"?2:key==="north"?3:0;
 }
 function boundedDirection(value) { const n=Number(value); return Number.isInteger(n) ? ((n%4)+4)%4 : 0; }
+function throwUnsupportedForm(family,role){throw new Error(`Structural material family ${family} does not support role ${role}`);}
 function norm(value) { return String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g,"_"); }
 function hash01(text) { let h=2166136261; for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619);} return (h>>>0)/4294967296; }
