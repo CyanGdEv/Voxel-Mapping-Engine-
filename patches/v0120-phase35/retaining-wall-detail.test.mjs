@@ -11,7 +11,9 @@ test('explicit thickness expands only axis-aligned wall normal',()=>{const c=com
 
 test('diagonal or broad bounds do not guess thickness expansion',()=>{const g=graph({width:4,material:'concrete'});g.nodes[0].geometry.bounds={minX:0,minZ:0,maxX:8,maxZ:8};const c=compilation();applyRetainingWallDetailToCompilation(c,g);const coords=c.chunks.flatMap(ch=>ch.o).filter(op=>op[0]===6&&c.palette[op[7]]==='minecraft:smooth_stone').map(op=>`${op[1]}:${op[3]}`);assert.ok(coords.every(v=>v==='4:4'));});
 
-test('explicit coping replaces the measured top course without height growth',()=>{const c=compilation(),d=applyRetainingWallDetailToCompilation(c,graph({coping:'yes'}));assert.equal(d.explicitCapWalls,1);assert.ok(c.chunks.flatMap(ch=>ch.o).some(op=>op[0]===6&&op[1]===4&&op[2]===4&&op[3]===4));assert.ok(!c.chunks.flatMap(ch=>ch.o).some(op=>op[0]===6&&op[2]>4));});
+test('explicit coping replaces the measured top course without height growth',()=>{const c=compilation(),d=applyRetainingWallDetailToCompilation(c,graph({coping:'yes'}));assert.equal(d.explicitCapWalls,1);assert.equal(d.structuralCaps,1);const top=c.chunks.flatMap(ch=>ch.o).find(op=>op[0]===6&&op[1]===4&&op[2]===4&&op[3]===4);assert.ok(top);assert.equal(c.palette[top[7]],'minecraft:stone_brick_slab');assert.ok(!c.chunks.flatMap(ch=>ch.o).some(op=>op[0]===6&&op[2]>4));});
+
+test('explicit wall material selects matching structural coping family',()=>{const c=compilation(),d=applyRetainingWallDetailToCompilation(c,graph({material:'brick',coping:'yes'}));assert.equal(d.structuralMaterialLibrary,'TPMAP_PHASE35_STRUCTURAL_MATERIAL_PATTERN_LIBRARY_V1');const top=c.chunks.flatMap(ch=>ch.o).find(op=>op[0]===6&&op[1]===4&&op[2]===4&&op[3]===4);assert.equal(c.palette[top[7]],'minecraft:brick_slab');});
 
 test('no explicit planning detail is exact no-op',()=>{const c=compilation(),before=JSON.stringify(c),d=applyRetainingWallDetailToCompilation(c,graph());assert.equal(d.status,'no-op');assert.equal(JSON.stringify(c),before);});
 
