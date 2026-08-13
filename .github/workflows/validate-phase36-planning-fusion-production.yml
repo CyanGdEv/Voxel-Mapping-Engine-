@@ -1,0 +1,79 @@
+name: Validate Phase36 Planning Fusion Production
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "patches/v0120-phase36/install-planning-fusion-production-calibration.mjs"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-02-02-planning-fusion-production-policy"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-02zzzz8c-phase36-planning-fusion-calibration"
+      - ".github/workflows/validate-phase36-planning-fusion-production.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate production planning-fusion guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate calibration transformer against production source shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTALLER="patches/v0120-phase36/install-planning-fusion-production-calibration.mjs"
+          node --check "$INSTALLER"
+          node "$INSTALLER" --self-test
+          grep -Fq 'recordDecision(evidence, candidate, { action: "withheld-confidence", role, confidence });' \
+            patches/v0120-phase23/v0120-phase23-planning-vector-fusion.patch.part-01
+          grep -Fq 'if (geometryType === "line") return Number(properties.length_m) >= config.minLineLengthM;' \
+            patches/v0120-phase23/v0120-phase23-planning-vector-fusion.patch.part-01
+
+      - name: Validate fusion feature cap cannot exceed generator CLI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          POLICY="scripts/build-themepark-world-v0120-direct.sh.part-02-02-planning-fusion-production-policy"
+          bash -n "$POLICY"
+          run_policy() {
+            local requested="$1"
+            local expected="$2"
+            local work
+            work="$(mktemp -d)"
+            SOURCE_ARGS=()
+            DIAG="$work"
+            TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES="$requested"
+            source "$POLICY"
+            [[ " ${SOURCE_ARGS[*]} " == *" --planning-vector-fusion-max-features ${expected} "* ]]
+            grep -Fxq "max_features=${expected}" "$DIAG/phase36-planning-fusion-runtime-policy.txt"
+            grep -Fxq 'max_features_cli_ceiling=100000' "$DIAG/phase36-planning-fusion-runtime-policy.txt"
+            rm -rf "$work"
+          }
+          run_policy 500000 100000
+          run_policy 100000 100000
+          run_policy 8595 8595
+          run_policy invalid 100000
+          run_policy 0 100000
+          ! grep -Fq ':-500000' "$POLICY"
+
+      - name: Validate calibration install is fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER="scripts/build-themepark-world-v0120-direct.sh.part-02zzzz8c-phase36-planning-fusion-calibration"
+          bash -n "$RUNNER"
+          grep -Fq 'PHASE36_SELFTEST_STATUS=${PIPESTATUS[0]}' "$RUNNER"
+          grep -Fq 'PHASE36_INSTALL_STATUS=${PIPESTATUS[0]}' "$RUNNER"
+          grep -Fq 'PHASE36_VALIDATE_STATUS=${PIPESTATUS[0]}' "$RUNNER"
+          grep -Fq 'refusing to continue with stale fusion gates' "$RUNNER"
+          grep -Fq 'installer_fail_closed=true' "$RUNNER"
