@@ -1,0 +1,23 @@
+
+  PHASE36_PLANNING_FUSION_INSTALLER="$ROOT/patches/v0120-phase36/install-planning-fusion-production-calibration.mjs"
+  [[ -f "$PHASE36_PLANNING_FUSION_INSTALLER" ]] || {
+    echo "Missing Phase 36 planning fusion production calibration installer." | tee "$DIAG/phase36-planning-fusion-error.txt" >&2
+    exit 2
+  }
+  node --check "$PHASE36_PLANNING_FUSION_INSTALLER"
+  node "$PHASE36_PLANNING_FUSION_INSTALLER" --self-test \
+    2>&1 | tee "$DIAG/phase36-planning-fusion-selftest.log"
+  node "$PHASE36_PLANNING_FUSION_INSTALLER" --generator "$GEN" \
+    2>&1 | tee "$DIAG/phase36-planning-fusion-install.log"
+  node --check "$GEN/src/lib/planning-vector-fusion.mjs"
+  node "$PHASE36_PLANNING_FUSION_INSTALLER" --generator "$GEN" --validate-only \
+    2>&1 | tee "$DIAG/phase36-planning-fusion-validation.log"
+  printf '%s\n' \
+    'planning_fusion_calibration=enabled' \
+    'configured_confidence_gate=preserved' \
+    'semantic_current_high_georef_floor=0.70' \
+    'semantic_high_georef_floor=0.72' \
+    'semantic_min_line_m=2' \
+    'semantic_min_area_m2=4' \
+    'provenance_status_license_gates=preserved' \
+    > "$DIAG/phase36-planning-fusion-policy.txt"
