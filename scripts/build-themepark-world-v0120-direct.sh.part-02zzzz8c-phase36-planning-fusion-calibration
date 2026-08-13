@@ -7,11 +7,26 @@
   node --check "$PHASE36_PLANNING_FUSION_INSTALLER"
   node "$PHASE36_PLANNING_FUSION_INSTALLER" --self-test \
     2>&1 | tee "$DIAG/phase36-planning-fusion-selftest.log"
+  PHASE36_SELFTEST_STATUS=${PIPESTATUS[0]}
+  if (( PHASE36_SELFTEST_STATUS != 0 )); then
+    echo "Phase 36 planning fusion calibration self-test failed; refusing to build an uncalibrated world." | tee "$DIAG/phase36-planning-fusion-error.txt" >&2
+    exit "$PHASE36_SELFTEST_STATUS"
+  fi
   node "$PHASE36_PLANNING_FUSION_INSTALLER" --generator "$GEN" \
     2>&1 | tee "$DIAG/phase36-planning-fusion-install.log"
+  PHASE36_INSTALL_STATUS=${PIPESTATUS[0]}
+  if (( PHASE36_INSTALL_STATUS != 0 )); then
+    echo "Phase 36 planning fusion calibration install failed; refusing to continue with stale fusion gates." | tee "$DIAG/phase36-planning-fusion-error.txt" >&2
+    exit "$PHASE36_INSTALL_STATUS"
+  fi
   node --check "$GEN/src/lib/planning-vector-fusion.mjs"
   node "$PHASE36_PLANNING_FUSION_INSTALLER" --generator "$GEN" --validate-only \
     2>&1 | tee "$DIAG/phase36-planning-fusion-validation.log"
+  PHASE36_VALIDATE_STATUS=${PIPESTATUS[0]}
+  if (( PHASE36_VALIDATE_STATUS != 0 )); then
+    echo "Phase 36 planning fusion calibration validation failed; refusing to continue with an unverified fusion module." | tee "$DIAG/phase36-planning-fusion-error.txt" >&2
+    exit "$PHASE36_VALIDATE_STATUS"
+  fi
   printf '%s\n' \
     'planning_fusion_calibration=enabled' \
     'configured_confidence_gate=preserved' \
@@ -20,4 +35,5 @@
     'semantic_min_line_m=2' \
     'semantic_min_area_m2=4' \
     'provenance_status_license_gates=preserved' \
+    'installer_fail_closed=true' \
     > "$DIAG/phase36-planning-fusion-policy.txt"
