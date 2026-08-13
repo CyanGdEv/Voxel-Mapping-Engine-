@@ -1,0 +1,52 @@
+name: Regenerate Alton After Generation Change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-themepark-world-resilient.yml"
+      - ".github/workflows/regenerate-alton-after-generation-change.yml"
+      - "scripts/build-themepark-world-v0120-direct.sh.part-*"
+      - "scripts/validate-generated-world-completeness.mjs"
+      - "scripts/publish-mcworld-release.sh"
+      - "scripts/exact-world-result-cache.mjs"
+      - "scripts/prepare-fast-world-runner.mjs"
+      - "patches/v0120-phase30/**"
+      - "patches/v0120-phase30b/**"
+      - "patches/v0120-phase30d/**"
+      - "patches/v0120-phase33/**"
+      - "patches/v0120-phase34/**"
+      - "patches/v0120-phase35/**"
+      - "patches/v0120-phase36/**"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: regenerate-alton-after-generation-change
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Dispatch fresh Alton world build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Prove merged source identity
+        shell: bash
+        run: |
+          echo "source_sha=${GITHUB_SHA}"
+          echo "source_ref=${GITHUB_REF}"
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+
+      - name: Dispatch resilient Alton generation from current main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build-themepark-world-resilient.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f preset=alton-towers
+          echo "Dispatched fresh Alton generation for source commit ${GITHUB_SHA}."
