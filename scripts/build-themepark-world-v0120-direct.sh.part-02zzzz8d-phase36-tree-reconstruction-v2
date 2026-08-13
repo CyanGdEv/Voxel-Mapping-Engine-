@@ -1,0 +1,39 @@
+  # Phase 36 — explicit vegetation evidence cutover + non-blob tree compiler.
+  TREE_V2_HANDOFF="$ROOT/patches/v0120-phase36/install-tree-reconstruction-v2-handoff.mjs"
+  TREE_V2_INSTALLER="$ROOT/patches/v0120-phase36/install-tree-reconstruction-v2.mjs"
+  TREE_V2_LOG="$DIAG/phase36-tree-reconstruction-v2.log"
+
+  "$TPMAP_NODE_BIN" --check "$ROOT/patches/v0120-phase36/tree-reconstruction-v2.mjs"
+  "$TPMAP_NODE_BIN" --check "$ROOT/patches/v0120-phase36/tree-reconstruction-v2.test.mjs"
+  "$TPMAP_NODE_BIN" --check "$TREE_V2_HANDOFF"
+  "$TPMAP_NODE_BIN" --check "$TREE_V2_INSTALLER"
+
+  "$TPMAP_NODE_BIN" "$TREE_V2_HANDOFF" --self-test 2>&1 | tee "$TREE_V2_LOG"
+  "$TPMAP_NODE_BIN" "$TREE_V2_HANDOFF" --generator "$GEN" 2>&1 | tee -a "$TREE_V2_LOG"
+  "$TPMAP_NODE_BIN" "$TREE_V2_HANDOFF" --generator "$GEN" --validate-only 2>&1 | tee -a "$TREE_V2_LOG"
+
+  "$TPMAP_NODE_BIN" "$TREE_V2_INSTALLER" --self-test 2>&1 | tee -a "$TREE_V2_LOG"
+  "$TPMAP_NODE_BIN" "$TREE_V2_INSTALLER" --generator "$GEN" 2>&1 | tee -a "$TREE_V2_LOG"
+  "$TPMAP_NODE_BIN" "$TREE_V2_INSTALLER" --generator "$GEN" --validate-only 2>&1 | tee -a "$TREE_V2_LOG"
+
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/tree-reconstruction-v2.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/vegetation-reconstruction.mjs"
+  "$TPMAP_NODE_BIN" --check "$GEN/src/lib/raster.mjs"
+  (
+    cd "$GEN"
+    "$TPMAP_NODE_BIN" --test test/tree-reconstruction-v2.test.mjs 2>&1 | tee -a "$TREE_V2_LOG"
+  )
+
+  grep -Fq 'TPMAP_PHASE36_TREE_RECONSTRUCTION_V2_INTEGRATION' "$GEN/src/lib/raster.mjs"
+  grep -Fq 'TPMAP_PHASE36_TREE_RECONSTRUCTION_V2_HANDOFF' "$GEN/src/lib/vegetation-reconstruction.mjs"
+  printf '%s\n' \
+    'phase36_tree_reconstruction_v2=enabled' \
+    'cutover=phase34-vegetation-evidence-to-compiler-feature' \
+    'topology=trunk-primary-secondary-branches-layered-porous-crown' \
+    'woodland=separated-deterministic-individual-trees' \
+    'height=planning-or-vom-or-dsm-evidence' \
+    'crown=planning-crown-geometry-or-bounded-height-derived-fallback' \
+    'species=never-invented-without-evidence' \
+    'blob_guard=max-leaf-fill-ratio-regression' \
+    'legacy_fallback=retained-for-non-tree-groundcover-and-unresolved-features' \
+    > "$DIAG/phase36-tree-reconstruction-v2-policy.txt"
