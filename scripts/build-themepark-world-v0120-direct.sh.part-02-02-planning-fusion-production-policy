@@ -1,0 +1,20 @@
+
+    # Phase 36: the comprehensive extractor accepts meaningful semantic planning
+    # linework from 2 m and footprints from 4 m². Keep the fusion size limits in
+    # the same domain and remove the legacy 5k cap so extracted park geometry is
+    # not silently truncated before reconstruction. Confidence is calibrated in
+    # the generated fusion module; provenance/status/licence gates remain later.
+    if [[ " ${SOURCE_ARGS[*]} " != *" --planning-vector-fusion-min-length-m "* ]]; then
+      SOURCE_ARGS+=(--planning-vector-fusion-min-length-m "${TPMAP_PLANNING_VECTOR_FUSION_MIN_LENGTH_M:-2}")
+    fi
+    if [[ " ${SOURCE_ARGS[*]} " != *" --planning-vector-fusion-min-area-m2 "* ]]; then
+      SOURCE_ARGS+=(--planning-vector-fusion-min-area-m2 "${TPMAP_PLANNING_VECTOR_FUSION_MIN_AREA_M2:-4}")
+    fi
+    if [[ " ${SOURCE_ARGS[*]} " != *" --planning-vector-fusion-max-features "* ]]; then
+      SOURCE_ARGS+=(--planning-vector-fusion-max-features "${TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES:-500000}")
+    fi
+    printf 'min_line_m=%s\nmin_area_m2=%s\nmax_features=%s\nconfidence_policy=role-aware-generated-module\n' \
+      "${TPMAP_PLANNING_VECTOR_FUSION_MIN_LENGTH_M:-2}" \
+      "${TPMAP_PLANNING_VECTOR_FUSION_MIN_AREA_M2:-4}" \
+      "${TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES:-500000}" \
+      > "$DIAG/phase36-planning-fusion-runtime-policy.txt"

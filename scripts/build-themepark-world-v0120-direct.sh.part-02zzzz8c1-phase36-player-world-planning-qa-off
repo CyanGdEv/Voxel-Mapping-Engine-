@@ -1,0 +1,15 @@
+  # Phase 36 — preserve provenance QA metadata/tests, disable only its player-world rendering.
+  PLANNING_QA_SUPPRESSION="$ROOT/patches/v0120-phase36/install-player-world-planning-qa-suppression.mjs"
+  PLANNING_QA_LOG="$DIAG/phase36-player-world-planning-qa-suppression.log"
+  "$TPMAP_NODE_BIN" --check "$PLANNING_QA_SUPPRESSION"
+  "$TPMAP_NODE_BIN" "$PLANNING_QA_SUPPRESSION" --self-test 2>&1 | tee "$PLANNING_QA_LOG"
+  "$TPMAP_NODE_BIN" "$PLANNING_QA_SUPPRESSION" --generator "$GEN" 2>&1 | tee -a "$PLANNING_QA_LOG"
+  "$TPMAP_NODE_BIN" "$PLANNING_QA_SUPPRESSION" --generator "$GEN" --validate-only 2>&1 | tee -a "$PLANNING_QA_LOG"
+  grep -Fq 'TPMAP_PHASE36_PLAYER_WORLD_PLANNING_QA_SUPPRESSION' "$GEN/src/lib/raster.mjs"
+  grep -Fq 'planning_qa: true' "$GEN/src/lib/planning-vector-fusion.mjs"
+  printf '%s\n' \
+    'player_world_planning_qa_overlay=disabled-at-cli-runtime-only' \
+    'planning_provenance_metadata=retained' \
+    'planning_qa_regression_mode=retained-by-default' \
+    'planning_authority_geometry=rendered-through-semantic-material-compiler' \
+    > "$DIAG/phase36-player-world-planning-qa-policy.txt"
