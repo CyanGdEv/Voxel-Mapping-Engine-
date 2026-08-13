@@ -1,9 +1,19 @@
 
     # Phase 36: the comprehensive extractor accepts meaningful semantic planning
     # linework from 2 m and footprints from 4 m². Keep the fusion size limits in
-    # the same domain and remove the legacy 5k cap so extracted park geometry is
-    # not silently truncated before reconstruction. Confidence is calibrated in
-    # the generated fusion module; provenance/status/licence gates remain later.
+    # the same domain. The generator CLI has a hard 100k upper bound; clamp
+    # overrides to that supported ceiling so a quality-tuning env var can never
+    # abort all world-generation strategies before compilation starts.
+    PHASE36_FUSION_MAX_FEATURES="${TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES:-100000}"
+    if [[ ! "$PHASE36_FUSION_MAX_FEATURES" =~ ^[0-9]+$ ]] || (( PHASE36_FUSION_MAX_FEATURES < 1 )); then
+      printf 'Phase 36: invalid TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES=%q; using 100000.\n' \
+        "$PHASE36_FUSION_MAX_FEATURES" >&2
+      PHASE36_FUSION_MAX_FEATURES=100000
+    elif (( PHASE36_FUSION_MAX_FEATURES > 100000 )); then
+      printf 'Phase 36: clamping TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES=%s to generator CLI ceiling 100000.\n' \
+        "$PHASE36_FUSION_MAX_FEATURES" >&2
+      PHASE36_FUSION_MAX_FEATURES=100000
+    fi
     if [[ " ${SOURCE_ARGS[*]} " != *" --planning-vector-fusion-min-length-m "* ]]; then
       SOURCE_ARGS+=(--planning-vector-fusion-min-length-m "${TPMAP_PLANNING_VECTOR_FUSION_MIN_LENGTH_M:-2}")
     fi
@@ -11,10 +21,10 @@
       SOURCE_ARGS+=(--planning-vector-fusion-min-area-m2 "${TPMAP_PLANNING_VECTOR_FUSION_MIN_AREA_M2:-4}")
     fi
     if [[ " ${SOURCE_ARGS[*]} " != *" --planning-vector-fusion-max-features "* ]]; then
-      SOURCE_ARGS+=(--planning-vector-fusion-max-features "${TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES:-500000}")
+      SOURCE_ARGS+=(--planning-vector-fusion-max-features "$PHASE36_FUSION_MAX_FEATURES")
     fi
-    printf 'min_line_m=%s\nmin_area_m2=%s\nmax_features=%s\nconfidence_policy=role-aware-generated-module\n' \
+    printf 'min_line_m=%s\nmin_area_m2=%s\nmax_features=%s\nmax_features_cli_ceiling=100000\nconfidence_policy=role-aware-generated-module\n' \
       "${TPMAP_PLANNING_VECTOR_FUSION_MIN_LENGTH_M:-2}" \
       "${TPMAP_PLANNING_VECTOR_FUSION_MIN_AREA_M2:-4}" \
-      "${TPMAP_PLANNING_VECTOR_FUSION_MAX_FEATURES:-500000}" \
+      "$PHASE36_FUSION_MAX_FEATURES" \
       > "$DIAG/phase36-planning-fusion-runtime-policy.txt"
