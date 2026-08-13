@@ -1,0 +1,58 @@
+name: Validate Player World Delivery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "scripts/publish-mcworld-release.sh"
+      - "scripts/validate-generated-world-completeness.mjs"
+      - ".github/workflows/regenerate-alton-after-generation-change.yml"
+      - ".github/workflows/validate-player-world-delivery.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate stale-world prevention contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate publisher and completeness gate
+        shell: bash
+        run: |
+          bash -n scripts/publish-mcworld-release.sh
+          node scripts/validate-generated-world-completeness.mjs --self-test
+          grep -Fq 'validate-generated-world-completeness.mjs' scripts/publish-mcworld-release.sh
+          grep -Fq 'GITHUB_SHA:0:12' scripts/publish-mcworld-release.sh
+          grep -Fq 'WORLD_SHA256:0:12' scripts/publish-mcworld-release.sh
+          grep -Fq 'world_sha256=' scripts/publish-mcworld-release.sh
+          grep -Fq 'source_sha=' scripts/publish-mcworld-release.sh
+          grep -Fq 'REMOTE_BYTES' scripts/publish-mcworld-release.sh
+
+      - name: Validate main-merge regeneration dispatcher
+        shell: bash
+        run: |
+          grep -Fq 'branches:' .github/workflows/regenerate-alton-after-generation-change.yml
+          grep -Fq 'main' .github/workflows/regenerate-alton-after-generation-change.yml
+          grep -Fq 'actions: write' .github/workflows/regenerate-alton-after-generation-change.yml
+          grep -Fq 'build-themepark-world-resilient.yml' .github/workflows/regenerate-alton-after-generation-change.yml
+          grep -Fq -- '--ref main' .github/workflows/regenerate-alton-after-generation-change.yml
+          grep -Fq 'preset=alton-towers' .github/workflows/regenerate-alton-after-generation-change.yml
+
+      - name: Validate source identity is exposed in player asset
+        shell: bash
+        run: |
+          grep -Fq '${PARK_PRESET}-${SHORT_SOURCE_SHA}-${SHORT_WORLD_SHA}.mcworld' scripts/publish-mcworld-release.sh
+          grep -Fq 'Generated from commit' scripts/publish-mcworld-release.sh
+          grep -Fq 'World SHA-256' scripts/publish-mcworld-release.sh
+          grep -Fq 'World bytes' scripts/publish-mcworld-release.sh
