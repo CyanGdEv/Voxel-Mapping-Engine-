@@ -6,6 +6,22 @@ done
 MANIFEST="$(unzip -p "$MCWORLD" db/CURRENT | tr -d '\r\n')"
 [[ -n "$MANIFEST" ]] && grep -Fxq "db/$MANIFEST" "$ARCHIVE_LIST"
 
+# A valid Bedrock ZIP is not sufficient for a player-facing park build. Reject
+# marker-only, zero-planning-promotion, plan-only-ride and implausibly small
+# worlds before cache sealing or release publication.
+WORLD_COMPLETENESS_VALIDATOR="$ROOT/scripts/validate-generated-world-completeness.mjs"
+[[ -f "$WORLD_COMPLETENESS_VALIDATOR" ]] || {
+  echo "Generated world completeness validator is missing." >&2
+  exit 4
+}
+node --check "$WORLD_COMPLETENESS_VALIDATOR"
+node "$WORLD_COMPLETENESS_VALIDATOR" \
+  --output "$GEN/$OUT_REL" \
+  --world "$MCWORLD" \
+  --preset "$PRESET" \
+  --expected-chunks "${TERRAIN_EXPECTED_CHUNKS:-0}" \
+  2>&1 | tee "$DIAG/world-completeness-validation.log"
+
 WORLD_SHA="$(sha256sum "$MCWORLD" | cut -d' ' -f1)"
 WORLD_BYTES="$(stat -c '%s' "$MCWORLD")"
 VALIDATION_PATH="$GEN/$OUT_REL/independent-validation.json"
@@ -13,10 +29,11 @@ node --input-type=module - "$VALIDATION_PATH" "$SUCCESS_STRATEGY" "$(basename "$
 import { writeFileSync } from 'node:fs';
 const [, , output, strategy, filename, sha256, bytes] = process.argv;
 writeFileSync(output, JSON.stringify({
-  schemaVersion: 4,
+  schemaVersion: 5,
   status: 'passed',
   generatorVersion: '0.12.0',
   strategy,
+  completenessPolicy: 'tpmap-player-world-completeness-v1',
   world: { filename, sha256, bytes: Number(bytes) }
 }, null, 2) + '\n');
 NODE
