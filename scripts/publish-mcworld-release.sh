@@ -16,6 +16,15 @@ for required_name in GITHUB_REPOSITORY GITHUB_SHA GITHUB_OUTPUT; do
   fi
 done
 
+# A player-facing asset must be traceable to the exact checked-out source. This
+# catches accidental publication from a stale workspace or wrong ref before the
+# stable release tag is touched.
+CHECKOUT_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+if [[ -z "$CHECKOUT_SHA" || "$CHECKOUT_SHA" != "$GITHUB_SHA" ]]; then
+  echo "checkout/source identity mismatch (${CHECKOUT_SHA:-missing} != $GITHUB_SHA)" >&2
+  exit 1
+fi
+
 if [[ ! -f "$MCWORLD_PATH" ]]; then
   echo "generated .mcworld does not exist: $MCWORLD_PATH" >&2
   exit 1
