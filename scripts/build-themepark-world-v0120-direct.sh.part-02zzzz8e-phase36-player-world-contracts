@@ -1,0 +1,26 @@
+  # Phase 36 player-world contracts: these are release invariants, not tuning.
+  PRODUCTION_RUN_PART="$ROOT/scripts/build-themepark-world-v0120-direct.sh.part-03"
+  COMPLETENESS_VALIDATOR="$ROOT/scripts/validate-generated-world-completeness.mjs"
+  CONTRACT_LOG="$DIAG/phase36-player-world-contracts.log"
+
+  grep -Fq -- '--buildings shells' "$PRODUCTION_RUN_PART" || {
+    echo 'Production build must compile building shells.' >&2
+    exit 4
+  }
+  if grep -Fq -- '--buildings markers' "$PRODUCTION_RUN_PART"; then
+    echo 'Legacy marker-only building mode returned to production runner.' >&2
+    exit 4
+  fi
+  "$TPMAP_NODE_BIN" --check "$COMPLETENESS_VALIDATOR"
+  "$TPMAP_NODE_BIN" "$COMPLETENESS_VALIDATOR" --self-test 2>&1 | tee "$CONTRACT_LOG"
+  grep -Fq 'TPMAP_PHASE36_TREE_RECONSTRUCTION_V2_INTEGRATION' "$GEN/src/lib/raster.mjs"
+  grep -Fq 'TPMAP_PHASE36_TREE_RECONSTRUCTION_V2_HANDOFF' "$GEN/src/lib/vegetation-reconstruction.mjs"
+  grep -Fq 'planning_qa: false' "$GEN/src/lib/planning-vector-fusion.mjs"
+  ! grep -Fq 'planning_qa: true' "$GEN/src/lib/planning-vector-fusion.mjs"
+  printf '%s\n' \
+    'building_output=shells' \
+    'building_markers=forbidden' \
+    'planning_qa_overlay=forbidden-in-player-world' \
+    'tree_reconstruction_v2=required' \
+    'incomplete_world_publication=fail-closed' \
+    >> "$CONTRACT_LOG"
