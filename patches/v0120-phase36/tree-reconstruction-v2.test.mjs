@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { tryCompileTreeReconstructionV2, TREE_RECONSTRUCTION_V2_MARKER } from "./tree-reconstruction-v2.mjs";
+import { tryCompileTreeReconstructionV2, TREE_RECONSTRUCTION_V2_MARKER } from "../src/lib/tree-reconstruction-v2.mjs";
 
 function compile(feature, extra = {}) {
   const writes = [];
