@@ -1,0 +1,14 @@
+  # Phase 36 — planning provenance remains diagnostic-only in player worlds.
+  PLANNING_QA_SUPPRESSION="$ROOT/patches/v0120-phase36/install-player-world-planning-qa-suppression.mjs"
+  PLANNING_QA_LOG="$DIAG/phase36-player-world-planning-qa-suppression.log"
+  "$TPMAP_NODE_BIN" --check "$PLANNING_QA_SUPPRESSION"
+  "$TPMAP_NODE_BIN" "$PLANNING_QA_SUPPRESSION" --self-test 2>&1 | tee "$PLANNING_QA_LOG"
+  "$TPMAP_NODE_BIN" "$PLANNING_QA_SUPPRESSION" --generator "$GEN" 2>&1 | tee -a "$PLANNING_QA_LOG"
+  "$TPMAP_NODE_BIN" "$PLANNING_QA_SUPPRESSION" --generator "$GEN" --validate-only 2>&1 | tee -a "$PLANNING_QA_LOG"
+  grep -Fq 'planning_qa: false' "$GEN/src/lib/planning-vector-fusion.mjs"
+  ! grep -Fq 'planning_qa: true' "$GEN/src/lib/planning-vector-fusion.mjs"
+  printf '%s\n' \
+    'player_world_planning_qa_overlay=disabled' \
+    'planning_provenance_metadata=retained' \
+    'planning_authority_geometry=rendered-through-semantic-material-compiler' \
+    > "$DIAG/phase36-player-world-planning-qa-policy.txt"
