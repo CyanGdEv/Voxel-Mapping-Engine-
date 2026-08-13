@@ -23,7 +23,7 @@ async function install(root,validate){
   }
   const moduleSource=await readFile(moduleFile,'utf8'),testSource=await readFile(testFile,'utf8'),mcworldSource=await readFile(mcworldFile,'utf8');
   for(const token of ['TPMAP_PHASE35_STRUCTURAL_MATERIAL_PATTERN_LIBRARY_V1','STRUCTURAL_PATTERN_BLOCK_IDS','structuralBlockFor','structuralPatternCapabilities'])if(!moduleSource.includes(token))throw new Error(`Phase 35 structural material module missing ${token}`);
-  for(const token of ['requested Minecraft-native forms','metal railings and coloured glazing','trapdoors carry Bedrock direction','unknown structural roles fail closed'])if(!testSource.includes(token))throw new Error(`Phase 35 structural material tests missing ${token}`);
+  for(const token of ['requested Minecraft-native forms','metal railings and coloured glazing','trapdoors carry Bedrock direction','unknown structural roles and impossible family/form combinations fail closed'])if(!testSource.includes(token))throw new Error(`Phase 35 structural material tests missing ${token}`);
   validateRegisteredBlocks(mcworldSource,STRUCTURAL_PATTERN_BLOCK_IDS);
   const imported=await import(`${pathToFileURL(moduleFile).href}?tpmapStructuralValidate=${Date.now()}`);
   const caps=imported.structuralPatternCapabilities();
