@@ -1,0 +1,3901 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8740918972841134,
+            52.9864492227355
+          ],
+          [
+            -1.8740885752696836,
+            52.98648029324777
+          ],
+          [
+            -1.874077275269568,
+            52.986586593247964
+          ],
+          [
+            -1.8740559752694668,
+            52.986668093248106
+          ],
+          [
+            -1.8740197752692034,
+            52.98690129324853
+          ],
+          [
+            -1.8740398752691427,
+            52.986991093248676
+          ],
+          [
+            -1.8741322752691751,
+            52.98707639324883
+          ],
+          [
+            -1.8742754752692943,
+            52.987137193248955
+          ],
+          [
+            -1.874627275269632,
+            52.98723649324917
+          ],
+          [
+            -1.8752131752702552,
+            52.98733909324939
+          ],
+          [
+            -1.875698175270736,
+            52.98745979324964
+          ],
+          [
+            -1.875978275271041,
+            52.9875000932497
+          ],
+          [
+            -1.8767409752719206,
+            52.98756119324987
+          ],
+          [
+            -1.8781227752734906,
+            52.98769559325021
+          ],
+          [
+            -1.878349801919101,
+            52.987730033380316
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/23022811",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "lit": "yes",
+          "source": "NPE;GPS trace; os_opendata_streetview",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 366.6222136672215
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8898269314871396,
+            52.98885758483052
+          ],
+          [
+            -1.8898266752867805,
+            52.98885699325308
+          ],
+          [
+            -1.8897944752867972,
+            52.988797593253004
+          ],
+          [
+            -1.8896311752867703,
+            52.98861119325266
+          ],
+          [
+            -1.8894501752866537,
+            52.98849889325243
+          ],
+          [
+            -1.8888678752861943,
+            52.988227193251916
+          ],
+          [
+            -1.888606375285978,
+            52.98811529325172
+          ],
+          [
+            -1.8881388752855588,
+            52.98795039325137
+          ],
+          [
+            -1.8872400752848095,
+            52.98757199325067
+          ],
+          [
+            -1.887151475284815,
+            52.987451193250436
+          ],
+          [
+            -1.8870895800651215,
+            52.98736683131839
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/24868484",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 253.71774315810467
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8940358752930198,
+            52.987728893251386
+          ],
+          [
+            -1.8940596586247544,
+            52.98765157747727
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/24868489",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "foot": "yes",
+          "highway": "service"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 8.747919421072702
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8940358752930198,
+            52.987728893251386
+          ],
+          [
+            -1.89390257387881,
+            52.988073785868394
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/24868495",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "foot": "yes",
+          "highway": "service",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 39.39729653649905
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8882800998437745,
+            52.99518215376622
+          ],
+          [
+            -1.8883110752789798,
+            52.995159993264075
+          ],
+          [
+            -1.8884048752791884,
+            52.99506099326392
+          ],
+          [
+            -1.888637175279574,
+            52.99495469326375
+          ],
+          [
+            -1.8888041549040633,
+            52.99491196389153
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/27812219",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "designation": "public_footpath",
+          "foot": "yes",
+          "highway": "track",
+          "horse": "no",
+          "name": "Haybank Lane",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 47.653868560503994
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8924294376599895,
+            52.99249512906535
+          ],
+          [
+            -1.8917470752858916,
+            52.992307693259306
+          ],
+          [
+            -1.8916077752857767,
+            52.99224859325918
+          ],
+          [
+            -1.8915288343262595,
+            52.99219991870998
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/42354393",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "unclassified",
+          "motor_vehicle": "destination",
+          "motor_vehicle:conditional": "no @ (09:00-11:00)",
+          "name": "Wootton Lane",
+          "source": "os_opendata_streetview"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 69.33247891160353
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8941040956012622,
+            52.99451044628413
+          ],
+          [
+            -1.8941693752869766,
+            52.99432119326302
+          ],
+          [
+            -1.8941752258344493,
+            52.994273340244014
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/63564451",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "track",
+          "name": "Longshaw Lane",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 26.842448108362145
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8740398752691427,
+              52.986991093248676
+            ],
+            [
+              -1.873889375268955,
+              52.98699299324863
+            ],
+            [
+              -1.873700975268794,
+              52.986918293248515
+            ],
+            [
+              -1.8733186752683144,
+              52.98693029324849
+            ],
+            [
+              -1.8728828576186753,
+              52.9869438826799
+            ]
+          ],
+          [
+            [
+              -1.8719005375351072,
+              52.98683564899643
+            ],
+            [
+              -1.8718568898528183,
+              52.98682898242042
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/70689550",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "lit": "yes",
+          "oneway": "yes",
+          "source": "Bing",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 83.25789703520012
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.868999976163801,
+            52.98518087272541
+          ],
+          [
+            -1.869988775265751,
+            52.98531649324545
+          ],
+          [
+            -1.8706399752663456,
+            52.985531593245845
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/70689553",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "source": "os_opendata_streetview",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 117.9146866967128
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8955590752938987,
+            52.988785693253384
+          ],
+          [
+            -1.8958601670814157,
+            52.9887798735945
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/70691916",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service",
+          "source": "os_opendata_streetview"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 20.22259360718972
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8957668567012387,
+            52.98961461671502
+          ],
+          [
+            -1.8955590752938987,
+            52.988785693253384
+          ],
+          [
+            -1.8953981752941829,
+            52.98827549325246
+          ],
+          [
+            -1.8948744375035638,
+            52.987813361283955
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/70691917",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service",
+          "source": "os_opendata_streetview"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 213.32085092159016
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.89433615714193,
+            52.98854599595474
+          ],
+          [
+            -1.8946578752928562,
+            52.98871459325319
+          ],
+          [
+            -1.8950977752927538,
+            52.98939919325443
+          ],
+          [
+            -1.8950987814761493,
+            52.98940026033072
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/70691921",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service",
+          "source": "os_opendata_streetview"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 110.42378917897828
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8872398352918855,
+            52.98100074188636
+          ],
+          [
+            -1.8866475752901974,
+            52.98108409323918
+          ],
+          [
+            -1.885890075289192,
+            52.981162193239285
+          ],
+          [
+            -1.884919175287966,
+            52.981197993239284
+          ],
+          [
+            -1.8838731752866673,
+            52.98121209323924
+          ],
+          [
+            -1.8827058752852521,
+            52.98119119323909
+          ],
+          [
+            -1.8822696752847572,
+            52.981149193239
+          ],
+          [
+            -1.8820228792578515,
+            52.981102941091414
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/81598587",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "foot": "yes",
+          "highway": "track",
+          "source": "GPS",
+          "surface": "gravel"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 353.40268510568296
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8828124079927844,
+            52.98100081733479
+          ],
+          [
+            -1.8826748752853608,
+            52.98103539323883
+          ],
+          [
+            -1.8826426752852625,
+            52.98110059323893
+          ],
+          [
+            -1.882395875284961,
+            52.981096693238904
+          ],
+          [
+            -1.882014975284539,
+            52.981048893238786
+          ],
+          [
+            -1.8819362444782444,
+            52.98104613075852
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/96470282",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 65.56433735665783
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.872220075263383,
+              52.9907283932551
+            ],
+            [
+              -1.8721665752636558,
+              52.99036999325447
+            ]
+          ],
+          [
+            [
+              -1.872135366583714,
+              52.99028442220241
+            ],
+            [
+              -1.8720713752637679,
+              52.990127293254055
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/105066059",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "highway": "footway",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 58.03148978508481
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8845360722791558,
+            52.98904802573723
+          ],
+          [
+            -1.884631375280146,
+            52.98911869325319
+          ],
+          [
+            -1.8847158752802058,
+            52.98916469325327
+          ],
+          [
+            -1.884782875280255,
+            52.98920109325333
+          ],
+          [
+            -1.8847922752801383,
+            52.989336693253556
+          ],
+          [
+            -1.8848834752801722,
+            52.98941819325372
+          ],
+          [
+            -1.884957275280124,
+            52.98956759325399
+          ],
+          [
+            -1.8850001198913446,
+            52.98958972966814
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/106842137",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 70.99398782619305
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8745316343846072,
+            52.98652138715367
+          ],
+          [
+            -1.874505475270129,
+            52.986551093247925
+          ],
+          [
+            -1.8744698752700566,
+            52.98658049324799
+          ],
+          [
+            -1.8744027752699688,
+            52.98658689324799
+          ],
+          [
+            -1.8743142752698705,
+            52.98657559324798
+          ],
+          [
+            -1.8742203752697635,
+            52.98656759324794
+          ],
+          [
+            -1.8741559752696884,
+            52.98656269324794
+          ],
+          [
+            -1.874077275269568,
+            52.986586593247964
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/106876855",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "oneway": "yes",
+          "source": "Bing",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 35.06501506893573
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "LineString",
+            "coordinates": [
+              [
+                -1.8703928752646133,
+                52.9870470932485
+              ],
+              [
+                -1.870429175264777,
+                52.98692109324831
+              ],
+              [
+                -1.870446931437724,
+                52.98670892841001
+              ]
+            ]
+          },
+          {
+            "type": "Point",
+            "coordinates": [
+              -1.8707398752663118,
+              52.98570019324614
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/106878328",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "track",
+          "lit": "no",
+          "source": "Bing",
+          "surface": "compacted",
+          "tracktype": "grade3"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 37.85945522070615
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8793131947582107,
+            52.98499256143543
+          ],
+          [
+            -1.8793031752774951,
+            52.98498679324554
+          ],
+          [
+            -1.8793326752776283,
+            52.98488349324534
+          ],
+          [
+            -1.8793416000745913,
+            52.98487925775519
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/106879553",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "service": "parking_aisle",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 13.352893927991667
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8849411752807705,
+            52.98886039325275
+          ],
+          [
+            -1.8854855515257076,
+            52.98914287370218
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/107026718",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "yes",
+          "bicycle": "no",
+          "foot": "yes",
+          "highway": "footway",
+          "horse": "no",
+          "motor_vehicle": "no",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 48.19689634678738
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8733694608532112,
+              52.98638955522301
+            ],
+            [
+              -1.873426475268948,
+              52.98639969324756
+            ],
+            [
+              -1.8734701776803864,
+              52.98639787390635
+            ]
+          ],
+          [
+            [
+              -1.8738874540105486,
+              52.986432337806555
+            ],
+            [
+              -1.8740885752696836,
+              52.98648029324777
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/107214105",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 21.44881880334843
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8707398752663118,
+            52.98570019324614
+          ],
+          [
+            -1.8706399752663456,
+            52.985531593245845
+          ],
+          [
+            -1.8706103558476308,
+            52.98547235448702
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/107214961",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "lit": "yes",
+          "source": "Bing",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 26.80241508095796
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.886217564059471,
+            52.98684995984627
+          ],
+          [
+            -1.8860643752840438,
+            52.9868529932493
+          ],
+          [
+            -1.8859073752839295,
+            52.98676819324914
+          ],
+          [
+            -1.8858480752838198,
+            52.9868063932492
+          ],
+          [
+            -1.8857674752837295,
+            52.98679789324918
+          ],
+          [
+            -1.885716575283715,
+            52.98674699324906
+          ],
+          [
+            -1.8855722752835102,
+            52.98677669324913
+          ],
+          [
+            -1.8854916752834026,
+            52.986785193249155
+          ],
+          [
+            -1.8853644752832088,
+            52.986825393249205
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/107258359",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 67.73148530904014
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8881388752855588,
+            52.98795039325137
+          ],
+          [
+            -1.8875685752847415,
+            52.988074393251566
+          ],
+          [
+            -1.8873966752845348,
+            52.988069893251556
+          ],
+          [
+            -1.8870967752841734,
+            52.98806069325149
+          ],
+          [
+            -1.8869036752839403,
+            52.98805749325149
+          ],
+          [
+            -1.8865710752835163,
+            52.988073593251514
+          ],
+          [
+            -1.8863994752833484,
+            52.988025193251396
+          ],
+          [
+            -1.8862813752833023,
+            52.98792179325121
+          ],
+          [
+            -1.886195575283297,
+            52.987815293250996
+          ],
+          [
+            -1.8862223752834333,
+            52.98770549325082
+          ],
+          [
+            -1.8862921752835955,
+            52.987624693250666
+          ],
+          [
+            -1.8863296752837175,
+            52.98754399325054
+          ],
+          [
+            -1.8862813752837866,
+            52.9874083932503
+          ],
+          [
+            -1.886131175283711,
+            52.98729209325007
+          ],
+          [
+            -1.8860362752836306,
+            52.98725449324998
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/107258705",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 218.89072033461696
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8896311752867703,
+            52.98861119325266
+          ],
+          [
+            -1.8900867841007944,
+            52.98848311204001
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/107259862",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 33.74113557935978
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8800071402458314,
+            52.99581047169804
+          ],
+          [
+            -1.8800034752681658,
+            52.99579719326458
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/159826023",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track",
+          "source": "visual survey;bing",
+          "surface": "unpaved",
+          "tracktype": "grade2"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 1.4975021192071487
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8700709780015468,
+              52.995057931691804
+            ],
+            [
+              -1.870166326579968,
+              52.99496347770191
+            ]
+          ],
+          [
+            [
+              -1.871525875259614,
+              52.99382139326051
+            ],
+            [
+              -1.8718663752602795,
+              52.99356069326008
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/159826502",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "highway": "footway",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 49.227978626603694
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8730019752616858,
+            52.993546593260106
+          ],
+          [
+            -1.8732195752619465,
+            52.99355329326017
+          ],
+          [
+            -1.873633575262349,
+            52.99366669326037
+          ],
+          [
+            -1.873925475262623,
+            52.99375619326059
+          ],
+          [
+            -1.8741499752628639,
+            52.99379229326067
+          ],
+          [
+            -1.8743973752631489,
+            52.9938124932607
+          ],
+          [
+            -1.8747118752635137,
+            52.99383509326075
+          ],
+          [
+            -1.8748647752636836,
+            52.99385449326079
+          ],
+          [
+            -1.8749631752637839,
+            52.99387599326086
+          ],
+          [
+            -1.8750852752638942,
+            52.993919093260956
+          ],
+          [
+            -1.8752258752640434,
+            52.99394309326098
+          ],
+          [
+            -1.8754647752643467,
+            52.99393349326099
+          ],
+          [
+            -1.8756451752645547,
+            52.993946193261046
+          ],
+          [
+            -1.8759583752649323,
+            52.993955793261065
+          ],
+          [
+            -1.876321975265364,
+            52.993970193261106
+          ],
+          [
+            -1.8765315752656078,
+            52.99398459326117
+          ],
+          [
+            -1.8766856752657843,
+            52.993997693261186
+          ],
+          [
+            -1.8768167752659066,
+            52.99403979326125
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/159826503",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track",
+          "source": "visual survey;bing",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 265.88955978174977
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8717772940369315,
+            52.99234751386181
+          ],
+          [
+            -1.8718026752612935,
+            52.99240259325803
+          ],
+          [
+            -1.8719486752612613,
+            52.99262459325843
+          ],
+          [
+            -1.8721662752612986,
+            52.99286899325888
+          ],
+          [
+            -1.8724395752614258,
+            52.99309099325927
+          ],
+          [
+            -1.8726173752614819,
+            52.993261993259594
+          ],
+          [
+            -1.8729623752617075,
+            52.99347279325998
+          ],
+          [
+            -1.8730019752616858,
+            52.993546593260106
+          ],
+          [
+            -1.872972975261643,
+            52.99355429326013
+          ],
+          [
+            -1.872837675261468,
+            52.993563893260124
+          ],
+          [
+            -1.8718663752602795,
+            52.99356069326008
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/159826895",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "designation": "public_footpath",
+          "highway": "track",
+          "horse": "no",
+          "source": "visual survey;bing",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 235.06846618938243
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8718663752602795,
+            52.99356069326008
+          ],
+          [
+            -1.8715956752599376,
+            52.993570193260084
+          ],
+          [
+            -1.8713037752595987,
+            52.99354949326
+          ],
+          [
+            -1.8712406403452655,
+            52.99354070928378
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/159826896",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track",
+          "source": "visual survey;bing",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 42.27759928690527
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8702712752622803,
+            52.989361793252556
+          ],
+          [
+            -1.8702816752623368,
+            52.989316893252486
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/188751928",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "highway": "steps",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 5.043452069587261
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8702816752623368,
+              52.989316893252486
+            ],
+            [
+              -1.8703536752625356,
+              52.98919819325227
+            ],
+            [
+              -1.8702787752626937,
+              52.98893449325182
+            ],
+            [
+              -1.87017497526273,
+              52.98876099325152
+            ],
+            [
+              -1.8702383752629448,
+              52.988615293251264
+            ],
+            [
+              -1.870267175263356,
+              52.988216193250544
+            ],
+            [
+              -1.870232675263693,
+              52.98781369324981
+            ],
+            [
+              -1.8699328752638338,
+              52.987275893248906
+            ],
+            [
+              -1.8698233752640632,
+              52.986890693248185
+            ],
+            [
+              -1.8696985752641928,
+              52.986590793247665
+            ],
+            [
+              -1.869494775264068,
+              52.986456893247386
+            ],
+            [
+              -1.8690048752637056,
+              52.986203593246934
+            ],
+            [
+              -1.8689999762766882,
+              52.98620000271322
+            ]
+          ],
+          [
+            [
+              -1.8689999758569453,
+              52.98334829662216
+            ],
+            [
+              -1.8691258752666238,
+              52.98326779324177
+            ],
+            [
+              -1.8696525752675448,
+              52.9829777932413
+            ],
+            [
+              -1.870069575268057,
+              52.98297659324131
+            ],
+            [
+              -1.870589975268783,
+              52.982885993241204
+            ],
+            [
+              -1.8712409752697179,
+              52.982740593241
+            ],
+            [
+              -1.8720874752708179,
+              52.98267449324095
+            ],
+            [
+              -1.8732419752721632,
+              52.98275019324116
+            ],
+            [
+              -1.873765175272749,
+              52.98281099324131
+            ],
+            [
+              -1.8745403752736305,
+              52.982885093241485
+            ],
+            [
+              -1.8758355752753184,
+              52.98278109324141
+            ],
+            [
+              -1.8762346752758032,
+              52.98278439324143
+            ],
+            [
+              -1.8765931752762484,
+              52.98277919324144
+            ],
+            [
+              -1.8771677752769835,
+              52.98274849324144
+            ],
+            [
+              -1.8773171752771638,
+              52.98275129324144
+            ],
+            [
+              -1.8776613752776208,
+              52.98271489324141
+            ],
+            [
+              -1.8780916752781962,
+              52.98266659324136
+            ],
+            [
+              -1.878301175278464,
+              52.982653293241356
+            ],
+            [
+              -1.8783983752786277,
+              52.98260669324126
+            ],
+            [
+              -1.8784396536183487,
+              52.982426351944525
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/188751933",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "foot": "designated",
+          "highway": "footway",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 1053.2585002985297
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8695459896771742,
+            52.981772393855316
+          ],
+          [
+            -1.8693239752681863,
+            52.98187159323931
+          ],
+          [
+            -1.8689999755244804,
+            52.98191716204819
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/219119477",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "yes",
+          "foot": "designated",
+          "highway": "path",
+          "smoothness": "good",
+          "source": "GPS",
+          "surface": "compacted"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 40.88290456207356
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8896311752867703,
+            52.98861119325266
+          ],
+          [
+            -1.889121775286117,
+            52.98864009325266
+          ],
+          [
+            -1.888863375285804,
+            52.988635793252634
+          ],
+          [
+            -1.888656275285585,
+            52.98859749325254
+          ],
+          [
+            -1.888417475285334,
+            52.988552693252466
+          ],
+          [
+            -1.8880971752849685,
+            52.98852289325237
+          ],
+          [
+            -1.8878210752846805,
+            52.98846749325228
+          ],
+          [
+            -1.887552075284413,
+            52.988400393252114
+          ],
+          [
+            -1.8873167752841788,
+            52.98834289325197
+          ],
+          [
+            -1.8870229752838716,
+            52.98828429325188
+          ],
+          [
+            -1.8868266752836587,
+            52.98825439325181
+          ],
+          [
+            -1.8866143752833706,
+            52.988283193251846
+          ],
+          [
+            -1.8863506752829649,
+            52.98836949325198
+          ],
+          [
+            -1.8860356752824918,
+            52.988462193252154
+          ],
+          [
+            -1.8858021752821839,
+            52.988482393252134
+          ],
+          [
+            -1.885602175281948,
+            52.98847279325209
+          ],
+          [
+            -1.88549977528184,
+            52.98845349325206
+          ],
+          [
+            -1.8854112752817613,
+            52.98842369325204
+          ],
+          [
+            -1.8853119752816887,
+            52.98836949325192
+          ],
+          [
+            -1.8852411752816502,
+            52.988317293251825
+          ],
+          [
+            -1.8852110752816316,
+            52.988299193251784
+          ],
+          [
+            -1.885149175281568,
+            52.988287493251754
+          ],
+          [
+            -1.885108475281507,
+            52.98829699325178
+          ],
+          [
+            -1.8850600752814253,
+            52.98832169325182
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/330956482",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway",
+          "name": "Haunted Hollow"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 327.72666481708836
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8845328752813604,
+            52.9877036932507
+          ],
+          [
+            -1.8844590752811576,
+            52.98781939325088
+          ],
+          [
+            -1.8843882752808894,
+            52.98801319325121
+          ],
+          [
+            -1.8843720752807132,
+            52.988178393251516
+          ],
+          [
+            -1.884468375280626,
+            52.98839569325192
+          ],
+          [
+            -1.8846464752805947,
+            52.9886629932524
+          ],
+          [
+            -1.8846930752805344,
+            52.9887868932526
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/330956486",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "surface": "paved"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 125.4844815245444
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.885557575282882,
+            52.98742299325027
+          ],
+          [
+            -1.8852555752822515,
+            52.98769879325072
+          ],
+          [
+            -1.8851161752817194,
+            52.988083093251404
+          ],
+          [
+            -1.8850592752814581,
+            52.98828559325176
+          ],
+          [
+            -1.8850600752814253,
+            52.98832169325182
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/453981805",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 107.40318171163368
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8924886752937176,
+            52.98496829324643
+          ],
+          [
+            -1.8924823752937097,
+            52.98496669324644
+          ],
+          [
+            -1.8922699752935044,
+            52.984909093246365
+          ],
+          [
+            -1.8921576752933982,
+            52.98487449324625
+          ],
+          [
+            -1.8920464752933124,
+            52.98482049324616
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/453998877",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "source": "Bing",
+          "surface": "paving_stones"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 34.13940639318838
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8921576752933982,
+            52.98487449324625
+          ],
+          [
+            -1.8920592752932293,
+            52.98492479324634
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/453998878",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "source": "Bing",
+          "surface": "paving_stones"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 8.657500146836206
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8848195752823012,
+            52.987077093249596
+          ],
+          [
+            -1.8849797752824227,
+            52.98715759324976
+          ],
+          [
+            -1.8852800752826637,
+            52.98729259325004
+          ],
+          [
+            -1.885557575282882,
+            52.98742299325027
+          ],
+          [
+            -1.8857362752831828,
+            52.98733829325014
+          ],
+          [
+            -1.8858540752832722,
+            52.98739559325025
+          ],
+          [
+            -1.8860362752836306,
+            52.98725449324998
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/454206161",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "pedestrian",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 108.05603294830152
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.884939775282591,
+            52.986926093249316
+          ],
+          [
+            -1.88501397528276,
+            52.986843993249224
+          ],
+          [
+            -1.8852382752831323,
+            52.986741093249044
+          ],
+          [
+            -1.8853644752832088,
+            52.986825393249205
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/454206165",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "pedestrian",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 41.956441095424864
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8852382752831323,
+            52.986741093249044
+          ],
+          [
+            -1.8850050752828518,
+            52.98673599324903
+          ],
+          [
+            -1.8845957752824123,
+            52.98666779324887
+          ],
+          [
+            -1.8842626752820262,
+            52.98664259324879
+          ],
+          [
+            -1.8841441022180498,
+            52.98667870871577
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/454206171",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "pedestrian",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 75.62509635441899
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8860362752836306,
+            52.98725449324998
+          ],
+          [
+            -1.8858902752835045,
+            52.987196793249886
+          ],
+          [
+            -1.8856301752832663,
+            52.987111093249716
+          ],
+          [
+            -1.8854110752830906,
+            52.98701209324954
+          ],
+          [
+            -1.8853776752831752,
+            52.98687839324931
+          ],
+          [
+            -1.8853644752832088,
+            52.986825393249205
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/454206192",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "pedestrian"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 70.98899526027512
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8918209752928894,
+            52.984973893246384
+          ],
+          [
+            -1.8916389752926155,
+            52.985028493246496
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/454269077",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "source": "Bing",
+          "surface": "paving_stones"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 13.645125476494156
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8850600752814253,
+            52.98832169325182
+          ],
+          [
+            -1.8850672752811175,
+            52.98865689325241
+          ],
+          [
+            -1.884914375280834,
+            52.98875699325258
+          ],
+          [
+            -1.8849411752807705,
+            52.98886039325275
+          ],
+          [
+            -1.8848994700721922,
+            52.988881845621094
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/536860237",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway",
+          "name": "Haunted Hollow",
+          "source": "Bing"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 67.75822693421719
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8850592154693442,
+            52.989896078769554
+          ],
+          [
+            -1.8849331752797982,
+            52.98988109325455
+          ],
+          [
+            -1.8848547638349245,
+            52.98985694712713
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/536865597",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 14.532899112440088
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8874497790357703,
+            52.99023562263735
+          ],
+          [
+            -1.8874414752825495,
+            52.990235893255345
+          ],
+          [
+            -1.8871488752821803,
+            52.99024379325534
+          ],
+          [
+            -1.8871280575361566,
+            52.990244285572885
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/536865599",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 21.617907924499466
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8969999761108787,
+              52.98644756241805
+            ],
+            [
+              -1.8968273235053783,
+              52.98642083809708
+            ]
+          ],
+          [
+            [
+              -1.8956666020668933,
+              52.986150973475056
+            ],
+            [
+              -1.8957905752967694,
+              52.9860399932486
+            ],
+            [
+              -1.8961081752972255,
+              52.98596969324845
+            ],
+            [
+              -1.896477075297729,
+              52.9859190932484
+            ],
+            [
+              -1.896640575298007,
+              52.9858374932483
+            ],
+            [
+              -1.8967386752982482,
+              52.98570819324806
+            ],
+            [
+              -1.8969999760478677,
+              52.985619914649384
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/536935767",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 125.13141690307575
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8931428445354372,
+              52.99134471550671
+            ],
+            [
+              -1.8931322752885227,
+              52.99132459325768
+            ],
+            [
+              -1.8931077742092357,
+              52.99132119579329
+            ]
+          ],
+          [
+            [
+              -1.8930008065211714,
+              52.991306362956415
+            ],
+            [
+              -1.8927810752881367,
+              52.991275893257566
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/537075542",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 19.16988908454055
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8946907757012184,
+            52.98660597343488
+          ],
+          [
+            -1.8948153605022149,
+            52.98665686687022
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/537162612",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "layer": "-1",
+          "note": "Approximate location",
+          "tunnel": "yes"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 10.099836007130943
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8720713752637679,
+            52.990127293254055
+          ],
+          [
+            -1.8724259752642227,
+            52.99010689325405
+          ],
+          [
+            -1.8728524191363354,
+            52.990164335849585
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/837330585",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "track"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 53.24220167540588
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8720713752637679,
+            52.990127293254055
+          ],
+          [
+            -1.8716736752632348,
+            52.99017319325407
+          ],
+          [
+            -1.8710170752624513,
+            52.99015059325399
+          ],
+          [
+            -1.8705585752619787,
+            52.99005549325379
+          ],
+          [
+            -1.8702047752616653,
+            52.98992719325356
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/837330586",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "highway": "track",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 131.58245411554452
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8702047752616653,
+            52.98992719325356
+          ],
+          [
+            -1.870244175262138,
+            52.98947929325277
+          ],
+          [
+            -1.8702712752622803,
+            52.989361793252556
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/837330587",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "highway": "footway",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 63.09402940883548
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8939563253648546,
+            52.994217866602035
+          ],
+          [
+            -1.8938848752866957,
+            52.994247293262866
+          ],
+          [
+            -1.8932831752858146,
+            52.994398593263085
+          ],
+          [
+            -1.8923594752845518,
+            52.99453279326329
+          ],
+          [
+            -1.8917871752837987,
+            52.99458339326331
+          ],
+          [
+            -1.8914923752834112,
+            52.99460949326335
+          ],
+          [
+            -1.8909791752827674,
+            52.99462229326334
+          ],
+          [
+            -1.8904482752821927,
+            52.994539193263144
+          ],
+          [
+            -1.8899421752815466,
+            52.99456469326314
+          ],
+          [
+            -1.8897121752812653,
+            52.99456259326314
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472134",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "foot": "designated",
+          "highway": "track",
+          "horse": "no",
+          "name": "Haybank Lane",
+          "surface": "ground",
+          "tracktype": "grade4"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 292.9721147504125
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8897121752812653,
+            52.99456259326314
+          ],
+          [
+            -1.8893369752807816,
+            52.99458599326312
+          ],
+          [
+            -1.8886963752797978,
+            52.99479479326348
+          ],
+          [
+            -1.8885207752795024,
+            52.99487919326361
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472135",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "foot": "designated",
+          "highway": "track",
+          "surface": "ground",
+          "tracktype": "grade4"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 89.25729537629937
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8849596752758973,
+            52.9940571932619
+          ],
+          [
+            -1.8849993752758152,
+            52.99419669326215
+          ],
+          [
+            -1.8851798146922027,
+            52.994282323999556
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472136",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "foot": "designated",
+          "highway": "track",
+          "surface": "unpaved",
+          "tracktype": "grade2"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 31.154529044365923
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8849596752758973,
+            52.9940571932619
+          ],
+          [
+            -1.8852770018928717,
+            52.993890911036736
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472137",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "foot": "yes",
+          "highway": "footway",
+          "horse": "no"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 28.21077744795657
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8856920558768626,
+            52.99393027549429
+          ],
+          [
+            -1.8857589752769675,
+            52.99396359326181
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472139",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "foot": "yes",
+          "highway": "track",
+          "horse": "no",
+          "motor_vehicle": "private",
+          "surface": "unpaved",
+          "tracktype": "grade3"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 5.823528200717109
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8857589752769675,
+              52.99396359326181
+            ],
+            [
+              -1.8860191752772164,
+              52.99403949326195
+            ],
+            [
+              -1.8860141939168775,
+              52.99407544491876
+            ]
+          ],
+          [
+            [
+              -1.8882354452398042,
+              52.99483359776925
+            ],
+            [
+              -1.8882957752792655,
+              52.994837193263514
+            ],
+            [
+              -1.8885207752795024,
+              52.99487919326361
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472140",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 43.289806718074345
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8857589752769675,
+            52.99396359326181
+          ],
+          [
+            -1.8858317752771074,
+            52.99391139326172
+          ],
+          [
+            -1.8859377752773954,
+            52.99374339326141
+          ],
+          [
+            -1.8862874752783343,
+            52.99320259326049
+          ],
+          [
+            -1.8863077752783908,
+            52.99316829326043
+          ],
+          [
+            -1.8863220752784375,
+            52.993137793260395
+          ],
+          [
+            -1.8870766952522882,
+            52.991053149375844
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472141",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "foot": "yes",
+          "highway": "footway",
+          "horse": "no"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 337.1168013229852
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8864579752785562,
+            52.993189693260476
+          ],
+          [
+            -1.8863077752783908,
+            52.99316829326043
+          ],
+          [
+            -1.8861327752782024,
+            52.993139993260336
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/860472143",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "track"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 22.52022871767388
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8814373670030355,
+            52.99600080711731
+          ],
+          [
+            -1.8814596752698198,
+            52.995941493264965
+          ],
+          [
+            -1.8815990752701124,
+            52.99581229326472
+          ],
+          [
+            -1.8819987752706704,
+            52.99574129326463
+          ],
+          [
+            -1.8822257352256746,
+            52.99572965699573
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/975440505",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "designation": "public_footpath",
+          "foot": "yes",
+          "highway": "track",
+          "source": "survey;gps",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 67.1702900121451
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8768167752659066,
+            52.99403979326125
+          ],
+          [
+            -1.8778144752670682,
+            52.994107593261454
+          ],
+          [
+            -1.8785815752682238,
+            52.99388149326112
+          ],
+          [
+            -1.8789571752686947,
+            52.9938718932611
+          ],
+          [
+            -1.8800943752696384,
+            52.994352893262054
+          ],
+          [
+            -1.880426975269773,
+            52.9946434932626
+          ],
+          [
+            -1.8805074752696103,
+            52.99492119326309
+          ],
+          [
+            -1.880354575268726,
+            52.995658993264364
+          ],
+          [
+            -1.8805154752686473,
+            52.99595279326491
+          ],
+          [
+            -1.8805785231744665,
+            52.99600079273012
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/975440506",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track",
+          "source": "survey;bing",
+          "surface": "asphalt",
+          "tracktype": "grade1"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 437.74560718210927
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8941139505869633,
+            52.99600029801996
+          ],
+          [
+            -1.8940579752852673,
+            52.99599319326597
+          ],
+          [
+            -1.8938275752850104,
+            52.99596429326588
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/975440531",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "foot": "yes",
+          "highway": "footway",
+          "name": "Farley 8",
+          "source": "survey;gps"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 19.634014154737486
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8689999763555856,
+            52.9895785920673
+          ],
+          [
+            -1.8696525752611846,
+            52.98971939325314
+          ],
+          [
+            -1.8702047752616653,
+            52.98992719325356
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/975457520",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "foot": "yes",
+          "highway": "track",
+          "source": "survey"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 90.20959009095216
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8720713752637679,
+              52.990127293254055
+            ],
+            [
+              -1.8721281348901728,
+              52.989931169178575
+            ]
+          ],
+          [
+            [
+              -1.8731667710370374,
+              52.987412684962244
+            ],
+            [
+              -1.8732697752679495,
+              52.987252393249086
+            ],
+            [
+              -1.8733186752683144,
+              52.98693029324849
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/975457521",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "designation": "public_footpath",
+          "foot": "yes",
+          "highway": "footway",
+          "source": "survey;gps"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 77.25550631491552
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8885207752795024,
+            52.99487919326361
+          ],
+          [
+            -1.8884048752791884,
+            52.99506099326392
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1105276573",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "foot": "permissive",
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 21.668885764210525
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8885207752795024,
+            52.99487919326361
+          ],
+          [
+            -1.888637175279574,
+            52.99495469326375
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1105276574",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 11.470965570702516
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8897121752812653,
+            52.99456259326314
+          ],
+          [
+            -1.8893794752807804,
+            52.99464359326327
+          ],
+          [
+            -1.8889358752800738,
+            52.994814993263525
+          ],
+          [
+            -1.8889248907741756,
+            52.99483349089951
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1105276575",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "foot": "yes",
+          "highway": "footway",
+          "horse": "no"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 61.623125524156016
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8917871752837987,
+            52.99458339326331
+          ],
+          [
+            -1.8917127972675094,
+            52.99471994372254
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1105276599",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway",
+          "name": "Farley 7"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 15.98987663490374
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8839421602311779,
+            52.99370978113153
+          ],
+          [
+            -1.8840801752750969,
+            52.99376049326131
+          ],
+          [
+            -1.8849596752758973,
+            52.9940571932619
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1105553549",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "track",
+          "surface": "unpaved",
+          "tracktype": "grade2"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 78.48072460423688
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8917336104615927,
+            52.99233850580011
+          ],
+          [
+            -1.8917470752858916,
+            52.992307693259306
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1106583560",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "service": "driveway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 3.544896106859306
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.892928447312764,
+            52.99271477626108
+          ],
+          [
+            -1.8929609098429552,
+            52.99267032157429
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1106583561",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "service",
+          "service": "driveway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 5.404133562711395
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8895188284080797,
+              52.98897350427632
+            ],
+            [
+              -1.8895281752863566,
+              52.9889174932532
+            ],
+            [
+              -1.889514875286359,
+              52.988897193253145
+            ],
+            [
+              -1.8894170407952773,
+              52.98892305692621
+            ]
+          ],
+          [
+            [
+              -1.889361709516407,
+              52.98893768433684
+            ],
+            [
+              -1.8893442752861065,
+              52.98894229325321
+            ],
+            [
+              -1.8893230249879143,
+              52.98896424503615
+            ]
+          ],
+          [
+            [
+              -1.8892833476459336,
+              52.988968209133276
+            ],
+            [
+              -1.88933397528611,
+              52.98892639325319
+            ],
+            [
+              -1.8893642392001007,
+              52.98891911348159
+            ]
+          ],
+          [
+            [
+              -1.8893944308310235,
+              52.98891185108707
+            ],
+            [
+              -1.8895031752863571,
+              52.98888569325311
+            ],
+            [
+              -1.8894692752863511,
+              52.988845793253056
+            ],
+            [
+              -1.8892927752861868,
+              52.98878999325296
+            ],
+            [
+              -1.8891868752859953,
+              52.98885559325308
+            ],
+            [
+              -1.8892118752859894,
+              52.98889269325312
+            ],
+            [
+              -1.8892045752859448,
+              52.98892989325317
+            ],
+            [
+              -1.8892114246303942,
+              52.98894680694837
+            ]
+          ],
+          [
+            [
+              -1.8891884796868614,
+              52.98893186052748
+            ],
+            [
+              -1.8891662752859633,
+              52.988864393253074
+            ],
+            [
+              -1.8891339752859688,
+              52.98881389325298
+            ],
+            [
+              -1.8890588752858868,
+              52.98880239325294
+            ],
+            [
+              -1.8890132752858237,
+              52.98881039325297
+            ],
+            [
+              -1.8889975340993486,
+              52.98885201262907
+            ]
+          ],
+          [
+            [
+              -1.8890453171737784,
+              52.988866675130936
+            ],
+            [
+              -1.889142775285921,
+              52.98887769325308
+            ],
+            [
+              -1.88910835819914,
+              52.988893231078855
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1182076341",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "no",
+          "foot": "yes",
+          "highway": "footway",
+          "horse": "no"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 111.23852434561228
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8792313072582372,
+            52.982445301489776
+          ],
+          [
+            -1.8808132752814026,
+            52.9828098932418
+          ],
+          [
+            -1.8820720752827051,
+            52.98306869324237
+          ],
+          [
+            -1.8856042752874969,
+            52.982587493241745
+          ],
+          [
+            -1.8862371752883615,
+            52.98249659324167
+          ],
+          [
+            -1.8901853752939177,
+            52.981749193240596
+          ],
+          [
+            -1.8903606916337528,
+            52.981694140073365
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1278630979",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "bicycle": "permissive",
+          "foot": "yes",
+          "highway": "path",
+          "motor_vehicle": "no",
+          "smoothness": "bad",
+          "surface": "dirt",
+          "trail_visibility": "good"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 780.8557419091962
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8888147083809843,
+            52.98883930006776
+          ],
+          [
+            -1.889023475285893,
+            52.98874949325284
+          ],
+          [
+            -1.889121775286117,
+            52.98864009325266
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1317211904",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "private",
+          "highway": "service",
+          "oneway": "no"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 31.055030905447353
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8860643752840438,
+            52.9868529932493
+          ],
+          [
+            -1.8857672752835912,
+            52.98694369324943
+          ],
+          [
+            -1.8856407752835171,
+            52.98685709324929
+          ],
+          [
+            -1.885528575283416,
+            52.986818093249234
+          ],
+          [
+            -1.8853776752831752,
+            52.98687839324931
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1317211905",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 56.03695473208454
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8888656503889036,
+            52.98776174109173
+          ],
+          [
+            -1.8887417752864495,
+            52.98779109325114
+          ],
+          [
+            -1.8885766752862234,
+            52.98781589325119
+          ],
+          [
+            -1.888478075286107,
+            52.98781179325116
+          ],
+          [
+            -1.8881388752855588,
+            52.98795039325137
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1317255520",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "customers",
+          "highway": "footway",
+          "surface": "asphalt"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 54.49034170895915
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8734011923899883,
+            52.98368352194588
+          ],
+          [
+            -1.8734284752715378,
+            52.98365599324278
+          ],
+          [
+            -1.8735271752718103,
+            52.983495793242504
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1488875426",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 22.58193366786143
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8689999759527938,
+            52.9838422302772
+          ],
+          [
+            -1.869166875266177,
+            52.98379599324271
+          ],
+          [
+            -1.870160975267714,
+            52.98345969324217
+          ],
+          [
+            -1.8708501752687663,
+            52.98324059324186
+          ],
+          [
+            -1.8710563752690959,
+            52.98316009324172
+          ],
+          [
+            -1.8712182752693687,
+            52.98308129324158
+          ],
+          [
+            -1.871394975269592,
+            52.9830731932416
+          ],
+          [
+            -1.8716621752698896,
+            52.98310599324167
+          ],
+          [
+            -1.8720939752702714,
+            52.98326239324195
+          ],
+          [
+            -1.8722029752703808,
+            52.983288393242034
+          ],
+          [
+            -1.872842075271103,
+            52.98335389324219
+          ],
+          [
+            -1.8735271752718103,
+            52.983495793242504
+          ],
+          [
+            -1.8745046752728551,
+            52.98365989324285
+          ],
+          [
+            -1.8745764752729732,
+            52.98362879324281
+          ],
+          [
+            -1.8747578752734382,
+            52.98337189324237
+          ],
+          [
+            -1.8755920752745527,
+            52.98327449324224
+          ],
+          [
+            -1.8762863752755388,
+            52.98313429324206
+          ],
+          [
+            -1.876897975276499,
+            52.982910793241686
+          ],
+          [
+            -1.8771677752769835,
+            52.98274849324144
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1488875427",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "comment": "PROW: Farley CP 1R/2047",
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 620.5237871944208
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [
+          [
+            [
+              -1.8703206167422533,
+              52.98120383313035
+            ],
+            [
+              -1.8705464752704588,
+              52.981052493237975
+            ],
+            [
+              -1.87086311071974,
+              52.981006238896036
+            ]
+          ],
+          [
+            [
+              -1.8729464271643685,
+              52.98116569462506
+            ],
+            [
+              -1.873114475273532,
+              52.98113429323831
+            ],
+            [
+              -1.873332475273846,
+              52.98108489323823
+            ],
+            [
+              -1.8734845738450923,
+              52.98105755809954
+            ]
+          ],
+          [
+            [
+              -1.8735489916503802,
+              52.98104598086949
+            ],
+            [
+              -1.8736835752743357,
+              52.981021793238135
+            ],
+            [
+              -1.8740487752747907,
+              52.98101499323816
+            ],
+            [
+              -1.8742434906758962,
+              52.98103263839215
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1488879646",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 129.81330070681668
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.8874618474163005,
+            52.98747025835288
+          ],
+          [
+            -1.887151475284815,
+            52.987451193250436
+          ]
+        ]
+      },
+      "properties": {
+        "class": "path",
+        "source": "OSM",
+        "source_id": "way/1574979884",
+        "review_status": "needs_manual_review",
+        "label_role": "seed",
+        "occlusion": "unknown",
+        "tags": {
+          "access": "no",
+          "foot": "customers",
+          "highway": "footway"
+        },
+        "review_reason": "mapped_woodland_overlap",
+        "overlap_length_m": 20.943519150713286
+      }
+    }
+  ]
+}

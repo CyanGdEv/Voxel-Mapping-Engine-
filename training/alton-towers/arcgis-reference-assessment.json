@@ -1,0 +1,36 @@
+{
+  "inspected_at": "2026-11-21T20:46:14.659254+00:00",
+  "webmap_id": "d118d2f66f2c42f8aca7cdf538ed0e90",
+  "webmap_url": "https://www.arcgis.com/apps/mapviewer/index.html?webmap=d118d2f66f2c42f8aca7cdf538ed0e90",
+  "title": "Imagery with Labels & Streets",
+  "operational_layer_count": 0,
+  "basemap_layers": [
+    {
+      "title": "World Imagery",
+      "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+      "role": "aerial_visual_reference",
+      "training_use_permitted": null
+    },
+    {
+      "title": "World Transportation",
+      "url": "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer",
+      "capabilities": [
+        "Map",
+        "Tilemap"
+      ],
+      "sublayer_geometry_type": "esriGeometryPolygon",
+      "queryable_path_centerlines": false,
+      "maintenance_status": "In mature support; no longer updated.",
+      "role": "cartographic_reference_only"
+    }
+  ],
+  "path_comparison_status": "blocked_no_queryable_path_centerlines",
+  "measured_positional_error_m": null,
+  "licence": "Esri Master License Agreement per webmap item; training and derivative-label permissions unverified",
+  "training_ready": false,
+  "next_evidence_needed": [
+    "Independent permitted path centerlines, or manually measured/traced visible paths from an authorised reference",
+    "Manual review of canopy-obscured paths and polygon boundaries"
+  ],
+  "street_tiles_used": false
+}

@@ -1,0 +1,177 @@
+{
+  "operationalLayers": [],
+  "baseMap": {
+    "baseMapLayers": [
+      {
+        "id": "World_Imagery_5949",
+        "layerType": "ArcGISTiledMapServiceLayer",
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+        "visibility": true,
+        "opacity": 1,
+        "title": "World_Imagery"
+      },
+      {
+        "id": "World_Transportation_5177",
+        "layerType": "ArcGISTiledMapServiceLayer",
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer",
+        "visibility": true,
+        "opacity": 0.95,
+        "title": "World Transportation",
+        "itemId": "94f838a535334cf1aa061846514b77c7"
+      }
+    ],
+    "title": "Imagery"
+  },
+  "spatialReference": {
+    "wkid": 102100,
+    "latestWkid": 3857
+  },
+  "authoringApp": "WebMapViewer",
+  "authoringAppVersion": "5.1",
+  "version": "2.8",
+  "bookmarks": [
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": -12409245.793981953,
+        "xmin": -12567317.568475759,
+        "ymax": 4387103.2384265475,
+        "ymin": 4261593.63798224
+      },
+      "name": "Grand Canyon, USA"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": -8799242.58943796,
+        "xmin": -8804182.332391018,
+        "ymax": 5325446.884894481,
+        "ymin": 5321524.709880494
+      },
+      "name": "Niagara Falls, USA"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": 3468195.013106118,
+        "xmin": 3463255.2701530587,
+        "ymax": 3502489.398819851,
+        "ymin": 3498567.223805865
+      },
+      "name": "The Pyramids, Egypt"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": 1387925.0831527323,
+        "xmin": 1385455.2116762027,
+        "ymax": 5147307.360627135,
+        "ymin": 5145346.2731201425
+      },
+      "name": "Vatican City"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": 14591652.52509155,
+        "xmin": 14581773.039185705,
+        "ymax": -2914434.856366737,
+        "ymin": -2922279.2063944926
+      },
+      "name": "Uluru, Australia"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": -13606517.186526591,
+        "xmin": -13646035.130149974,
+        "ymax": 4570189.030426519,
+        "ymin": 4538811.630315496
+      },
+      "name": "Golden Gate Harbor, USA"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": 2819608.612358685,
+        "xmin": 2214838.8445664006,
+        "ymax": -1931093.1485260539,
+        "ymin": -2434966.038981911
+      },
+      "name": "Okavango Delta, Botswana"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": -14485.373482922148,
+        "xmin": -16955.244959451968,
+        "ymax": 6711343.361507878,
+        "ymin": 6709432.435800698
+      },
+      "name": "Buckingham Palace, UK"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": 1377082.228505293,
+        "xmin": 1369352.5340199647,
+        "ymax": 5693369.685429354,
+        "ymin": 5686872.538025123
+      },
+      "name": "Venice, Italy"
+    },
+    {
+      "extent": {
+        "spatialReference": {
+          "wkid": 102100
+        },
+        "xmax": -8572259.848123744,
+        "xmin": -8581336.745232597,
+        "ymax": 4710775.834700009,
+        "ymin": 4704030.266953852
+      },
+      "name": "Washington DC"
+    }
+  ],
+  "applicationProperties": {
+    "viewing": {
+      "routing": {
+        "enabled": true
+      },
+      "measure": {
+        "enabled": true
+      },
+      "basemapGallery": {
+        "enabled": true
+      }
+    }
+  },
+  "tasks": {
+    "queryTasks": []
+  },
+  "MapItems": [
+    {
+      "__type": "Basemap:#Five20",
+      "Id": "7b810e74-ea0b-42d1-842d-515a5966bf0c"
+    }
+  ],
+  "Slides": []
+}

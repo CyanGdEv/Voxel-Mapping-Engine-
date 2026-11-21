@@ -74,3 +74,10 @@ The GitHub Actions build applies:
 - independent `.mcworld` archive validation before upload.
 
 See [`MOBILE_GITHUB_ACTIONS.md`](MOBILE_GITHUB_ACTIONS.md) for phone instructions, custom providers, optional imagery, and diagnostics.
+
+## Alton Towers training evidence
+
+See [`training/alton-towers/README.md`](training/alton-towers/README.md) for the
+OSM seed polygon dataset, mapped paths overlapping woodland, and the assessment
+of the supplied ArcGIS webmap. These labels require manual review before training;
+the workflow does not use street tile logic.
