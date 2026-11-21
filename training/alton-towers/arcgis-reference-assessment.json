@@ -32,5 +32,7 @@
     "Independent permitted path centerlines, or manually measured/traced visible paths from an authorised reference",
     "Manual review of canopy-obscured paths and polygon boundaries"
   ],
-  "street_tiles_used": false
+  "street_tiles_used": false,
+  "polygon_comparison_status": "awaiting_reviewed_imagery_trace_and_class_specific_coverage",
+  "polygon_comparison_note": "Queryable ArcGIS path vectors are not required for polygon comparison: reviewed manual imagery traces can supply the reference. No plaza boundary has yet been traced."
 }

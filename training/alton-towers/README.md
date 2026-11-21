@@ -11,11 +11,13 @@ It has no operational layers; its basemap contains World Imagery and World
 Transportation. The transportation service advertises `Map,Tilemap`, not query
 access to path centerlines, and its metadata says it is no longer updated.
 See `arcgis-reference-assessment.json` and the saved webmap/service metadata.
-No street tiles were downloaded or processed. Numeric OSM–ArcGIS positional
+No street tiles were downloaded or processed. Numeric centerline positional
 error remains unmeasured because this map supplies no queryable path reference.
+Polygon coverage error can instead be measured against reviewed manual traces
+of visible boundaries in the ArcGIS imagery; it does not require a FeatureServer.
 
 The OSM API snapshot contains 649 clipped path/road centerline features and
-349 seed polygons: 266 buildings, 14 path areas, 12 water areas and 57 woodland
+348 seed polygons: 265 buildings, 14 path areas, 12 water areas and 57 woodland
 areas. These are source features, not counts of distinct real-world objects.
 `woodland-path-review.geojson` flags 81 path features with woodland overlap
 (about 9.09 km summed overlap; source overlaps may double-count segments).
@@ -97,3 +99,52 @@ for distributed derived databases.
 
 `dataset-status.json` deliberately reports `training_ready: false`: seed extraction
 and source comparison do not constitute manual annotation or model training.
+
+## Polygon error: Wicker Man plaza
+
+`wicker-man-review.geojson` records the user's report that the plaza is visible
+in imagery but missing or incorrectly outlined in OSM. Its point is the OSM
+Wicker Man attraction location for navigation, not a measured plaza boundary.
+No actual Wicker Man error number is claimed until the plaza has been traced.
+
+Use OSM tags to select comparable classes: `building=*` excluding `no` for
+buildings, `highway=pedestrian/footway/path/...` and `area:highway=*` for path
+areas, water tags for water and woodland tags for canopy context. Original tags
+are retained for finer distinctions such as plazas, queues, stairs, surface and
+access. A line through a plaza does not count as a correctly mapped area; never
+invent a width by buffering it to improve the score. Do not assume all hardscape
+is a guest plaza, or match a building to a path solely because they overlap.
+
+Trace the visible plaza boundary into `manual-polygons.geojson` with `class=path`
+and `review_status=verified` after review. Record imagery provider/date,
+reviewer and evidence. Also create `reviewed-coverage.geojson` polygons with
+`review_status=verified` and `reviewed_classes=["path"]` covering areas where
+**all path areas** have been checked. This coverage must be defined explicitly;
+the rest of the park is unreviewed, not background. Put uncertain/tree-hidden
+areas in an optional `ignore.geojson` polygon layer.
+
+```sh
+python scripts/training/polygon_compare.py \
+  --reference training/alton-towers/manual-polygons.geojson \
+  --coverage /path/to/reviewed-coverage.geojson \
+  --ignore /path/to/ignore.geojson
+```
+
+Omit `--ignore` only when there are no uncertain areas inside reviewed coverage.
+The command outputs per-class metrics and error polygons in British National
+Grid square metres:
+
+- Omission = reference area absent from the OSM polygon union.
+- Extra area = OSM area outside the reference within reviewed coverage.
+- Omission rate = omitted area / reference area.
+- Commission rate = extra area / OSM area.
+- IoU = intersection area / union area; precision and recall are also reported.
+
+For a wholly missing plaza, omission is 100% and IoU is 0. An OSM polygon covering
+half a plaza with no excess has 50% omission and IoU 0.5. These are illustrative
+cases, not measurements of Wicker Man. Zero-denominator metrics are null, not
+perfect scores. Polygons are unioned per class to prevent double-counting;
+occluded areas are excluded before scoring. Misclassification appears as an
+omission in the true class and extra area in the wrong class when both classes
+have reviewed coverage. Image dates and alignment still affect results: these
+scores measure disagreement against reviewed traces, not absolute survey error.

@@ -32,7 +32,7 @@ def feature(geom, properties):
 
 def fetch_osm(out):
     bbox = ','.join(map(str, BBOX))
-    query = f'[out:json][timeout:120];(nwr[highway]({bbox});nwr[building]({bbox});nwr[natural=water]({bbox});nwr[waterway]({bbox});nwr[landuse=forest]({bbox});nwr[natural=wood]({bbox}););out geom;'
+    query = f'[out:json][timeout:120];(nwr[highway]({bbox});nwr["area:highway"]({bbox});nwr[building]({bbox});nwr[natural=water]({bbox});nwr[waterway]({bbox});nwr[landuse=forest]({bbox});nwr[natural=wood]({bbox}););out geom;'
     errors = []
     for endpoint in ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']:
         try:
@@ -66,7 +66,7 @@ def seeds(raw):
     for f in data['features']:
         p = f['properties']
         tags = p.get('tags', {})
-        cls = 'building' if 'building' in tags else 'path' if tags.get('highway') in PATHS else 'water' if tags.get('natural') == 'water' or 'waterway' in tags else 'canopy' if tags.get('natural') == 'wood' or tags.get('landuse') == 'forest' else None
+        cls = 'building' if tags.get('building') not in (None, 'no') else 'path' if tags.get('highway') in PATHS or tags.get('area:highway') in PATHS else 'water' if tags.get('natural') == 'water' or 'waterway' in tags else 'canopy' if tags.get('natural') == 'wood' or tags.get('landuse') == 'forest' else None
         if not cls:
             continue
         g = shape(f['geometry'])

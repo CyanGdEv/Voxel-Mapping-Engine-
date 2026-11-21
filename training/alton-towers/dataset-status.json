@@ -6,12 +6,12 @@
     52.996,
     -1.869
   ],
-  "seed_polygon_count": 349,
+  "seed_polygon_count": 348,
   "path_centerline_count": 649,
   "training_ready": false,
   "polygon_counts_by_class": {
     "path": 14,
-    "building": 266,
+    "building": 265,
     "water": 12,
     "canopy": 57
   },
