@@ -1,0 +1,10 @@
+{
+  "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-1.897,52.981,-1.869,52.996",
+  "retrieved_on_utc": "2026-11-21",
+  "licence": "ODbL-1.0",
+  "attribution": "\u00a9 OpenStreetMap contributors",
+  "raw_file": "osm.raw.xml",
+  "sha256": "9d5ffbea8bc9f4f91c0109914c514a8bb38c2b78adf0eaf5065409d52d8a6da7",
+  "user_reference_url": "https://www.openstreetmap.org/#map=15/52.98861/-1.88807",
+  "note": "OSM API objects may extend beyond bbox; derived layers are clipped."
+}

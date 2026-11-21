@@ -1,0 +1,21 @@
+{
+  "status": "awaiting_independent_path_reference_and_manual_review",
+  "bbox_south_west_north_east": [
+    52.981,
+    -1.897,
+    52.996,
+    -1.869
+  ],
+  "seed_polygon_count": 348,
+  "path_centerline_count": 649,
+  "training_ready": false,
+  "polygon_counts_by_class": {
+    "path": 14,
+    "building": 265,
+    "water": 12,
+    "canopy": 57
+  },
+  "woodland_review_segment_count": 81,
+  "woodland_overlap_length_m": 9089.674702798573,
+  "arcgis_reference_assessment": "arcgis-reference-assessment.json"
+}

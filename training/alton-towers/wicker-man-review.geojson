@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.888344,
+          52.9896574
+        ]
+      },
+      "properties": {
+        "name": "Wicker Man plaza polygon comparison",
+        "class": "path",
+        "review_status": "needs_manual_trace",
+        "reported_by": "user",
+        "reported_issue": "Plaza visible in ArcGIS imagery is missing or incorrectly delineated in OSM",
+        "anchor_source_id": "node/11978318640",
+        "anchor_note": "OSM Wicker Man attraction point for navigation only; not plaza extent",
+        "reference_webmap": "d118d2f66f2c42f8aca7cdf538ed0e90",
+        "required_evidence": "Trace visible plaza boundary and reviewed coverage; mask obscured areas; retain image date and provider",
+        "omitted_area_m2": null,
+        "iou": null,
+        "measured": false
+      }
+    }
+  ]
+}
